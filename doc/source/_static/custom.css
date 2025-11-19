@@ -1,0 +1,6 @@
+/* Function/class signature boxes */
+.sig, .sig-object {
+    border: 2px solid #333333;   /* dark border */
+    border-radius: 8px;          /* rounded corners */
+    padding: 6px 10px;           /* spacing inside */
+}
