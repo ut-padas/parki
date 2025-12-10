@@ -8,6 +8,7 @@ from fractions import Fraction
 import numpy as np
 import scipy as sp
 import sys
+from ..utils import round_up
 
 
 def check_positive(val, s):
@@ -555,10 +556,6 @@ class SEParams:
     window_shape_factor: float
         Window function parameter :math:`\beta`. The default is ``2.5``, which is the
         optimal parameter for the Kaiser-Bessel window function.
-    ghost_distance: int
-        Units of distance between particles for ghost cell communication on distributed
-        executions. The default is ``0`` (no ghost cells are exchanged for non-distributed
-        executions).
     Post-Init Parameters
     --------------------
     box: list[float]
@@ -644,6 +641,9 @@ class SEParams:
         #   NB: this is necessary for p2g-grid and p2g CellList creation
         self.base_factor = np.ceil(self.base_factor / self.window_P) * self.window_P
         # Adjust grid_res in periodic directions (with base_factor)
+        # ``grid_shape`` is the grid shape before extension; it is currently not
+        # stored in the SEParams class since it is not needed. Also, it may not
+        # consist of integers in the free directions.
         grid_shape, grid_res = se_compute_grid_size(
             self.box, self.grid_res, self.base_factor, self.periodicity
         )
@@ -654,6 +654,8 @@ class SEParams:
         """
         glb_grid_shape = [grid_shape[i] for i in range(3)]
         if self.distributed:
+            if self.periodicity != 1:
+                raise NotImplementedError
             from mpi4py import MPI
 
             glb_grid_shape[0] *= MPI.COMM_WORLD.Get_size()
@@ -667,14 +669,48 @@ class SEParams:
             )
         self.grid_res = grid_res
         self.h = 1 / self.grid_res
-        # ``grid_shape`` is the grid shape before extension; it is currently not
-        # stored in the SEParams class since it is not needed. Also, it may not
-        # consist of integers in the free directions.
 
-        # compute self.grid_shape_ext, self.box_ext,
-        #   self.greens_truncation_R, self.actual_upsampling,
-        #   self.actual_upsampling_zero, self.actual_upsampling_local
-        #   self.grid_shape_ups, self.local_modes
+        # Compute extended grid shape (extend in free directions)
+        # we extend to resolve Fourier singularities
+        # TODO/FIXME: Maybe the grid increase should be adjusted by multiplying
+        # it by new_grid_res/old_grid_res?
+        self.grid_shape_ext = np.array(
+            [
+                (
+                    int(grid_shape[i])
+                    if i < self.periodicity
+                    else int(
+                        round_up(grid_shape[i] + 2.4 * self.window_P, self.base_factor)
+                    )
+                )
+                for i in range(3)
+            ]
+        )
+
+        # NOTE: we only support slab distribution (no matter the periodicity),
+        #   hence the global grid shape is the same for all P (for now)
+        self.glb_grid_shape_ext = np.array(
+            [int(glb_grid_shape[0]), *self.grid_shape_ext[1:]]
+        )
+
+        # Compute extended box shape
+        self.box_ext = np.array(
+            [
+                self.box[i] if i < self.periodicity else self.h * self.grid_shape_ext[i]
+                for i in range(3)
+            ]
+        )
+        self.glb_box_ext = np.array([self.box_dict["box"][0], *self.box_ext[1:]])
+
+        # Compute offsets in free directions
+        self.box_off = [-(self.box_ext[i] - self.box[i]) / 2 for i in range(3)]
+
+        self.greens_truncation_R = np.linalg.norm(
+            self.box_ext[self.periodicity :], ord=2
+        )
+
+        # compute:
+        #   self.actual_upsampling,
         #   see https://github.com/joarbagge/SE_unified_v2/blob/master/SE<P>P/src/SE<P>P_check_options.m
         #   for reference
         match self.periodicity:
@@ -687,9 +723,6 @@ class SEParams:
                     "SEPre only suppored for periodicity 1 or 3,"
                     f" got {self.periodicity}."
                 )
-
-        # Compute offsets in free directions
-        self.box_off = [-(self.box_ext[i] - self.box[i]) / 2 for i in range(3)]
 
         # Computations for upsampled Fourier grid
         # Check that h is the same in all directions
@@ -711,57 +744,21 @@ class SEParams:
         See https://github.com/joarbagge/SE_unified_v2/blob/master/SE3P/src/SE3P_check_options.m
         for reference
         """
-        # grid_shape_ext = grid_shape, no need for upsampling
-        self.grid_shape_ext = np.array([int(grid_shape[i]) for i in range(3)])
-        self.box_ext = self.box
-        self.glb_box_ext = np.array([self.box_dict["box"][0], *self.box_ext[1:]])
-        self.glb_grid_shape_ext = np.array(
-            [int(glb_grid_shape[0]), *self.grid_shape_ext[1:]]
-        )
         self.actual_upsampling = np.array([1, 1])
-        self.greens_truncation_R = 0
 
     def _prepare_2p(self, grid_shape, glb_grid_shape):
         """
         See https://github.com/joarbagge/SE_unified_v2/blob/master/SE2P/src/SE2P_check_options.m
         for reference
         """
+        self.actual_upsampling = ...
 
     def _prepare_1p(self, grid_shape, glb_grid_shape):
         """
         See https://github.com/joarbagge/SE_unified_v2/blob/master/SE1P/src/SE1P_check_options.m
         for reference.
         """
-        # Compute extended grid shape (extend in free directions)
-        assert self.periodicity == 1, "Periodicity must be 1"
-        grid_ext_1 = grid_shape[1] + self.window_P + 1.4 * self.window_P
-        grid_ext_2 = grid_shape[2] + self.window_P + 1.4 * self.window_P
-        # TODO/FIXME: Maybe the grid increase should be adjusted by multiplying
-        # it by new_grid_res/old_grid_res?
-        grid_ext_1 = self.base_factor * np.ceil(
-            grid_ext_1 / self.base_factor
-        )  # round up
-        grid_ext_2 = self.base_factor * np.ceil(
-            grid_ext_2 / self.base_factor
-        )  # round up
-        self.grid_shape_ext = np.array(
-            [int(grid_shape[0]), int(grid_ext_1), int(grid_ext_2)]
-        )
-        self.glb_grid_shape_ext = np.array(
-            [int(glb_grid_shape[0]), *self.grid_shape_ext[1:]]
-        )
-        # Compute extended box shape
-        self.box_ext = np.array(
-            [
-                self.box[0],
-                self.h * self.grid_shape_ext[1],
-                self.h * self.grid_shape_ext[2],
-            ]
-        )
-        self.glb_box_ext = np.array([self.box_dict["box"][0], *self.box_ext[1:]])
-
         # Compute upsampling factor for the zero mode
-        self.greens_truncation_R = np.linalg.norm(self.box_ext[1:], ord=2)
         upsampling_zero = 1 + self.greens_truncation_R / np.min(self.box_ext[1:])
         upsampling_zero = np.ceil(upsampling_zero * 10) / 10  # round up slightly
         # Compute upsampling factor for the local (near-zero) modes
@@ -804,21 +801,6 @@ class SEParams:
             grid_ups_sg = np.ceil(grid_ups_sg / size) * size
 
         self.actual_upsampling = grid_ups_sg / self.grid_shape_ext[1:]
-
-        # Compute local modes for local upsampling
-        """
-        n = local_modes_size
-        Mx = self.grid_shape_ext[0]
-        # The local pad consists of k = -n:n, and the grid is -M/2:(M/2-1)
-        # [if M is even] or -(M-1)/2:(M-1)/2 [if M is odd]. Thus, n can
-        # at most be M/2-1 [if M is even] or (M-1)/2 [if M is odd].
-        # These are both captured by floor((M-1)/2).
-        nx = np.minimum(np.floor((Mx - 1) / 2), n)
-        # The zeroth index is the zero mode, which should not be included.
-        self.local_modes = np.concatenate(
-            (np.arange(1, nx + 1), np.arange(Mx - nx, Mx))
-        )
-        """
 
         return
 
