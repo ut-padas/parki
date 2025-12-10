@@ -1,6 +1,7 @@
 import pykokkos as pk
 import parkipy.utils as utils
 
+
 def get_ifftn(execution_space, fft_type):
     """
     Return the appropriate `irfftn` callable
@@ -37,4 +38,3 @@ def get_fftn(execution_space, fft_type):
         return fftn
     else:
         raise ValueError(f"FFT type must be one of 'R2C', 'C2C', got '{fft_type}'.")
-
