@@ -518,7 +518,7 @@ class SEParams:
     Parameters are derived from the :class:`EwaldOptions`
     data class and are derived from internal kernel specific
     computations. Please refer to a given kernel's reference
-    section for parameter derivation. This class is intended 
+    section for parameter derivation. This class is intended
     to be read-only.
 
     Parameters
@@ -526,8 +526,8 @@ class SEParams:
     box_dict: dict
         Dictionary containing information regarding the computational box. The ``'box'``
         key is the entire computational box, and distributed kernels will have
-        additional keys ``'slab box'`` and ``'left'`` denoting rank specific 
-        local box parameters. 
+        additional keys ``'slab box'`` and ``'left'`` denoting rank specific
+        local box parameters.
     tolerance: float
         Ewald tolerance.
     periodicity: {'0','1','2','3'}
@@ -535,14 +535,14 @@ class SEParams:
         means that ``box[i]`` is a periodic length for all ``i<j``,
         with ``j=0`` indicating free space.
     rc: float
-        Near field cutoff radius. 
+        Near field cutoff radius.
     window_P: int
         Window function support size, measured in number of grid subintervals.
     source_quantity: float
         Measure of charge neutrality, i.e. :math:`\sum_j q_j`. For kernels where this
         is irrelevant to to error analysis, we normalize this out by setting ``source_quantity=1``.
     xi: float
-        Ewald splitting parameter, related to ``rc``. 
+        Ewald splitting parameter, related to ``rc``.
     grid_res: float
         Number of (far-field) grid subintervals per unit length.
     A_fun: Callable
@@ -551,9 +551,9 @@ class SEParams:
         Flag indicating if parameters are for a distributed execution call
     base_factor: int
         The far-field ``H`` grid is rounded to a multiple of ``base_factor`` in each direction.
-        Used to control FFT efficiency. The default is ``4``. 
+        Used to control FFT efficiency. The default is ``4``.
     window_shape_factor: float
-        Window function parameter :math:`\beta`. The default is ``2.5``, which is the 
+        Window function parameter :math:`\beta`. The default is ``2.5``, which is the
         optimal parameter for the Kaiser-Bessel window function.
     ghost_distance: int
         Units of distance between particles for ghost cell communication on distributed
@@ -564,11 +564,11 @@ class SEParams:
     box: list[float]
         Length of the local computational box in each direction.
     glb_box: list[float]
-        Length of the global computational box in each direction. 
+        Length of the global computational box in each direction.
         Same as ``box`` for non-distributed executions.
     box_ext: list[float]
         Local computational box extended in the free directions
-        to accommodate singularities in Fourier Green's function 
+        to accommodate singularities in Fourier Green's function
     glb_box_ext: list[float]
         Length of the global box extended in the free directions.
         Same as ``box_ext`` for non-distributed executions.
@@ -581,11 +581,8 @@ class SEParams:
         Number of grid points in each direction for the global extended
         far-field ``H`` grid. Same as `grid_shape_ext` for non-distributed
         executions.
-    off_1: float
-        Difference between ``box[i]`` and ``box_ext[i]`` on both sides for ``i==1``.
-        Used to scale particles to the far-field ``H`` grid.
-    off_2: float
-        Difference between ``box[i]`` and ``box_ext[i]`` on both sides for ``i==2``.
+    box_off: float
+        Difference between ``box[i]`` and ``box_ext[i]`` on both sides.
         Used to scale particles to the far-field ``H`` grid.
     greens_truncation_R: float
         Parameter for the modified Fourier Greens function in the free directions
@@ -602,9 +599,9 @@ class SEParams:
 
     References
     ----------
-    .. [1] Vico, F., Greengard, L., & Ferrando, M. (2016). 
-        Fast convolution with free-space Green’s functions. 
-        Journal of Computational Physics, 323, 191–203. 
+    .. [1] Vico, F., Greengard, L., & Ferrando, M. (2016).
+        Fast convolution with free-space Green’s functions.
+        Journal of Computational Physics, 323, 191–203.
         https://doi.org/10.1016/j.jcp.2016.07.028
 
     """
@@ -626,12 +623,11 @@ class SEParams:
     box: list[float] = field(init=False)
     glb_box: list[float] = field(init=False)
     box_ext: list[float] = field(init=False)
+    box_off: list[float] = field(init=False)
     glb_box_ext: list[float] = field(init=False)
     h: float = field(init=False)
     grid_shape_ext: list[int] = field(init=False)
     glb_grid_shape_ext: list[int] = field(init=False)
-    off_1: float = field(init=False)
-    off_2: float = field(init=False)
     greens_truncation_R: float = field(init=False)
     actual_upsampling: list[float] = field(init=False)
     window_shape: float = field(init=False)
@@ -659,7 +655,8 @@ class SEParams:
         glb_grid_shape = [grid_shape[i] for i in range(3)]
         if self.distributed:
             from mpi4py import MPI
-            glb_grid_shape[0] *= MPI.COMM_WORLD.Get_size() 
+
+            glb_grid_shape[0] *= MPI.COMM_WORLD.Get_size()
         # round grid res to be a multiple of self.window_P
         #   this ensures far-field cells form a full partition.
         if grid_res / self.grid_res > 2:
@@ -674,10 +671,12 @@ class SEParams:
         # stored in the SEParams class since it is not needed. Also, it may not
         # consist of integers in the free directions.
 
-        # compute self.grid_shape_ext, self.box_ext, self.off_1, self.off_2
+        # compute self.grid_shape_ext, self.box_ext,
         #   self.greens_truncation_R, self.actual_upsampling,
         #   self.actual_upsampling_zero, self.actual_upsampling_local
         #   self.grid_shape_ups, self.local_modes
+        #   see https://github.com/joarbagge/SE_unified_v2/blob/master/SE<P>P/src/SE<P>P_check_options.m
+        #   for reference
         match self.periodicity:
             case 1:
                 self._prepare_1p(grid_shape, glb_grid_shape)
@@ -689,6 +688,10 @@ class SEParams:
                     f" got {self.periodicity}."
                 )
 
+        # Compute offsets in free directions
+        self.box_off = [-(self.box_ext[i] - self.box[i]) / 2 for i in range(3)]
+
+        # Computations for upsampled Fourier grid
         # Check that h is the same in all directions
         thres = 4 * np.spacing(self.h)
         diff_0 = np.abs(self.h - self.box_ext[0] / self.grid_shape_ext[0])
@@ -704,6 +707,10 @@ class SEParams:
         self.kaiser_scaling = 1 / np.i0(self.window_shape)
 
     def _prepare_3p(self, grid_shape, glb_grid_shape):
+        """
+        See https://github.com/joarbagge/SE_unified_v2/blob/master/SE3P/src/SE3P_check_options.m
+        for reference
+        """
         # grid_shape_ext = grid_shape, no need for upsampling
         self.grid_shape_ext = np.array([int(grid_shape[i]) for i in range(3)])
         self.box_ext = self.box
@@ -711,11 +718,20 @@ class SEParams:
         self.glb_grid_shape_ext = np.array(
             [int(glb_grid_shape[0]), *self.grid_shape_ext[1:]]
         )
-        self.off_1 = self.off_2 = 0
         self.actual_upsampling = np.array([1, 1])
         self.greens_truncation_R = 0
 
+    def _prepare_2p(self, grid_shape, glb_grid_shape):
+        """
+        See https://github.com/joarbagge/SE_unified_v2/blob/master/SE2P/src/SE2P_check_options.m
+        for reference
+        """
+
     def _prepare_1p(self, grid_shape, glb_grid_shape):
+        """
+        See https://github.com/joarbagge/SE_unified_v2/blob/master/SE1P/src/SE1P_check_options.m
+        for reference.
+        """
         # Compute extended grid shape (extend in free directions)
         assert self.periodicity == 1, "Periodicity must be 1"
         grid_ext_1 = grid_shape[1] + self.window_P + 1.4 * self.window_P
@@ -744,11 +760,6 @@ class SEParams:
         )
         self.glb_box_ext = np.array([self.box_dict["box"][0], *self.box_ext[1:]])
 
-        # Compute offsets in free directions
-        self.off_1 = -(self.box_ext[1] - self.box[1]) / 2
-        self.off_2 = -(self.box_ext[2] - self.box[2]) / 2
-
-        # Computations for upsampled Fourier grid
         # Compute upsampling factor for the zero mode
         self.greens_truncation_R = np.linalg.norm(self.box_ext[1:], ord=2)
         upsampling_zero = 1 + self.greens_truncation_R / np.min(self.box_ext[1:])
@@ -786,14 +797,13 @@ class SEParams:
         )
         if self.distributed:
             from mpi4py import MPI
+
             size = MPI.COMM_WORLD.Get_size()
             # upsampling * grid_shape_ext[1:] must divide the mpi comm size
             # hence grid_ups_sg must divide the mpi comm size
             grid_ups_sg = np.ceil(grid_ups_sg / size) * size
 
         self.actual_upsampling = grid_ups_sg / self.grid_shape_ext[1:]
-            
-
 
         # Compute local modes for local upsampling
         """

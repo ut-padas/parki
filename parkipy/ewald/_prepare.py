@@ -1,5 +1,5 @@
 """
-Preallocated structs (dataclasses) 
+Preallocated structs (dataclasses)
 for the Spectral Ewald algorithm
 """
 
@@ -93,10 +93,8 @@ class Options:
         Ewald cutoff radius (required).
     h: float
         Grid step size
-    off_1 : float
-        Extended primary cell offset in the y direction.
-    off_2 : float
-        Extended primary cell offset in the z direction.
+    box_off : List[float]
+        Extended primary cell offset in the x,y,z directions.
     grid_shape_ext : array_like
         Size of the extended grid [Mex1, Mex2, Mex3].
     grid_res : float
@@ -140,8 +138,7 @@ class Options:
     xi: float
     rc: float
     h: int
-    off_1: float
-    off_2: float
+    box_off: list[float]
     grid_shape_ext: list[int]
     grid_res: float
     window_P: int
@@ -189,7 +186,7 @@ class Options:
         Parameters
         ----------
         params : Namespace or object
-            Must contain attributes: periodicity, xi, rc, off_1, off_2, grid_res,
+            Must contain attributes: periodicity, xi, rc, box_off, grid_res,
             grid_shape_ext, window_P, actual_upsampling, stokeslet_k0_constant.
         execution_space : Any
             Execution space enum (e.g., pk.ExecutionSpace.Cuda).
@@ -207,8 +204,7 @@ class Options:
             xi=params.xi,
             rc=params.rc,
             h=params.h,
-            off_1=params.off_1,
-            off_2=params.off_2,
+            box_off=params.box_off,
             grid_res=params.grid_res,
             grid_shape_ext=params.grid_shape_ext,
             window_P=params.window_P,
@@ -406,7 +402,7 @@ class DeviceData:
 
         Mx, My, Mz = self.opt.grid_shape_ext
         sg = self.opt.actual_upsampling_global
-        self.fft_up = True # i.e., always do global upsampling 
+        self.fft_up = True  # i.e., always do global upsampling
 
         L1 = self.opt.local_modes1
 
@@ -521,7 +517,8 @@ class DeviceData:
             ng = self.ghost_H[0].size
             if self.mpi_buffer_size == None:
                 self.mpi_buffer_size = math.ceil(
-                    (3) * max(ns, nt, ng) # FIXME: some theory to pick this would be nice 
+                    (3)
+                    * max(ns, nt, ng)  # FIXME: some theory to pick this would be nice
                 )
             self.mpi_buffers = create_buffers(
                 mpi_comm, self.execution_space, self.mpi_buffer_size
@@ -860,7 +857,7 @@ class DevicePre:
         execution_space=None,
         fft_type="R2C",
         distributed=False,
-        fourier_upsampling_factor_global=None
+        fourier_upsampling_factor_global=None,
     ):
         """
         Construct a `DevicePre` object from minimal input.
@@ -929,7 +926,9 @@ class DevicePre:
         # setup options and parameters
         if fourier_upsampling_factor_global is not None:
             am = get_array_module(execution_space)
-            params.actual_upsampling=am.array([fourier_upsampling_factor_global, fourier_upsampling_factor_global])
+            params.actual_upsampling = am.array(
+                [fourier_upsampling_factor_global, fourier_upsampling_factor_global]
+            )
         opt = Options.from_params(params, execution_space)
         opt_sc = SEPre.from_params(params, execution_space)
         data = DeviceData(

@@ -1,7 +1,7 @@
 """
 The spectral Ewald algorithm.
 
-The near-field component of the 
+The near-field component of the
 algorithm updates the
 `device_pre.near_potentials`
 array while the far field updates
@@ -54,7 +54,7 @@ def p2p(
     t_per_thread: int = 1,
     s_per_thread: int = 32,
     cell_pad: int = 1,
-    kernel=None, # for testing purposes only
+    kernel=None,  # for testing purposes only
 ) -> None:
     """
     Perform near-field particle-to-particle (P2P) interaction computation using a
@@ -120,12 +120,12 @@ def p2p(
     if kernel is None:
         kernel = device_pre.kernel.upper()
     match kernel.upper():
-        case "STOKES_COMB": # NOTE: stokes w/ Ewald
+        case "STOKES_COMB":  # NOTE: stokes w/ Ewald
             kernel_flag = 0
             has_sl = has_dl = has_ewald = True
-        case "LAPLACE": # NOTE: Laplace w/ Ewald
+        case "LAPLACE":  # NOTE: Laplace w/ Ewald
             kernel_flag = 3
-        case "DISTANCE / EWALD": # NOTE: w/o Ewald, for testing only
+        case "DISTANCE / EWALD":  # NOTE: w/o Ewald, for testing only
             kernel_flag = 1
         case "LAPLACE / EWALD":
             kernel_flag = 2
@@ -319,13 +319,13 @@ def p2g(
     match method.upper():
         case "BASE":
             method_flag = 0
-            H_view = device_pre.data.ghost_H.transpose(1,2,3,0).copy() 
+            H_view = device_pre.data.ghost_H.transpose(1, 2, 3, 0).copy()
         case "SOURCE":
             method_flag = 1
             H_view = device_pre.data.ghost_H
         case "GRID":
             method_flag = 3
-            H_view = device_pre.data.ghost_H.transpose(1,2,3,0).copy()
+            H_view = device_pre.data.ghost_H.transpose(1, 2, 3, 0).copy()
         case "HYBRID":
             method_flag = 4
             H_view = device_pre.data.ghost_H
@@ -337,18 +337,21 @@ def p2g(
 
     if device_pre.data.opt.window_P > 14:
         raise ValueError(
-                f"p2g only supported for window_P <= 14, "
-                f"got window_P={device_pre.data.opt.window_P}. "
-                f"Please adjust tolerance and cell size to decrease window_P."
-            )
+            f"p2g only supported for window_P <= 14, "
+            f"got window_P={device_pre.data.opt.window_P}. "
+            f"Please adjust tolerance and cell size to decrease window_P."
+        )
 
     sort_start = args_end = time.time()
     # scale particles to Fourier grid
     offsets = device_pre.am.array(
         [
-            0.0,
-            device_pre.data.opt.off_1 + 0.5 * device_pre.data.opt.h,
-            device_pre.data.opt.off_2 + 0.5 * device_pre.data.opt.h,
+            (
+                0.0
+                if device_pre.data.opt.box_off[i] == 0
+                else device_pre.data.opt.box_off[i] + 0.5 * device_pre.data.opt.h
+            )
+            for i in range(3)
         ],
         dtype=device_pre.data.dtype,
     ).reshape(3, 1)
@@ -422,11 +425,11 @@ def p2g(
     )
     match method.upper():
         case "BASE":
-            H_view = H_view.transpose(3,0,1,2)
+            H_view = H_view.transpose(3, 0, 1, 2)
         case "SOURCE":
             pass
         case "GRID":
-            H_view = H_view.transpose(3,0,1,2)
+            H_view = H_view.transpose(3, 0, 1, 2)
         case "HYBRID":
             pass
         case _:
@@ -500,7 +503,11 @@ def fft(device_pre, fftmp_buffers=None):
                     # 0) copy to fft buffers
                     fftmp_buffers.fft_buff[
                         :, : device_pre.data.H.shape[2], : device_pre.data.H.shape[3]
-                    ] = device_pre.data.H[d].astype(np.complex128 if device_pre.data.fft_type.upper() == "C2C" else np.float64)
+                    ] = device_pre.data.H[d].astype(
+                        np.complex128
+                        if device_pre.data.fft_type.upper() == "C2C"
+                        else np.float64
+                    )
                     # 1) forward fft
                     device_pre.data.Hg[d] = (
                         fftmp_buffers.fft()
@@ -925,9 +932,7 @@ def ifft(device_pre, fftmp_buffers=None):
             if device_pre.execution_space == pk.ExecutionSpace.OpenMP:
                 extra_args["workers"] = int(os.environ.get("OMP_NUM_THREADS"))
             RangePush("IFFT-kernel")
-            ifftn = get_ifftn(
-                device_pre.execution_space, device_pre.data.fft_type
-            )
+            ifftn = get_ifftn(device_pre.execution_space, device_pre.data.fft_type)
             device_pre.data.H[: device_pre.dim_out, ...] = ifftn(
                 device_pre.data.Hg[: device_pre.dim_out, ...]
                 .view(dtype=device_pre.data.complex_dtype)
@@ -1009,7 +1014,7 @@ def g2p(device_pre, method="TARGET", threads=128):
     match method.upper():
         case "BASE":
             method_flag = 0
-            H_view = device_pre.data.ghost_H.transpose(1,2,3,0).copy()
+            H_view = device_pre.data.ghost_H.transpose(1, 2, 3, 0).copy()
         case "TARGET":
             sort_flag = True
             method_flag = 1
@@ -1023,12 +1028,16 @@ def g2p(device_pre, method="TARGET", threads=128):
     # sorting
     offsets = device_pre.am.array(
         [
-            0.0,
-            device_pre.data.opt.off_1 + 0.5 * device_pre.data.opt.h,
-            device_pre.data.opt.off_2 + 0.5 * device_pre.data.opt.h,
+            (
+                0.0
+                if device_pre.data.opt.box_off[i] == 0
+                else device_pre.data.opt.box_off[i] + 0.5 * device_pre.data.opt.h
+            )
+            for i in range(3)
         ],
         dtype=device_pre.data.dtype,
     ).reshape(3, 1)
+    print(offsets)
     scaled_targets = (device_pre.data.targets - offsets) * device_pre.data.opt.grid_res
     if sort_flag:
         target_list = CellList(
@@ -1104,7 +1113,9 @@ def g2p(device_pre, method="TARGET", threads=128):
                             sl_sum = sl_sum_total
 
                         sl_sum = device_pre.am.asarray(sl_sum)
-                        lB_out = device_pre.am.exp(0) # stokeslet_k0_constant forced to 0.
+                        lB_out = device_pre.am.exp(
+                            0
+                        )  # stokeslet_k0_constant forced to 0.
                         lH_out = lB_out / device_pre.am.exp(1)
                         lB_in = (
                             device_pre.data.opt_sc_glob.greens_truncation_R
