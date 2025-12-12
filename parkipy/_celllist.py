@@ -74,14 +74,28 @@ class CellList:
         self._execution_space = get_execution_space(execution_space)
         self._am = get_array_module(execution_space)
         self._particles = particles
-        self._cutoff = cutoff
+        if not isinstance(self.particles, self.am.ndarray):
+            raise ValueError(
+                f"particles expected to be {self.am.ndarray} but are type {type(self.particles)}"
+            )
         self._box = self.am.asarray(box, dtype=self.dtype)
+        if self.box.size != 3:
+            raise ValueError(f"expected box of shape (3,), got {box.shape}")
+        self._cutoff = cutoff
+        if not isinstance(self.cutoff, float) or not (
+            0 <= self.cutoff <= self.box.min()
+        ):
+            raise ValueError(
+                f"cutoff expected to be a float between {(0, self.box.min())}, got {self.cutoff}"
+            )
         self._forces = forces
         self._skip_empty_cells = skip_empty_cells
 
         # get local variables and check for value errors
         if self.dtype is float and self.particles.min() < 1e-8:
-            raise ValueError("smallest particle coordinate {self.particles.min()} is less than machine precision 1e-8.")
+            raise ValueError(
+                "smallest particle coordinate {self.particles.min()} is less than machine precision 1e-8."
+            )
         d, n = self.particles.shape
         if d != 3:
             raise ValueError(
@@ -107,9 +121,7 @@ class CellList:
             )
 
         # count particles in cells
-        self._cell_grid_shape = [
-            int(self.box[i] / self.cutoff) for i in range(3)
-        ]
+        self._cell_grid_shape = [int(self.box[i] / self.cutoff) for i in range(3)]
         self._num_cells = int(self.am.prod(self.am.array(self.cell_grid_shape)))
         self._counter = self.am.zeros(shape=self.num_cells, dtype=self.am.int32)
         pk.parallel_for(
@@ -162,7 +174,9 @@ class CellList:
             out = []
             for force in forces:
                 if not force.dtype is self.dtype:
-                    raise TypeError(f"force data type should be {self.dtype}, got {force.dtype}.")
+                    raise TypeError(
+                        f"force data type should be {self.dtype}, got {force.dtype}."
+                    )
                 if len(force) == 1:
                     force = force.reshape(1, -1)
                 df, nf = force.shape
@@ -190,7 +204,9 @@ class CellList:
                 forces = forces.reshape(1, -1)
             df, nf = forces.shape
             if not forces.dtype is self.dtype:
-                raise TypeError(f"forces data type should be {self.dtype}, got {forces.dtype}.")
+                raise TypeError(
+                    f"forces data type should be {self.dtype}, got {forces.dtype}."
+                )
             if nf != n:
                 raise ValueError(
                     "force expected to have the same `n` dimension as"
