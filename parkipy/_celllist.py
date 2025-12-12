@@ -96,6 +96,10 @@ class CellList:
             raise ValueError(
                 "smallest particle coordinate {self.particles.min()} is less than machine precision 1e-8."
             )
+        if self.particles.ndim != 2:
+            raise ValueError(
+                f"particles expected to have shape (d,n), got shape f{particles.shape}"
+            )
         d, n = self.particles.shape
         if d != 3:
             raise ValueError(
