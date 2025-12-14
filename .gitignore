@@ -209,5 +209,8 @@ __marimo__/
 # Pickle
 *.pkl
 
+# external
+external/
+
 # PyKokkos
 pk_cpp/
