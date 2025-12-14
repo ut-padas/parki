@@ -16,6 +16,7 @@ from ._ewald import p2p, p2g, fft, cnv, ifft, g2p
 from ._prepare import DevicePre
 from ._params import SEParams
 
+
 class EwaldKernel:
     """
     Represents the Ewald split of a PDE kernel, i.e.,
@@ -257,7 +258,6 @@ class EwaldKernel:
             out = out[0]
         return out
 
-
     def get_shape_in(self, N_in):
         """
         Return the input shape expected by this kernel for `N_in` source points.
@@ -281,8 +281,8 @@ class EwaldKernel:
         return (self.dim_out, N_out)
 
 
-
 ## kernel options class
+
 
 @dataclass
 class EwaldOptions:
@@ -301,7 +301,7 @@ class EwaldOptions:
         Periodicity of the computational box. Periodicity ``j``
         means that ``box[i]`` is a periodic length for all ``i<j``,
         with ``j=0`` indicating free space.
-        
+
     tolerance: float
         Tolerance for Ewald summation. Used to set internal Ewald parameters.
 
@@ -313,7 +313,7 @@ class EwaldOptions:
         one of ``'GM-1D'``, ``'GM-2D'``, ``'SM-1D'``, or ``'SM-2D'``.
         All methods read both sources and targets in :class:`parkipy.CellList`
         ordering.
-        ``'GM'``/``'SM'`` determines if the sources are read from 
+        ``'GM'``/``'SM'`` determines if the sources are read from
         global-memory/shared-memory, while ``'1D'``/``'2D'`` determines
         whether parallelisation is soley over the targets (1D)
         or over the targets and the sources (2D). The default is
@@ -323,7 +323,7 @@ class EwaldOptions:
         The algorithmic method for `p2g`, one of ``'BASE'``,
         ``'SOURCE'``, ``'GRID'``, or ``'HYBRID'``. The ``'BASE'`` method
         does a simple OpenMP syle parallelization over the *unordered* source points,
-        ``'SOURCE'`` does the same parallelization but with sources in a :class:`parkipy.CellList` 
+        ``'SOURCE'`` does the same parallelization but with sources in a :class:`parkipy.CellList`
         ordering, ``'GRID'`` does a parallelization over
         the output grid points, and ``'HYBRID'`` does a parallel read of the sources,
         calls a synchronization barrier, and does a parallel write over the grid points.
@@ -338,7 +338,7 @@ class EwaldOptions:
 
     fft_type: {'R2C', 'C2C'}, optional
         The type of fft to preform. Must be one of ``'R2C'`` or ``'C2C'``. The default is ``'R2C'``.
-    
+
     p2p_threads_x: int, optional
         Number of threads per block used to parallelize over the targets in the p2p algorithm.
         Resets to ``1`` for the OpenMP execution space.
@@ -365,21 +365,22 @@ class EwaldOptions:
         will be the second item returned for a kernel call. The default is ``False``.
 
     return_params: bool, optional
-        Flag to return the ``params`` struct for the parameters of the Ewald algorithm. 
-        If, true, the ``params`` struct will be the last item returned for a kernel call. 
+        Flag to return the ``params`` struct for the parameters of the Ewald algorithm.
+        If, true, the ``params`` struct will be the last item returned for a kernel call.
         The default is ``False``.
     """
-    #required arguments
+
+    # required arguments
     box: List[float]
-    periodicity: Literal[0,1,2,3]
+    periodicity: Literal[0, 1, 2, 3]
     tolerance: float
-    execution_space: Union[pk.ExecutionSpace, Literal['CUDA', 'HIP', 'OPENMP']]
+    execution_space: Union[pk.ExecutionSpace, Literal["CUDA", "HIP", "OPENMP"]]
 
     # default arguments
-    p2p_method: Literal['GM-1D', 'GM-2D', 'SM-1D', 'SM-2D'] = 'GM-1D'
-    p2g_method: Literal['BASE', 'SOURCE', 'GRID', 'HYBRID'] = 'HYBRID'
-    g2p_method: Literal['BASE', 'TARGET'] = 'TARGET'
-    fft_type: Literal['R2C', 'C2C'] = 'R2C'
+    p2p_method: Literal["GM-1D", "GM-2D", "SM-1D", "SM-2D"] = "GM-1D"
+    p2g_method: Literal["BASE", "SOURCE", "GRID", "HYBRID"] = "HYBRID"
+    g2p_method: Literal["BASE", "TARGET"] = "TARGET"
+    fft_type: Literal["R2C", "C2C"] = "R2C"
     p2p_threads_x: int = 128
     p2p_threads_y: int = 1
     p2g_threads: int = 128
@@ -392,9 +393,9 @@ class EwaldOptions:
     def __post_init__(self):
         for box_len in self.box:
             if box_len <= 0:
-                raise ValueError('box lengths must be positive.')
-        
-        valid_periodicities = [0,1,2,3]
+                raise ValueError("box lengths must be positive.")
+
+        valid_periodicities = [0, 1, 2, 3]
         if self.periodicity not in valid_periodicities:
             raise ValueError(f"the periodicity must be one of {valid_periodicities}.")
 
@@ -402,27 +403,48 @@ class EwaldOptions:
             raise ValueError("tolerance must be a positive float.")
 
         if not isinstance(self.execution_space, pk.ExecutionSpace):
-            valid_execution_spaces = ['CUDA', 'HIP', 'OPENMP']
+            valid_execution_spaces = ["CUDA", "HIP", "OPENMP"]
             if self.execution_space.upper() not in valid_execution_spaces:
-                raise ValueError(f"the execution space must be one of {valid_execution_spaces}.")
+                raise ValueError(
+                    f"the execution space must be one of {valid_execution_spaces}."
+                )
 
-        valid_p2p_methods = ['GM-1D', 'GM-2D', 'SM-1D', 'SM-2D']
+        valid_p2p_methods = ["GM-1D", "GM-2D", "SM-1D", "SM-2D"]
+        if self.p2p_method is None:
+            self.p2p_method = "GM-1D"
         if self.p2p_method.upper() not in valid_p2p_methods:
-            raise ValueError(f"the value specified for p2p method must be one of {valid_p2p_methods}, got {self.p2p_method.upper()}.")
+            raise ValueError(
+                f"the value specified for p2p method must be one of {valid_p2p_methods}, got {self.p2p_method.upper()}."
+            )
 
-        valid_p2g_methods = ['BASE', 'SOURCE', 'GRID', 'HYBRID']
+        valid_p2g_methods = ["BASE", "SOURCE", "GRID", "HYBRID"]
+        if self.p2g_method is None:
+            self.p2g_method = "HYBRID"
         if self.p2g_method.upper() not in valid_p2g_methods:
-            raise ValueError(f"the value specified for p2g method must be one of {valid_p2g_methods}, got {self.p2g_method.upper()}.")
+            raise ValueError(
+                f"the value specified for p2g method must be one of {valid_p2g_methods}, got {self.p2g_method.upper()}."
+            )
 
-        valid_g2p_methods = ['BASE', 'TARGET']
+        valid_g2p_methods = ["BASE", "TARGET"]
+        if self.g2p_method is None:
+            self.g2p_method = "TARGET"
         if self.g2p_method.upper() not in valid_g2p_methods:
-            raise ValueError(f"the value specified for g2p method must be one of {valid_g2p_methods}, got {self.g2p_method.upper()}.")
+            raise ValueError(
+                f"the value specified for g2p method must be one of {valid_g2p_methods}, got {self.g2p_method.upper()}."
+            )
 
-        valid_fft_types = ['R2C', 'C2C']
+        valid_fft_types = ["R2C", "C2C"]
         if self.fft_type.upper() not in valid_fft_types:
-            raise ValueError(f"the value specified for fft type must be one on {valid_fft_types}, got {self.fft_type.upper()}.")
+            raise ValueError(
+                f"the value specified for fft type must be one on {valid_fft_types}, got {self.fft_type.upper()}."
+            )
 
-        for threads in [self.p2p_threads_x, self.p2p_threads_y, self.p2g_threads, self.g2p_threads]:
+        for threads in [
+            self.p2p_threads_x,
+            self.p2p_threads_y,
+            self.p2g_threads,
+            self.g2p_threads,
+        ]:
             if not isinstance(threads, int) or threads <= 0:
                 raise ValueError("thread count must be a positive int.")
 
@@ -435,7 +457,13 @@ class EwaldOptions:
         if not isinstance(self.return_params, bool):
             raise ValueError("params flag must be `True` or `False`.")
 
+
 ## Implementations of specific kernels ##
+
+
+def stokes_sl(trg, src, dens, normal, options):
+    raise NotImplementedError
+
 
 def stokes_comb(trg, src, dens, normal, options):
     r"""
@@ -461,7 +489,7 @@ def stokes_comb(trg, src, dens, normal, options):
     __________
     trg: ndarray
         Array of target values :math:`\boldsymbol{x}_i` to compute the Stokes potential.
-        Array should be shape ``(3,nt)`` with the default ordering (i.e., ``'C'`` ordering for 
+        Array should be shape ``(3,nt)`` with the default ordering (i.e., ``'C'`` ordering for
         `cupy` and ``'F'`` ordering for `numpy`.
 
     src: ndarray
@@ -471,23 +499,23 @@ def stokes_comb(trg, src, dens, normal, options):
         Array of density values of the source points of shape ``(6,ns)`` with default ordering where ``dens[:3]``
         represent the single layer density :math:`\boldsymbol{q}_j`
         and ``dens[3:]`` the double layer density :math:`\boldsymbol{q}_l`.
-    
+
     normal: ndarray
         Array of normal vectors for the source points of shape ``(3,ns)`` with default ordering.
 
     options: EwaldOptions
-        Dataclass specifying Ewald parameters. 
+        Dataclass specifying Ewald parameters.
 
     Returns
     _______
     potential: ndarray
-        Array containing the Ewald approximation for the 
+        Array containing the Ewald approximation for the
         Stokes potential at the target points :math:`\boldsymbol{u}(\boldsymbol{x}_i)`.
 
     walltimes: dict, optional
         Dictionary containing the wall-time for each stage of the Ewald summation.
         Only returned if ``options.return_walltime == True``.
-    
+
     params: SEParams, optional
         :class:`SEParams` dataclass containing derived Ewald parameters for the Ewald summation run.
         Only returned if ``options.return_params == True``.
@@ -503,8 +531,8 @@ def stokes_comb(trg, src, dens, normal, options):
 
     References
     __________
-    .. [1] Bagge, J., & Tornberg, A.-K. (2023). 
-        Fast Ewald summation for Stokes flow with arbitrary periodicity. 
+    .. [1] Bagge, J., & Tornberg, A.-K. (2023).
+        Fast Ewald summation for Stokes flow with arbitrary periodicity.
         Journal of Computational Physics, 493, 112473. https://doi.org/10.1016/j.jcp.2023.112473
 
 
@@ -518,7 +546,7 @@ def stokes_comb(trg, src, dens, normal, options):
     >>> norms = np.random.randn(3, 100000)
     >>> dens = np.vstack((dens_sl, dens_dl))  # stack densities for ewald call
     >>> options = parkipy.ewald.EwaldOptions(
-    ... box=[1,1,1], periodicity=1, tolerance=1e-4, 
+    ... box=[1,1,1], periodicity=1, tolerance=1e-4,
     ... execution_space="openmp", cell_size=224, return_walltime=True
     ... )
     >>> pot, walltime = parkipy.ewald.stokes_comb(trg, src, dens, norms, options)
@@ -527,10 +555,21 @@ def stokes_comb(trg, src, dens, normal, options):
 
     """
 
-    valid_periodicities = [1,3]
+    valid_periodicities = [0, 1, 2, 3]
     if options.periodicity not in valid_periodicities:
-        raise NotImplementedError(f"stokes comb only supports periodicities {valid_periodicities}, got {options.periodicity}.")
-    args = [trg, src, dens, normal, options.periodicity, options.box, options.tolerance, options.execution_space]
+        raise NotImplementedError(
+            f"stokes comb only supports periodicities {valid_periodicities}, got {options.periodicity}."
+        )
+    args = [
+        trg,
+        src,
+        dens,
+        normal,
+        options.periodicity,
+        options.box,
+        options.tolerance,
+        options.execution_space,
+    ]
     exclude = {"box", "tolerance", "periodicity", "execution_space"}
     kwargs = {k: v for k, v in options.__dict__.items() if k not in exclude}
     pot = EwaldKernel(
@@ -563,7 +602,7 @@ def laplace(trg, src, charge, options):
     __________
     trg: ndarray
         Array of target values :math:`\boldsymbol{x}_i` to compute the Stokes potential.
-        Array should be shape ``(3,nt)`` with the default ordering (i.e., ``'C'`` ordering for 
+        Array should be shape ``(3,nt)`` with the default ordering (i.e., ``'C'`` ordering for
         `cupy` and ``'F'`` ordering for `numpy`.
 
     src: ndarray
@@ -575,18 +614,18 @@ def laplace(trg, src, charge, options):
         is small.
 
     options: EwaldOptions
-        Dataclass specifying Ewald parameters. 
+        Dataclass specifying Ewald parameters.
 
     Returns
     _______
     potential: ndarray
-        Array containing the Ewald approximation for the 
+        Array containing the Ewald approximation for the
         Laplace potential at the target points :math:`\boldsymbol{u}(\boldsymbol{x}_i)`.
 
     walltimes: dict, optional
         Dictionary containing the wall-time for each stage of the Ewald summation.
         Only returned if ``options.return_walltime == True``.
-    
+
     params: SEParams, optional
         :class:`SEParams` dataclass containing derived Ewald parameters for the Ewald summation run.
         Only returned if ``options.return_params == True``.
@@ -603,8 +642,8 @@ def laplace(trg, src, charge, options):
 
     References
     __________
-    .. [1] Shamshirgar, D. S., Bagge, J., & Tornberg, A.-K. (2021). 
-        Fast Ewald summation for electrostatic potentials with arbitrary periodicity. 
+    .. [1] Shamshirgar, D. S., Bagge, J., & Tornberg, A.-K. (2021).
+        Fast Ewald summation for electrostatic potentials with arbitrary periodicity.
         The Journal of Chemical Physics, 154(16), 164109. https://doi.org/10.1063/5.0044895
 
     Examples
@@ -616,7 +655,7 @@ def laplace(trg, src, charge, options):
     >>> charge = np.random.randn(ns)
     >>> charge -= np.mean(charge)
     >>> options = parkipy.ewald.EwaldOptions(
-    ... box=[1,1,1], periodicity=3, tolerance=1e-4, 
+    ... box=[1,1,1], periodicity=3, tolerance=1e-4,
     ... execution_space="openmp", cell_size=224, return_walltime=True
     ... )
     >>> pot, walltime = parkipy.ewald.laplace(trg, src, charge, options)
@@ -625,19 +664,33 @@ def laplace(trg, src, charge, options):
 
     """
 
-    valid_periodicities = [3]
+    valid_periodicities = [0, 1, 2, 3]
     if options.periodicity not in valid_periodicities:
-        raise NotImplementedError(f"laplace only supports periodicities {valid_periodicities}, got {options.periodicity}.")
+        raise NotImplementedError(
+            f"laplace only supports periodicities {valid_periodicities}, got {options.periodicity}."
+        )
 
-    valid_p2p_methods = ['GM-1D']
+    valid_p2p_methods = ["GM-1D"]
     if options.p2p_method.upper() not in valid_p2p_methods:
-        raise NotImplementedError(f"laplace only supports p2p methods {valid_p2p_methods}, got {options.p2p_method.upper()}.")
+        raise NotImplementedError(
+            f"laplace only supports p2p methods {valid_p2p_methods}, got {options.p2p_method.upper()}."
+        )
 
-    valid_p2g_methods = ['HYBRID']
+    valid_p2g_methods = ["HYBRID"]
     if options.p2g_method.upper() not in valid_p2g_methods:
-        raise NotImplementedError(f"laplace only supports p2g methods {valid_p2g_methods}, got {options.p2g_method.upper()}.")
+        raise NotImplementedError(
+            f"laplace only supports p2g methods {valid_p2g_methods}, got {options.p2g_method.upper()}."
+        )
 
-    args = [trg, src, charge, options.periodicity, options.box, options.tolerance, options.execution_space]
+    args = [
+        trg,
+        src,
+        charge,
+        options.periodicity,
+        options.box,
+        options.tolerance,
+        options.execution_space,
+    ]
     exclude = {"box", "tolerance", "periodicity", "execution_space"}
     kwargs = {k: v for k, v in options.__dict__.items() if k not in exclude}
     pot = EwaldKernel(
