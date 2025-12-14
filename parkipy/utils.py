@@ -20,7 +20,27 @@ import numpy as np
 import pykokkos as pk
 from typing import Union, Literal
 import types
+import math 
 
+
+def round_up(n: int, factor: int) -> int:
+    """
+    Round the number `n` to the nearest multiple 
+    of `factor`. That is, return `m>=n` such that
+    `m % factor == 0`.
+
+    Parameters
+    ----------
+    n: int
+        number to round
+    factor: int
+        round `n` up to the nearest multiple of `factor`
+
+    Returns
+    -------
+    int
+    """
+    return factor * math.ceil(n / factor)
 
 def get_dtype(dtype: Union[Literal["fp32", "fp64"], np.dtype]) -> np.dtype:
     """
