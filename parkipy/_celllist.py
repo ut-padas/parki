@@ -86,7 +86,7 @@ class CellList:
             0 <= self.cutoff <= self.box.min()
         ):
             raise ValueError(
-                f"cutoff expected to be a float between {(0, self.box.min())}, got {self.cutoff}"
+                f"cutoff expected to be a float between {(0, self.box.min())}, got {self.cutoff} of type {type(cutoff)}"
             )
         self._forces = forces
         self._skip_empty_cells = skip_empty_cells
@@ -309,8 +309,12 @@ class CellList:
     def nonempty_cells(self):
         """
         Array of the nonzero indices of `self.counter`.
+        Given an nonempty cell index `j`,
+        `self.nonempty_cells[j]` returns `i`, the global
+        cell index.
         If `self.skip_empty_cells==False`,
-        then `self.num_nonempty_cells=np.arange(self.num_cells)`.
+        then `self.num_nonempty_cells=np.arange(self.num_cells)`,
+        i.e., nonempty and global cell indices are the same.
         Read-only.
         """
         return self._nonempty_cells
