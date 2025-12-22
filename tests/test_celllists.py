@@ -19,15 +19,25 @@ def cell_list(x, y, cutoff, box):
     u = np.zeros(x.shape[1])
     x_list = parkipy.CellList(x, cutoff, box)
     y_list = parkipy.CellList(y, cutoff, box)
+
+    # loop over nonempty x-cells
     for cell_ne in range(x_list.num_nonempty_cells):
         off_x = cell_ne * x_list.cell_size
         cell = x_list.nonempty_cells[cell_ne]
+
+        # loop over x-particles within a cell
         for ii in range(off_x, off_x + x_list.cell_size):
             i = x_list.particle_index[ii]
             if i == -1:
                 continue
+
+            # loop over y-neighbors
             for neighbor in range(y_list.num_nonempty_cells):
+                if neighbor == -1:
+                    continue
                 off_y = neighbor * y_list.cell_size
+
+                # loop over y-particles within a neighbor
                 for jj in range(off_y, off_y + y_list.cell_size):
                     j = y_list.particle_index[jj]
                     if j == -1:
@@ -38,6 +48,7 @@ def cell_list(x, y, cutoff, box):
                     dist = np.sqrt(dist_sq)
                     if dist < cutoff:
                         u[i] += 1 / dist
+                        print(neighbor)
     return u
 
 
