@@ -76,7 +76,8 @@ class CellList:
         self._particles = particles
         if not isinstance(self.particles, self.am.ndarray):
             raise ValueError(
-                f"particles expected to be {self.am.ndarray} but are type {type(self.particles)}"
+                f"particles expected to be {self.am.ndarray} "
+                "but are type {type(self.particles)}"
             )
         self._box = self.am.asarray(box, dtype=self.dtype)
         if self.box.size != 3:
@@ -86,7 +87,8 @@ class CellList:
             0 <= self.cutoff <= self.box.min()
         ):
             raise ValueError(
-                f"cutoff expected to be a float between {(0, self.box.min())}, got {self.cutoff} of type {type(cutoff)}"
+                f"cutoff expected to be a float between {(0, self.box.min())}, "
+                "got {self.cutoff} of type {type(cutoff)}"
             )
         self._forces = forces
         self._skip_empty_cells = skip_empty_cells
@@ -151,6 +153,7 @@ class CellList:
         self._nonempty_cell_index[self.nonempty_cells] = self.am.arange(
             self.num_nonempty_cells
         )
+        self._create_nonempty_neighbors()
         list_len = self.num_nonempty_cells * self.cell_size
         self._particle_list = self.am.full(
             shape=(d, list_len), fill_value=-1, dtype=self.particles.dtype
@@ -320,6 +323,17 @@ class CellList:
         return self._nonempty_cells
 
     @property
+    def nonempty_neighbors(self):
+        """
+        Return an array of shape `(self.num_cells, 27)`
+        such that given a (global) cell index `i`,
+        return the (nonempty) cell indices of it's 27
+        neighboring cells.
+        Read-only
+        """
+        return self._nonempty_neighbors
+
+    @property
     def cell_size(self):
         """
         Size of each cell. Read-only.
@@ -392,3 +406,38 @@ class CellList:
         Array module (NumPy/CuPu). Determined via `self.execution_space`. Read-only.
         """
         return self._am
+
+    def _create_nonempty_neighbors(self):
+        """
+        For each (global) cell index, create a list of the
+        nonempty cell index of the 27 3d neighbors.
+        """
+        grid_area = self.cell_grid_shape[1] * self.cell_grid_shape[2]
+        nonempty_neighbors = self.am.full(
+            shape=(self.num_cells, 3, 3, 3), fill_value=-1, dtype=self.am.int32
+        )
+        for cell in range(self.num_cells):  # TODO: parallelize/vectorize
+            cell_x = cell // grid_area
+            cell_y = (cell % grid_area) // self.cell_grid_shape[2]
+            cell_z = (cell % grid_area) % self.cell_grid_shape[2]
+            for dx in range(-1, 2):
+                neighbor_x = cell_x + dx
+                if neighbor_x < 0 or neighbor_x >= self.cell_grid_shape[0]:
+                    continue
+                for dy in range(-1, 2):
+                    neighbor_y = cell_y + dy
+                    if neighbor_y < 0 or neighbor_y >= self.cell_grid_shape[1]:
+                        continue
+                    for dz in range(-1, 2):
+                        neighbor_z = cell_z + dz
+                        if neighbor_z < 0 or neighbor_z >= self.cell_grid_shape[2]:
+                            continue
+                        neighbor_empty = (
+                            neighbor_x * grid_area
+                            + neighbor_y * self.cell_grid_shape[2]
+                            + neighbor_z
+                        )
+
+                        neighbor = self.nonempty_cell_index[neighbor_empty]
+                        nonempty_neighbors[cell, dx + 1, dy + 1, dz + 1] = neighbor
+        self._nonempty_neighbors = nonempty_neighbors.reshape(self.num_cells, 27)
