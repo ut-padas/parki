@@ -13,6 +13,7 @@ from ._pk_kernels._celllist import (
     reshuffle_particles_fp64,
     reshuffle_forces_fp32,
     reshuffle_forces_fp64,
+    get_nonempty_neighbors,
 )
 
 
@@ -416,28 +417,15 @@ class CellList:
         nonempty_neighbors = self.am.full(
             shape=(self.num_cells, 3, 3, 3), fill_value=-1, dtype=self.am.int32
         )
-        for cell in range(self.num_cells):  # TODO: parallelize/vectorize
-            cell_x = cell // grid_area
-            cell_y = (cell % grid_area) // self.cell_grid_shape[2]
-            cell_z = (cell % grid_area) % self.cell_grid_shape[2]
-            for dx in range(-1, 2):
-                neighbor_x = cell_x + dx
-                if neighbor_x < 0 or neighbor_x >= self.cell_grid_shape[0]:
-                    continue
-                for dy in range(-1, 2):
-                    neighbor_y = cell_y + dy
-                    if neighbor_y < 0 or neighbor_y >= self.cell_grid_shape[1]:
-                        continue
-                    for dz in range(-1, 2):
-                        neighbor_z = cell_z + dz
-                        if neighbor_z < 0 or neighbor_z >= self.cell_grid_shape[2]:
-                            continue
-                        neighbor_empty = (
-                            neighbor_x * grid_area
-                            + neighbor_y * self.cell_grid_shape[2]
-                            + neighbor_z
-                        )
-
-                        neighbor = self.nonempty_cell_index[neighbor_empty]
-                        nonempty_neighbors[cell, dx + 1, dy + 1, dz + 1] = neighbor
+        pk.parallel_for(
+            "get nonempty neighbors",
+            pk.RangePolicy(self.execution_space, 0, self.num_cells),
+            get_nonempty_neighbors,
+            grid_area=grid_area,
+            cell_grid_shape_0=self.cell_grid_shape[0],
+            cell_grid_shape_1=self.cell_grid_shape[1],
+            cell_grid_shape_2=self.cell_grid_shape[2],
+            nonempty_cell_index=self.nonempty_cell_index,
+            nonempty_neighbors=nonempty_neighbors,
+        )
         self._nonempty_neighbors = nonempty_neighbors.reshape(self.num_cells, 27)
