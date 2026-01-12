@@ -89,7 +89,7 @@ class CellList:
         ):
             raise ValueError(
                 f"cutoff expected to be a float between {(0, self.box.min())}, "
-                "got {self.cutoff} of type {type(cutoff)}"
+                f"got {self.cutoff} of type {type(cutoff)}"
             )
         self._forces = forces
         self._skip_empty_cells = skip_empty_cells
