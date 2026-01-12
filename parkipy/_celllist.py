@@ -412,19 +412,20 @@ class CellList:
         For each (global) cell index, create a list of the
         nonempty cell index of the 27 3d neighbors.
         """
-        grid_area = self.cell_grid_shape[1] * self.cell_grid_shape[2]
-        nonempty_neighbors = self.am.full(
-            shape=(self.num_cells, 3, 3, 3), fill_value=-1, dtype=self.am.int32
+        neighbors = self.am.full((self.num_cells, 3, 3, 3), -1, dtype=int)
+        nx, ny, nz = self.cell_grid_shape
+        cell = self.am.arange(self.num_cells)
+        cell_x = cell // (ny * nz)
+        cell_y = (cell // nz) % ny
+        cell_z = cell % nz
+        offsets = self.am.array([-1, 0, 1])
+        dx, dy, dz = self.am.meshgrid(offsets, offsets, offsets, indexing="ij")
+        nx_ = cell_x[:, None, None, None] + dx
+        ny_ = cell_y[:, None, None, None] + dy
+        nz_ = cell_z[:, None, None, None] + dz
+        valid = (
+            (0 <= nx_) & (nx_ < nx) & (0 <= ny_) & (ny_ < ny) & (0 <= nz_) & (nz_ < nz)
         )
-        pk.parallel_for(
-            "get nonempty neighbors",
-            pk.RangePolicy(self.execution_space, 0, self.num_cells),
-            get_nonempty_neighbors,
-            grid_area=grid_area,
-            cell_grid_shape_0=self.cell_grid_shape[0],
-            cell_grid_shape_1=self.cell_grid_shape[1],
-            cell_grid_shape_2=self.cell_grid_shape[2],
-            nonempty_cell_index=self.nonempty_cell_index,
-            nonempty_neighbors=nonempty_neighbors,
-        )
-        self._nonempty_neighbors = nonempty_neighbors.reshape(self.num_cells, 27)
+        neighbor_linear = nx_ * (ny * nz) + ny_ * nz + nz_
+        neighbors[valid] = self.nonempty_cell_index[neighbor_linear[valid]]
+        self._nonempty_neighbors = neighbors.reshape(self.num_cells, 27)
