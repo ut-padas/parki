@@ -129,22 +129,21 @@ class CellList:
 
         # count particles in cells
         self._cell_grid_shape = [int(self.box[i] / self.cutoff) for i in range(3)]
-        self._num_cells = int(self.am.prod(self.am.array(self.cell_grid_shape)))
+        _grid_shape = self.am.asarray(self.cell_grid_shape)
+        self._num_cells = int(_grid_shape.prod())
         self._counter = self.am.zeros(shape=self.num_cells, dtype=self.am.int32)
-        pk.parallel_for(
-            "count particles in each cell",
-            pk.RangePolicy(self.execution_space, 0, n),
-            counter_workunit,
-            counter=self._counter,
-            p=self.particles,
-            rc=self.cutoff,
-            box=self.box,
-        )
+        cell_shape = self.box / _grid_shape
+        cell_x, cell_y, cell_z = (particles.T // cell_shape).T
+        cell = (
+            cell_x * _grid_shape[1:].prod() + cell_y * _grid_shape[2] + cell_z
+        ).astype(self.am.int32)
+        nonempty_cells, cell_sizes = self.am.unique(cell, return_counts=True)
+        self._counter[nonempty_cells] = cell_sizes
 
         # create lists
-        max_cell_size = self.am.max(self.counter).item()
+        max_cell_size = self.counter.max().item()
         self._cell_size = math.ceil(max_cell_size / padding_factor) * padding_factor
-        self._nonempty_cells = self.am.nonzero(self.counter)[0].astype(self.am.int32)
+        self._nonempty_cells = nonempty_cells
         if not self.skip_empty_cells:
             self._nonempty_cells = self.am.arange(self.num_cells, dtype=self.am.int32)
         self._num_nonempty_cells = len(self.nonempty_cells)
