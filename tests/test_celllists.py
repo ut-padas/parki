@@ -2,7 +2,7 @@ import parkipy
 import numpy as np
 
 
-def reference(x, y, cutoff):
+def reference(x, y, q, cutoff):
     u = np.zeros(x.shape[1])
     for i in range(x.shape[1]):
         for j in range(y.shape[1]):
@@ -11,14 +11,14 @@ def reference(x, y, cutoff):
                 continue
             dist = np.sqrt(dist_sq)
             if dist < cutoff:
-                u[i] += 1 / dist
+                u[i] += 1 / dist * q[j]
     return u
 
 
-def cell_list(x, y, cutoff, box):
+def cell_list(x, y, q, cutoff, box):
     u = np.zeros(x.shape[1])
     x_list = parkipy.CellList(x, cutoff, box)
-    y_list = parkipy.CellList(y, cutoff, box)
+    y_list = parkipy.CellList(y, cutoff, box, forces=q)
 
     # loop over nonempty x-cells
     for cell_ne in range(x_list.num_nonempty_cells):
@@ -48,7 +48,7 @@ def cell_list(x, y, cutoff, box):
                         continue
                     dist = np.sqrt(dist_sq)
                     if dist < cutoff:
-                        u[i] += 1 / dist
+                        u[i] += 1 / dist * q[j]
     return u
 
 
@@ -63,9 +63,10 @@ def test_celllist(Nx=773, Ny=312, box=[1, 1, 1], cutoff=0.1):
     cell-lists for an O(n) algorithm.
     """
     x = np.random.rand(3, Nx)
-    y = np.random.rand(3, Nx)
+    y = np.random.rand(3, Ny)
+    u = np.random.rand(Ny)
 
-    u_ref = reference(x, y, cutoff)
-    u_cl = cell_list(x, y, cutoff, box)
+    u_ref = reference(x, y, u, cutoff)
+    u_cl = cell_list(x, y, u, cutoff, box)
 
     np.testing.assert_allclose(u_cl, u_ref, rtol=1e-13, atol=1e-26)
