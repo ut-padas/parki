@@ -153,7 +153,6 @@ class CellList:
         self._nonempty_cell_index[self.nonempty_cells] = self.am.arange(
             self.num_nonempty_cells
         )
-        self._create_nonempty_neighbors()
         list_len = self.num_nonempty_cells * self.cell_size
         self._particle_list = self.am.full(
             shape=(d, list_len), fill_value=-1, dtype=self.particles.dtype
@@ -176,6 +175,9 @@ class CellList:
             cell_size=self.cell_size,
             dp=d,
         )
+        mask = self.particle_index >= 0 
+        loc = self.am.nonzero(mask)[0]
+        glb = self.particle_index[loc]
         self._force_list = None
         if isinstance(self.forces, tuple):
             out = []
@@ -195,15 +197,7 @@ class CellList:
                 force_list = self.am.zeros(
                     shape=(df, list_len), dtype=self.particles.dtype
                 )
-                pk.parallel_for(
-                    "reshuffle particles and foces into cells",
-                    pk.RangePolicy(self.execution_space, 0, list_len),
-                    reshuffle_forces_workunit,
-                    q_list=force_list,
-                    l2g=self.particle_index,
-                    q=force,
-                    dq=df,
-                )
+                force_list[:, loc] = force[:, glb]
                 out.append(force_list)
             self._force_list = tuple(out)
         elif isinstance(self.forces, self.am.ndarray):
@@ -220,21 +214,16 @@ class CellList:
                     f" particles {n}, got {nf}"
                 )
             force_list = self.am.zeros(shape=(df, list_len), dtype=self.particles.dtype)
-            pk.parallel_for(
-                "reshuffle particles and foces into cells",
-                pk.RangePolicy(self.execution_space, 0, list_len),
-                reshuffle_forces_workunit,
-                q_list=force_list,
-                l2g=self.particle_index,
-                q=forces,
-                dq=df,
-            )
+            force_list[:, loc] = forces[:, glb]
             self._force_list = force_list
         elif self.forces is not None:
             raise ValueError(
                 "forces expected to be a tuple of `ndarray`s"
                 f" or an `ndarray`, got {type(forces)}"
             )
+
+        # nonempty neighbors
+        self._create_nonempty_neighbors()
 
     @property
     def dtype(self):
