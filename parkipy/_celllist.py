@@ -181,11 +181,7 @@ class CellList:
         if isinstance(self.forces, tuple):
             out = []
             for force in forces:
-                if not force.dtype is self.dtype:
-                    raise TypeError(
-                        f"force data type should be {self.dtype}, got {force.dtype}."
-                    )
-                if len(force) == 1:
+                if len(force.shape) == 1:
                     force = force.reshape(1, -1)
                 df, nf = force.shape
                 if nf != n:
@@ -203,16 +199,12 @@ class CellList:
             if len(forces.shape) == 1:
                 forces = forces.reshape(1, -1)
             df, nf = forces.shape
-            if not forces.dtype is self.dtype:
-                raise TypeError(
-                    f"forces data type should be {self.dtype}, got {forces.dtype}."
-                )
             if nf != n:
                 raise ValueError(
                     "force expected to have the same `n` dimension as"
                     f" particles {n}, got {nf}"
                 )
-            force_list = self.am.zeros(shape=(df, list_len), dtype=force.dtype)
+            force_list = self.am.zeros(shape=(df, list_len), dtype=forces.dtype)
             force_list[:, loc] = forces[:, glb]
             self._force_list = force_list
         elif self.forces is not None:
