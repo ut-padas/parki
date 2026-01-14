@@ -178,7 +178,6 @@ class CellList:
         mask = self.particle_index >= 0 
         loc = self.am.nonzero(mask)[0]
         glb = self.particle_index[loc]
-        self._force_list = None
         if isinstance(self.forces, tuple):
             out = []
             for force in forces:
@@ -195,7 +194,7 @@ class CellList:
                         f" particles {n}, got {nf}."
                     )
                 force_list = self.am.zeros(
-                    shape=(df, list_len), dtype=self.particles.dtype
+                    shape=(df, list_len), dtype=force.dtype
                 )
                 force_list[:, loc] = force[:, glb]
                 out.append(force_list)
@@ -213,7 +212,7 @@ class CellList:
                     "force expected to have the same `n` dimension as"
                     f" particles {n}, got {nf}"
                 )
-            force_list = self.am.zeros(shape=(df, list_len), dtype=self.particles.dtype)
+            force_list = self.am.zeros(shape=(df, list_len), dtype=force.dtype)
             force_list[:, loc] = forces[:, glb]
             self._force_list = force_list
         elif self.forces is not None:
