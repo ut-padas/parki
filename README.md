@@ -1,6 +1,16 @@
 # (Par)allel (Par)ticle (K)ernel (I)nteractions library: ParKI
 The ParKI library provides a python API, ParkiPy, supporting a `CellList` class for local-particle interactions, the `ewald` module for computing Ewald summations of the Stokes and Laplace kernels in arbitrary periodicities, and the `distributed.ewald` module for computing Ewald summation in a slab distributed box. 
 
+## Supported Kernels
+
+|            | Stokes single layer | Stokes double layer | Stokes Combined | Laplace |
+|------------|---------------------|---------------------|-----------------|---------|
+| 0-periodic | ❌                   | ❌                   | ❌               | ❌       |
+| 1-periodic | ❌                   | ❌                   | ✅               | ❌       |
+| 2-periodic | ❌                   | ❌                   | ❌               | ❌       |
+| 3-periodic | ❌                   | ❌                   | ✅               | ✅       |
+
+
 # Repository layout
 ... 
 
