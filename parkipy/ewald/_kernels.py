@@ -461,8 +461,35 @@ class EwaldOptions:
 ## Implementations of specific kernels ##
 
 
-def stokes_sl(trg, src, dens, normal, options):
-    raise NotImplementedError
+def stokes_sl(trg, src, dens, options):
+    """
+    Compute the Stokes single layer potential
+    """
+    valid_periodicities = [0, 1, 2, 3]
+    if options.periodicity not in valid_periodicities:
+        raise NotImplementedError(
+            f"stokes sl only supports periodicities {valid_periodicities}, got {options.periodicity}."
+        )
+    args = [
+        trg,
+        src,
+        dens,
+        options.periodicity,
+        options.box,
+        options.tolerance,
+        options.execution_space,
+    ]
+    exclude = {"box", "tolerance", "periodicity", "execution_space"}
+    kwargs = {k: v for k, v in options.__dict__.items() if k not in exclude}
+    pot = EwaldKernel(
+        name="stokes_sl",
+        dim_in=3,
+        dim_out=3,
+        kernel="stokes_sl",
+        takes_normals=False,
+        description="Stokes single layer potential.",
+    )(*args, **kwargs)
+    return pot
 
 
 def stokes_comb(trg, src, dens, normal, options):
