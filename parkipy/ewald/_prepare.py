@@ -906,7 +906,6 @@ class DevicePre:
                 )
                 dim_H = 12
             case "LAPLACE":
-                params = se_params_laplace
                 params = se_params_laplace(
                     box_dict=box_dict,
                     tolerance=tolerance,
