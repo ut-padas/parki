@@ -73,7 +73,7 @@ from ._pk_kernels._p2p_workload import (
     p2p_workload_multi_forces_host_fp32,
 )
 
-from ._params import se_params_stokes_comb, se_params_laplace
+from ._params import se_params_stokes_comb, se_params_laplace, se_params_stokeslet
 
 
 @dataclass
@@ -693,6 +693,11 @@ class DevicePre:
                 self.dim_out = 3
                 self.has_sl = True
                 self.has_dl = True
+            case "STOKES_SL":
+                self.dim_in = 3
+                self.dim_out = 3
+                self.has_sl = True
+                self.has_dl = False
             case _:
                 raise ValueError(
                     f"Kernel must be one of 'LAPLACE', 'STOKES_COMB', got '{self.kernel.upper()}'."
@@ -893,35 +898,33 @@ class DevicePre:
                 " This functionality is not yet implemented."
             )
         # get the spectral Ewald parameters
+        params_kwargs = {}
         match kernel.upper():
             case "STOKES_COMB":
-                params = se_params_stokes_comb(
-                    box_dict=box_dict,
-                    tolerance=tolerance,
-                    num_sources=ns_max,
-                    cell_size=cell_size,
-                    rc=rc,
-                    periodicity=periodicity,
-                    distributed=distributed,
-                )
+                params_fun = se_params_stokes_comb
                 dim_H = 12
             case "LAPLACE":
-                params = se_params_laplace(
-                    box_dict=box_dict,
-                    tolerance=tolerance,
-                    num_sources=ns_max,
-                    cell_size=cell_size,
-                    rc=rc,
-                    periodicity=periodicity,
-                    f=forces,
-                    distributed=distributed,
-                )
+                params_fun = se_params_laplace
+                params_kwargs["f"] = forces
                 dim_H = 1
+            case "STOKES_SL":
+                params_fun = se_params_stokeslet
+                dim_H = 3
             case _:
                 raise NotImplementedError(
                     "Ewald Kernels only implemented for 'STOKES_COMB' and 'LAPLACE',"
                     f" got {kernel.upper()}."
                 )
+        params = params_fun(
+            box_dict=box_dict,
+            tolerance=tolerance,
+            num_sources=ns_max,
+            cell_size=cell_size,
+            rc=rc,
+            periodicity=periodicity,
+            distributed=distributed,
+            **params_kwargs,
+        )
         # setup options and parameters
         if fourier_upsampling_factor_global is not None:
             am = get_array_module(execution_space)
