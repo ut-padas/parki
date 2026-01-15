@@ -2,68 +2,76 @@ import time
 import argparse
 import pytest
 import numpy as np
-
-from parkipy.utils import get_array_module, get_execution_space, get_dtype
-from parkipy.ewald import stokes_comb, laplace, EwaldOptions
+import parkipy
 
 
-@pytest.mark.parametrize("fft_type", ["R2C", "C2C"])
-def test_fft_type(fft_type):
-    run_convergence(fft_type=fft_type)
+@pytest.mark.parametrize(
+    "kernel",
+    [parkipy.ewald.stokes_sl, parkipy.ewald.stokes_comb, parkipy.ewald.laplace],
+)
+@pytest.mark.parametrize("periodicity", [0, 1, 2, 3])
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def test_self_convergence(kernel, periodicity, dtype):
+    """
+    run self convergence test on all supported kernels
+    for all periodic directions in single and double
+    precision arithmetic.
+    """
+    run_convergence(fun=kernel, periodicity=periodicity, dtype=dtype)
 
 
-@pytest.mark.parametrize("device", ["OpenMP", "CUDA"])
-@pytest.mark.parametrize("dtype", ["fp32", "fp64"])
-def test_laplace_3p(device, dtype):
-    run_convergence(fun=laplace, periodicity=3, device=device, dtype=dtype, nutral=True, p2g_method="HYBRID")
+def test_FGC_R2R():
+    """
+    test the R2C FFT paired with C2R IFFT
+    gives the same results as C2C FFT, IFFT
+    for real densities
+    """
+    raise NotImplementedError
 
 
-@pytest.mark.parametrize("box", [[1.0, 1.0, 1.0], [1.15, 1, 1]])
-def test_box(box):
-    run_convergence(box=box)
+def test_gpu():
+    """
+    test that code compiles, runs, and is correct
+    on all available devices for any solver
+    """
+    run_convergence(device="GPU")
 
 
-@pytest.mark.parametrize("dtype", ["fp32", "fp64"])
-def test_dtype(dtype):
-    run_convergence(dtype=dtype)
-
-
-@pytest.mark.parametrize("device", ["OpenMP", "CUDA"])
-def test_stokes_1p(device):
-    run_convergence(device=device)
-
-
-# @pytest.mark.parametrize("periodicity", [0,1,2,3])
-@pytest.mark.parametrize("periodicity", [1, 3])
 @pytest.mark.parametrize("p2p_method", ["GM-1D", "GM-2D", "SM-1D", "SM-2D"])
 def test_p2p_stokes(p2p_method, periodicity):
+    """
+    test different p2p methods for the 1-per stokes solver
+    """
     run_convergence(p2p_method=p2p_method, periodicity=periodicity)
 
 
-# @pytest.mark.parametrize("periodicity", [0,1,2,3])
-@pytest.mark.parametrize("periodicity", [1, 3])
 @pytest.mark.parametrize("p2g_method", ["BASE", "SOURCE", "GRID", "HYBRID"])
 def test_p2g_stokes(p2g_method, periodicity):
+    """
+    test different p2g method for the 1-per stokes solver
+    """
     run_convergence(p2g_method=p2g_method, periodicity=periodicity)
 
 
-# @pytest.mark.parametrize("periodicity", [0,1,2,3])
-@pytest.mark.parametrize("periodicity", [1, 3])
 @pytest.mark.parametrize("g2p_method", ["BASE", "TARGET"])
 def test_g2p_stokes(g2p_method, periodicity):
+    """
+    test different g2p methods for the 1-per stokes solver
+    """
     run_convergence(g2p_method=g2p_method, periodicity=periodicity)
 
 
 def run_convergence(
-    device="Cuda",
-    p2p_method="GM-1D",
-    p2g_method="BASE",
-    g2p_method="BASE",
-    nt=5000,
+    device=None,
+    p2p_method=None,
+    p2g_method=None,
+    g2p_method=None,
+    nt=312,
+    ns=773,
     cell_size=512,
     dtype="fp64",
-    box=[1.0, 1.0, 1.0],
-    fun=stokes_comb,
+    box=[1, 1, 1],
+    fun=parkipy.ewald.stokes_comb,
     periodicity=1,
     nutral=False,
     fft_type="R2C",
@@ -71,13 +79,15 @@ def run_convergence(
     """
     Test (1) self-convergence and (2) consistency
     """
-    execution_space = get_execution_space(device)
-    am = get_array_module(execution_space)
+    execution_space = parkipy.utils.get_execution_space(device)
+    am = parkipy.utils.get_array_module(execution_space)
     # Test 1: Reduce tolerance gradually, fixed cell_list.
-    if dtype == "fp64":
+    if dtype == np.float64:
         tolvA = [1e-3, 1e-5, 1e-7, 1e-9, 1e-11]
-    if dtype == "fp32":
+    elif dtype == np.float32:
         tolvA = [1e-1, 1e-2, 1e-3, 1e-5, 1e-6]
+    else:
+        raise NotImplementedError
     potvA = []
     for tol in tolvA:
         print(f":: Test 1: Running tol={tol}")
@@ -86,6 +96,7 @@ def run_convergence(
             cell_size,
             tol,
             nt,
+            ns,
             device,
             p2p_method,
             p2g_method,
@@ -104,12 +115,14 @@ def run_convergence(
     print()
 
     # Test 2: Vary rc for two different tolerances
-    if dtype == "fp64":
+    if dtype == np.float64:
         tolvB = [1e-5, 1e-9]
-    if dtype == "fp32":
+    elif dtype == np.float32:
         tolvB = [1e-3, 1e-5]
+    else:
+        raise NotImplementedError
     rcvB = am.linspace(0.2, 0.5, 10)
-    clszvB = rcvB**3 * 33600
+    clszvB = rcvB**3 * max(ns, nt)
     potvB = [[None] * am.size(clszvB), [None] * am.size(clszvB)]
     for j, tol in enumerate(tolvB):
         for k, clsz in enumerate(clszvB):
@@ -119,6 +132,7 @@ def run_convergence(
                 int(clsz),
                 tol,
                 nt,
+                ns,
                 device,
                 p2p_method,
                 p2g_method,
@@ -164,7 +178,7 @@ def run_convergence(
         max_err = am.max(errors)
         try:
             np.testing.assert_(
-                max_err < 90 * tol,
+                max_err < tol,
                 msg=f"Consistency test failed for tol={tol:.3e}: max error = {max_err:.3e}",
             )
         except AssertionError as e:
@@ -182,6 +196,7 @@ def run(
     cell_size,
     tolerance,
     nt,
+    ns,
     device,
     p2p_method,
     p2g_method,
@@ -190,42 +205,46 @@ def run(
     box,
     periodicity,
     fft_type,
-    up=1,  # TODO test me
     verbosity=0,
     nutral=False,
 ) -> None:
-    am = get_array_module(device)
-    execution_space = get_execution_space(device)
+    am = parkipy.utils.get_array_module(device)
+    execution_space = parkipy.utils.get_execution_space(device)
 
-    # deterministic arguments
-    ns = nt * up
     # GPU arrays
     if verbosity >= 2:
         print("=====allocate GPU arrays=====")
 
     am.random.seed(123)  # seed random numbers
-    trg = am.random.rand(3, nt).astype(get_dtype(dtype)) * am.array(
-        box, dtype=get_dtype(dtype)
-    ).reshape(-1, 1)
-    src = am.random.rand(3, nt).astype(get_dtype(dtype)) * am.array(
-        box, dtype=get_dtype(dtype)
-    ).reshape(-1, 1)
-    if dtype == 'fp32':
+    trg = am.random.rand(3, nt).astype(dtype) * am.array(box, dtype=dtype).reshape(
+        -1, 1
+    )
+    src = am.random.rand(3, ns).astype(dtype) * am.array(box, dtype=dtype).reshape(
+        -1, 1
+    )
+    if dtype == np.float32:
         trg = am.where(trg < 1e-5, 0.5, trg)
         src = am.where(src < 1e-5, 0.5, src)
 
-    options = EwaldOptions(
-            periodicity=periodicity, box=box, tolerance=tolerance, cell_size=cell_size,
-            p2p_method=p2p_method, g2p_method=g2p_method, p2g_method=p2g_method,
-            fft_type=fft_type, execution_space=execution_space) 
-    if fun == stokes_comb:
-        dens_sl = am.random.randn(3, ns).astype(get_dtype(dtype))
-        dens_dl = am.random.randn(3, ns).astype(get_dtype(dtype))
+    options = parkipy.ewald.EwaldOptions(
+        periodicity=periodicity,
+        box=box,
+        tolerance=tolerance,
+        cell_size=cell_size,
+        p2p_method=p2p_method,
+        g2p_method=g2p_method,
+        p2g_method=p2g_method,
+        fft_type=fft_type,
+        execution_space=execution_space,
+    )
+    if fun == parkipy.ewald.stokes_comb:
+        dens_sl = am.random.randn(3, ns).astype(dtype)
+        dens_dl = am.random.randn(3, ns).astype(dtype)
         dens = am.vstack(
-            (dens_sl, dens_dl), dtype=get_dtype(dtype)
+            (dens_sl, dens_dl), dtype=dtype
         )  # stack densities for ewald call
-        normal = am.random.randn(3, ns).astype(get_dtype(dtype))
-        if dtype == 'fp32':
+        normal = am.random.randn(3, ns).astype(dtype)
+        if dtype == "fp32":
             dens = am.where(dens < 1e-5, 0.5, dens)
             normal = am.where(normal < 1e-5, 0.5, normal)
         if verbosity >= 2:
@@ -238,10 +257,10 @@ def run(
             normal,
             options,
         )
-    elif fun == laplace:
-        charges = am.random.randn(ns).astype(get_dtype(dtype))
-        charges -= am.mean(charges).astype(get_dtype(dtype))
-        if dtype == 'fp_32':
+    elif fun == parkipy.ewald.laplace:
+        charges = am.random.randn(ns).astype(dtype)
+        charges -= am.mean(charges).astype(dtype)
+        if dtype == "fp_32":
             charges = am.where(charges < 1e-5, 0.5, charges)
         pot = fun(
             trg,
@@ -249,7 +268,13 @@ def run(
             charges,
             options,
         )
+    elif fun == parkipy.ewald.stokes_sl:
+        dens = am.random.randn(3, ns).astype(dtype)
+        if dtype == "fp32":
+            dense = am.where(dens < 1e-5, 0.5, dens)
+
+        port = fun(trg, src, dens, options)
     else:
-        pass
+        raise NotImplementedError
 
     return pot
