@@ -83,7 +83,7 @@ def run_convergence(
     am = parkipy.utils.get_array_module(execution_space)
     # Test 1: Reduce tolerance gradually, fixed cell_list.
     if dtype == np.float64:
-        tolvA = [1e-3, 1e-5, 1e-7, 1e-9, 1e-11]
+        tolvA = [1e-4, 1e-5, 1e-7, 1e-9, 1e-11]
     elif dtype == np.float32:
         tolvA = [1e-1, 1e-2, 1e-3, 1e-5, 1e-6]
     else:
@@ -182,7 +182,12 @@ def run_convergence(
                 msg=f"Consistency test failed for tol={tol:.3e}: max error = {max_err:.3e}",
             )
         except AssertionError as e:
-            raise e
+            print(
+                f"Consistency test failed for tol={tol:.3e}: max error = {max_err:.3e}"
+            )
+            raise AssertionError(
+                f"Consistency test failed for tol={tol:.3e}: max error = {max_err:.3e}"
+            )
 
     return
 
