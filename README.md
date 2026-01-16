@@ -3,12 +3,12 @@ The ParKI library provides a python API, ParkiPy, supporting a `CellList` class 
 
 ## Supported Kernels
 
-|            | Stokes single layer | Stokes double layer | Stokes Combined | Laplace |
-|------------|---------------------|---------------------|-----------------|---------|
-| 0-periodic | ❌                   | ❌                   | ❌               | ❌       |
-| 1-periodic | ❌                   | ❌                   | ✅               | ❌       |
-| 2-periodic | ❌                   | ❌                   | ❌               | ❌       |
-| 3-periodic | ❌                   | ❌                   | ✅               | ✅       |
+|            | Stokes single layer | Stokes single + double layer | Laplace |
+|------------|---------------------|------------------------------|---------|
+| 0-periodic | ❌                  | ❌                           | ❌      |
+| 1-periodic | ❌                  | ✅                           | ❌      |
+| 2-periodic | ❌                  | ❌                           | ❌      |
+| 3-periodic | ❌                  | ✅                           | ✅      |
 
 
 # Repository layout
