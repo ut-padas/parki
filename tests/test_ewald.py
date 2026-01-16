@@ -278,7 +278,7 @@ def run(
         if dtype == "fp32":
             dense = am.where(dens < 1e-5, 0.5, dens)
 
-        port = fun(trg, src, dens, options)
+        pot = fun(trg, src, dens, options)
     else:
         raise NotImplementedError
 
