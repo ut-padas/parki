@@ -44,16 +44,16 @@ from ._pk_kernels._g2p_workload import (
     g2p_workload_multi_forces_host_fp32,
 )
 from ._pk_kernels._cnv_workunits import (
+    convolution_sum_sl_dl,
+    convolution_sum_sl,
     laplace_convolution_kernel_fp64,
     laplace_convolution_kernel_fp32,
     stokeslet_convolution_kernel_fp64,
     stresslet_convolution_kernel_fp64,
-    convolution_sum_sl_dl_fp64,
     stokeslet_convolution_zero_kernel_fp64,
     stresslet_convolution_zero_kernel_fp64,
     stokeslet_convolution_kernel_fp32,
     stresslet_convolution_kernel_fp32,
-    convolution_sum_sl_dl_fp32,
     stokeslet_convolution_zero_kernel_fp32,
     stresslet_convolution_zero_kernel_fp32,
 )
@@ -787,6 +787,8 @@ class DevicePre:
 
         # Choose kernel function variants based on dtype
         dtype_size = self.am.dtype(self.data.dtype).itemsize
+        self.convolution_sum_sl_dl = convolution_sum_sl_dl
+        self.convolution_sum_sl = convolution_sum_sl
         match self.data.dtype:
             case self.am.double:
                 self.p2p_workload = p2p_workload_fp64
@@ -795,7 +797,6 @@ class DevicePre:
                 self.laplace_convolution_kernel = laplace_convolution_kernel_fp64
                 self.stokeslet_convolution_kernel = stokeslet_convolution_kernel_fp64
                 self.stresslet_convolution_kernel = stresslet_convolution_kernel_fp64
-                self.convolution_sum_sl_dl = convolution_sum_sl_dl_fp64
                 self.stokeslet_convolution_zero_kernel = (
                     stokeslet_convolution_zero_kernel_fp64
                 )
@@ -809,7 +810,6 @@ class DevicePre:
                 self.laplace_convolution_kernel = laplace_convolution_kernel_fp32
                 self.stokeslet_convolution_kernel = stokeslet_convolution_kernel_fp32
                 self.stresslet_convolution_kernel = stresslet_convolution_kernel_fp32
-                self.convolution_sum_sl_dl = convolution_sum_sl_dl_fp32
                 self.stokeslet_convolution_zero_kernel = (
                     stokeslet_convolution_zero_kernel_fp32
                 )
