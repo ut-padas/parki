@@ -38,27 +38,27 @@ def test_gpu():
 
 
 @pytest.mark.parametrize("p2p_method", ["GM-1D", "GM-2D", "SM-1D", "SM-2D"])
-def test_p2p_stokes(p2p_method, periodicity):
+def test_p2p_stokes(p2p_method):
     """
     test different p2p methods for the 1-per stokes solver
     """
-    run_convergence(p2p_method=p2p_method, periodicity=periodicity)
+    run_convergence(p2p_method=p2p_method)
 
 
 @pytest.mark.parametrize("p2g_method", ["BASE", "SOURCE", "GRID", "HYBRID"])
-def test_p2g_stokes(p2g_method, periodicity):
+def test_p2g_stokes(p2g_method):
     """
     test different p2g method for the 1-per stokes solver
     """
-    run_convergence(p2g_method=p2g_method, periodicity=periodicity)
+    run_convergence(p2g_method=p2g_method)
 
 
 @pytest.mark.parametrize("g2p_method", ["BASE", "TARGET"])
-def test_g2p_stokes(g2p_method, periodicity):
+def test_g2p_stokes(g2p_method):
     """
     test different g2p methods for the 1-per stokes solver
     """
-    run_convergence(g2p_method=g2p_method, periodicity=periodicity)
+    run_convergence(g2p_method=g2p_method)
 
 
 def run_convergence(
