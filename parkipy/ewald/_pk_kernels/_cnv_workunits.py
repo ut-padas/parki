@@ -758,8 +758,8 @@ def stokeslet_convolution_zero_kernel_fp32(
             C: pk.float = kk / (4 * xi * xi)
             kn: pk.float = pk.sqrt(kk)
             # modified Green's function
-            BJ0: pk.float = pk.cyl_bessel_j0(pk.double(gR * kn))
-            BJ1: pk.float = pk.cyl_bessel_j1(pk.double(gR * kn))
+            BJ0: pk.float = pk.cyl_bessel_j0(gR * kn)
+            BJ1: pk.float = pk.cyl_bessel_j1(gR * kn)
             biharm: pk.float = 0.0
             if (i + k1_off) == 0 and j == 0:
                 biharm = (-1.0 / 8.0) * PI * gR * gR * gR * gR
@@ -1018,8 +1018,8 @@ def stresslet_convolution_zero_kernel_fp32(
             C: pk.float = kk / (4 * xi * xi)
             kn: pk.float = pk.sqrt(kk)
             # modified Green's function
-            BJ0 = pk.cyl_bessel_j0(pk.double(gR * kn))
-            BJ1: pk.float = pk.cyl_bessel_j1(pk.double(gR * kn))
+            BJ0 = pk.cyl_bessel_j0(gR * kn)
+            BJ1: pk.float = pk.cyl_bessel_j1(gR * kn)
             biharm: pk.float = 0.0
             if (i + k1_off) == 0 and j == 0:
                 biharm = (-1.0 / 8.0) * PI * (gR * gR * gR * gR)

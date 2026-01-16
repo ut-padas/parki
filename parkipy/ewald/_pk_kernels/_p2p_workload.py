@@ -519,12 +519,12 @@ class p2p_workload_single_force_cuda_fp32:
     @pk.function
     def laplace_ewald_fp32(self, u: Real3d_fp32, r: Real3d_fp32, f: Real3d_fp32, d2: pk.float) -> Real3d_fp32:
         TWO_OVER_RSQRT_PI: pk.float = 1.1283791670955126
-        d: pk.float = pk.sqrt(pk.double(d2))
+        d: pk.float = pk.sqrt(d2)
         od: pk.float = 1.0 / d
         od = (od - od) + od
-        od = pk.fmax(pk.double(od), 0.0)
+        od = pk.fmax(od, 0.0)
         xid: pk.float = self.xi * d
-        ewald: pk.float = f.x * pk.erfc(pk.double(xid)) * od
+        ewald: pk.float = f.x * pk.erfc(xid) * od
         self: pk.float = (od == 0) * (-self.xi * TWO_OVER_RSQRT_PI * f.x)
         u.x += ewald + self
         return u

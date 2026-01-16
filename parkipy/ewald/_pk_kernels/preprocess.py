@@ -62,6 +62,7 @@ templates = {
     "templates/_p2g_workload.py": "_p2g_workload.py",
     "templates/_g2p_workload.py": "_g2p_workload.py",
     "templates/_cnv_workunits.py": "_cnv_workunits.py",
+    "templates/_p2p_workunits.py": "_p2p_workunits.py",
 }
 
 
