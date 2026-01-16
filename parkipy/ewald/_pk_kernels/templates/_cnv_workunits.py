@@ -1,11 +1,3 @@
-__all__ = [
-    "stokeslet_convolution_kernel",
-    "stresslet_convolution_kernel",
-    "convolution_sum_sl_dl",
-    "stokeslet_convolution_zero_kernel",
-    "stresslet_convolution_zero_kernel",
-]
-
 import pykokkos as pk
 
 
@@ -297,9 +289,8 @@ def stokeslet_convolution_kernel_range(
     H3[i][j][k][1] = scaling * (kk * H3[i][j][k][1] - k_dot_H_im * k2)
 
 
-# START TEMPLATE SUMSLDL
 @pk.workunit
-def convolution_sum_sl_dl_SUMSLDL(
+def convolution_sum_sl_dl(
     team_member: pk.TeamMember,
     H1,
     H2,
@@ -337,7 +328,40 @@ def convolution_sum_sl_dl_SUMSLDL(
     pk.parallel_for(pk.TeamThreadRange(team_member, threads), thread_loop)
 
 
-# END TEMPLATE SUMSLDL
+@pk.workunit
+def convolution_sum_sl(
+    team_member: pk.TeamMember,
+    H1,
+    H2,
+    H3,
+    D1,
+    D2,
+    D3,
+    grid_size_1: int,
+    grid_size_2: int,
+    freq_range: int,
+    freq_offset: pk.View1D[int],
+    threads: int,
+):
+    wid_off: int = team_member.league_rank() * threads
+
+    def thread_loop(tid: int):
+        wid: int = wid_off + tid
+        if wid >= freq_range * 2:
+            return
+        # global index for H1, H2, H3
+        i: int = (wid // (grid_size_1 * grid_size_2 * 2)) + freq_offset[0]
+        j: int = (wid % (grid_size_1 * grid_size_2 * 2)) // (
+            grid_size_2 * 2
+        ) + freq_offset[1]
+        k: int = wid % (grid_size_2 * 2) // 2 + freq_offset[2]
+        l: int = wid % 2
+
+        D1[i][j][k][l] = H1[i][j][k][l]
+        D2[i][j][k][l] = H2[i][j][k][l]
+        D3[i][j][k][l] = H3[i][j][k][l]
+
+    pk.parallel_for(pk.TeamThreadRange(team_member, threads), thread_loop)
 
 
 @pk.workunit
@@ -1188,6 +1212,3 @@ def stresslet_convolution_zero_kernel_range(
 
 # START APPLICATION STRESSCNV0 _
 # END APPLICATION STRESSCNV0 _
-
-# START APPLICATION SUMSLDL _
-# END APPLICATION SUMSLDL _
