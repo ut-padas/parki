@@ -175,7 +175,7 @@ class CellList:
             cell_size=self.cell_size,
             dp=d,
         )
-        mask = self.particle_index >= 0 
+        mask = self.particle_index >= 0
         loc = self.am.nonzero(mask)[0]
         glb = self.particle_index[loc]
         if isinstance(self.forces, tuple):
@@ -189,9 +189,7 @@ class CellList:
                         "force expected to have the same `n` dimension as"
                         f" particles {n}, got {nf}."
                     )
-                force_list = self.am.zeros(
-                    shape=(df, list_len), dtype=force.dtype
-                )
+                force_list = self.am.zeros(shape=(df, list_len), dtype=force.dtype)
                 force_list[:, loc] = force[:, glb]
                 out.append(force_list)
             self._force_list = tuple(out)
@@ -392,7 +390,7 @@ class CellList:
         For each (global) cell index, create a list of the
         nonempty cell index of the 27 3d neighbors.
         """
-        neighbors = self.am.full((self.num_cells, 3, 3, 3), -1, dtype=int)
+        neighbors = self.am.full((self.num_cells, 3, 3, 3), -1, dtype=self.am.int32)
         nx, ny, nz = self.cell_grid_shape
         cell = self.am.arange(self.num_cells)
         cell_x = cell // (ny * nz)
