@@ -69,7 +69,7 @@ def run_convergence(
     nt=312,
     ns=773,
     cell_size=512,
-    dtype="fp64",
+    dtype=np.float64,
     box=[1, 1, 1],
     fun=parkipy.ewald.stokes_comb,
     periodicity=1,
@@ -87,7 +87,7 @@ def run_convergence(
     elif dtype == np.float32:
         tolvA = [1e-1, 1e-2, 1e-3, 1e-5, 1e-6]
     else:
-        raise NotImplementedError
+        raise NotImplementedError(f"dtype={dtype}")
     potvA = []
     for tol in tolvA:
         print(f":: Test 1: Running tol={tol}")

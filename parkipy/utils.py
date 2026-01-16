@@ -20,12 +20,12 @@ import numpy as np
 import pykokkos as pk
 from typing import Union, Literal
 import types
-import math 
+import math
 
 
 def round_up(n: int, factor: int) -> int:
     """
-    Round the number `n` to the nearest multiple 
+    Round the number `n` to the nearest multiple
     of `factor`. That is, return `m>=n` such that
     `m % factor == 0`.
 
@@ -41,6 +41,7 @@ def round_up(n: int, factor: int) -> int:
     int
     """
     return factor * math.ceil(n / factor)
+
 
 def get_dtype(dtype: Union[Literal["fp32", "fp64"], np.dtype]) -> np.dtype:
     """
@@ -66,26 +67,34 @@ def get_dtype(dtype: Union[Literal["fp32", "fp64"], np.dtype]) -> np.dtype:
         )
 
 
-def get_execution_space(execution_space: Union[None, Literal["Cuda", "HIP", "OpenMP"], pk.ExecutionSpace] = None) -> pk.ExecutionSpace:
+def get_execution_space(
+    execution_space: Union[
+        None, Literal["Cuda", "HIP", "OpenMP"], pk.ExecutionSpace
+    ] = None,
+) -> pk.ExecutionSpace:
     """
     Return a Kokkos :class:`pk.ExecutionSpace`
     object given am execution space specification.
 
     Parameters
     ----------
-    execution_space: None | {"Cuda", "HIP", "OpenMP"} | pk.ExecutionSpace
+    execution_space: None | {"GPU", "Cuda", "HIP", "OpenMP"} | pk.ExecutionSpace
         Kokkos execution space specification. If ``None``, return the Kokkos
-        default execution space. The default is ``None``.
+        default execution space. The default is ``None``. If "GPU",
+        choose one of "Cuda" or "HIP", if available.
 
     Returns
     -------
         :class:`pykokkos.ExecutionSpace`
     """
+    valid_spaces = ("GPU", "Cuda", "HIP", "OpenMP")
     if execution_space == None:
         return pk.get_default_space()
     else:
         if isinstance(execution_space, str):
             match execution_space.upper():
+                case "GPU":
+                    execution_space = pk.kokkos_manager.get_gpu_framework()
                 case "CUDA":
                     execution_space = "Cuda"
                 case "HIP":
@@ -101,7 +110,9 @@ def get_execution_space(execution_space: Union[None, Literal["Cuda", "HIP", "Ope
                             " 'OpenMP', 'Threads', 'Serial' host execution spaces."
                         )
                 case _:
-                    pass
+                    raise ValueError(
+                        f"execution space must be one of {valid_spaces}, got {execution_space}."
+                    )
             return pk.ExecutionSpace(execution_space)
         elif isinstance(execution_space, pk.ExecutionSpace):
             return execution_space
@@ -115,9 +126,13 @@ def get_execution_space(execution_space: Union[None, Literal["Cuda", "HIP", "Ope
             )
 
 
-def get_array_module(execution_space: Union[None, Literal["Cuda", "HIP", "OpenMP"], pk.ExecutionSpace] = None) -> types.ModuleType:
+def get_array_module(
+    execution_space: Union[
+        None, Literal["Cuda", "HIP", "OpenMP"], pk.ExecutionSpace
+    ] = None,
+) -> types.ModuleType:
     """
-    Return the Numpy or Cupy array module used 
+    Return the Numpy or Cupy array module used
     for a specific execution space.
 
     Parameters
@@ -138,7 +153,7 @@ def get_array_module(execution_space: Union[None, Literal["Cuda", "HIP", "OpenMP
     >>> am
     ... <module 'cupy' from '/opt/homebrew/lib/python3.13/site-packages/cupy/__init__.py'>
     >>> array = am.random.rand(3, 100000)
-    
+
     """
     execution_space = get_execution_space(execution_space)
     if execution_space in [pk.ExecutionSpace.Cuda, pk.ExecutionSpace.HIP]:
