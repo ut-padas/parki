@@ -474,7 +474,8 @@ class p2p_workload_P2PWORKLOAD:
         ) + (xid >= 4.75e-2) * ((A - B) * od2)
         # single layer update
         u = self.stokes_sl_ewald_fp64(u, r, f1, d, od, od2, A, B, C)
-        u = self.stokes_dl_ewald_fp64(u, r, f2, n, d, od, od2, B, C)
+        if self.has_dl:
+            u = self.stokes_dl_ewald_fp64(u, r, f2, n, d, od, od2, B, C)
         return u
 
     @pk.function
@@ -773,23 +774,24 @@ class p2p_workload_P2PWORKLOAD:
                         continue
                     # kernel dispatch
                     if kernel == 0: # stokes_comb_ewald
+                        f1: Real3d_fp64 = Real3d_fp64()
+                        f2: Real3d_fp64 = Real3d_fp64()
+                        n: Real3d_fp64 = Real3d_fp64()
                         # TODO: change to George's method
                         od: pk.double = pk.rsqrt((d2 != 0) * (d2) + (d2 == 0))
                         d: pk.double = (d2 != 0) * (1 / od)
                         od = (d2 != 0) * od
                         od2: pk.double = od * od
-                        f1: Real3d_fp64 = Real3d_fp64()
                         f1.x = self.forces_list[0][s]
                         f1.y = self.forces_list[1][s]
                         f1.z = self.forces_list[2][s]
-                        f2: Real3d_fp64 = Real3d_fp64()
-                        f2.x = self.forces_list[3][s]
-                        f2.y = self.forces_list[4][s]
-                        f2.z = self.forces_list[5][s]
-                        n: Real3d_fp64 = Real3d_fp64()
-                        n.x = self.normals_list[0][s]
-                        n.y = self.normals_list[1][s]
-                        n.z = self.normals_list[2][s]
+                        if self.has_dl:
+                            f2.x = self.forces_list[3][s]
+                            f2.y = self.forces_list[4][s]
+                            f2.z = self.forces_list[5][s]
+                            n.x = self.normals_list[0][s]
+                            n.y = self.normals_list[1][s]
+                            n.z = self.normals_list[2][s]
                         u = self.stokes_comb_ewald_fp64(u, r, f1, f2, n, d2, d, od, od2)
                     elif kernel == 3: # laplace_ewald
                         f: Real3d_fp64 = Real3d_fp64()

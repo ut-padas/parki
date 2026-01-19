@@ -6,9 +6,9 @@ The ParKI library provides a python API, ParkiPy, supporting a `CellList` class 
 |            | Stokes single layer | Stokes single + double layer | Laplace |
 |------------|---------------------|------------------------------|---------|
 | 0-periodic | ❌                  | ❌                           | ❌      |
-| 1-periodic | ❌                  | ✅                           | ❌      |
+| 1-periodic | ✅                  | ✅                           | ❌      |
 | 2-periodic | ❌                  | ❌                           | ❌      |
-| 3-periodic | ❌                  | ✅                           | ✅      |
+| 3-periodic | ✅                  | ✅                           | ✅      |
 
 
 # Repository layout

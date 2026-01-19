@@ -126,7 +126,9 @@ def p2p(
         case "LAPLACE":
             kernel_flag = 3
         case "STOKES_SL":
-            pass
+            kernel_flag = 0
+            has_sl = has_ewald = True
+            has_dl = False
         case "DISTANCE / EWALD":  # NOTE: w/o Ewald, for testing only
             kernel_flag = 1
         case "LAPLACE / EWALD":
@@ -196,100 +198,53 @@ def p2p(
     # call kokkos executable
     kernel_start = sort_end = time.time()
     RangePush("P2P-kernel")
-    if kernel.upper() == "STOKES_SL":
-        if method.upper() == "GM-1D":
-            from ._pk_kernels._p2p_workunits import (
-                p2p_stokes_sl_fp32,
-                p2p_stokes_sl_fp64,
-            )
-
-            if device_pre.data.dtype == device_pre.am.float64:
-                p2p_workunit = p2p_stokes_sl_fp64
-            elif device_pre.data.dtype == device_pre.am.float32:
-                p2p_workunit = p2p_stokes_sl_fp32
-            else:
-                raise NotImplementedError
-            target_chunk_size = threads_x * t_per_thread
-            target_chunks_per_cell = math.ceil(
-                target_list.cell_size / target_chunk_size
-            )
-            kwargs = {
-                "u": device_pre.near_potential,
-                "out_list": target_list.particle_list,
-                "out_ordering": target_list.particle_index,
-                "out_cell_chunk_size": target_chunk_size,
-                "out_ne_cells": target_list.num_nonempty_cells,
-                "out_cell_index": target_list.nonempty_cells,
-                "out_cell_size": target_list.cell_size,
-                "in_list": source_list.particle_list,
-                "in_list_forces": source_list.force_list,
-                "in_nonempty_neighbors": source_list.nonempty_neighbors,  # TODO: periodic neighbors
-                "in_cell_size": source_list.cell_size,
-                "periodicity": device_pre.data.opt.periodicity,
-                "periodic_shift": device_pre.am.array(
-                    [1 if p < device_pre.data.opt.periodicity else 0 for p in range(3)],
-                    dtype=device_pre.am.int32,
-                ),
-                "split": device_pre.data.opt.xi,
-                "split2": device_pre.data.opt.xi**2,
-            }
-            name = "P2P-GM-1D (stokes sl)"
-            policy = pk.TeamPolicy(
-                device_pre.execution_space,
-                target_list.num_nonempty_cells * target_chunks_per_cell,
-                threads_x,
-            )
-            pk.parallel_for(name, policy, p2p_workunit, **kwargs)
-        else:
-            raise NotImplementedError
-    else:
-        pk.execute(
-            device_pre.execution_space,
-            device_pre.p2p_workload(
-                pk.array(device_pre.near_potential),
-                pk.array(target_list.counter),
-                pk.array(target_list.particle_list),
-                pk.array(source_list.counter),
-                pk.array(source_list.particle_list),
-                pk.array(
-                    source_list.force_list[0]
-                    if isinstance(source_list.force_list, tuple)
-                    else source_list.force_list
-                ),
-                pk.array(
-                    source_list.force_list[1]
-                    if isinstance(source_list.force_list, tuple)
-                    else source_list.force_list
-                ),  # dummy variable if no normals
-                pk.array(target_list.particle_index),
-                pk.array(target_list.nonempty_cells),
-                pk.array(source_list.nonempty_cells),
-                pk.array(target_list.nonempty_cell_index),
-                pk.array(source_list.nonempty_cell_index),
-                device_pre.data.opt.ghost_box,
-                (
-                    device_pre.data.opt.periodicity
-                    if not device_pre.data.opt.distributed
-                    else 0
-                ),
-                device_pre.data.opt.xi,
-                device_pre.data.opt.rc,
-                has_sl,
-                has_dl,
-                has_ewald,
-                target_list.num_nonempty_cells,
-                source_list.num_nonempty_cells,
-                target_list.cell_size,
-                source_list.cell_size,
-                threads_x,
-                t_per_thread,
-                s_per_thread,
-                vector_size,
-                method_flag,
-                kernel_flag,
+    pk.execute(
+        device_pre.execution_space,
+        device_pre.p2p_workload(
+            pk.array(device_pre.near_potential),
+            pk.array(target_list.counter),
+            pk.array(target_list.particle_list),
+            pk.array(source_list.counter),
+            pk.array(source_list.particle_list),
+            pk.array(
+                source_list.force_list[0]
+                if isinstance(source_list.force_list, tuple)
+                else source_list.force_list
             ),
-        )
-        RangePop()
+            pk.array(
+                source_list.force_list[1]
+                if isinstance(source_list.force_list, tuple)
+                else source_list.force_list
+            ),  # dummy variable if no normals
+            pk.array(target_list.particle_index),
+            pk.array(target_list.nonempty_cells),
+            pk.array(source_list.nonempty_cells),
+            pk.array(target_list.nonempty_cell_index),
+            pk.array(source_list.nonempty_cell_index),
+            device_pre.data.opt.ghost_box,
+            (
+                device_pre.data.opt.periodicity
+                if not device_pre.data.opt.distributed
+                else 0
+            ),
+            device_pre.data.opt.xi,
+            device_pre.data.opt.rc,
+            has_sl,
+            has_dl,
+            has_ewald,
+            target_list.num_nonempty_cells,
+            source_list.num_nonempty_cells,
+            target_list.cell_size,
+            source_list.cell_size,
+            threads_x,
+            t_per_thread,
+            s_per_thread,
+            vector_size,
+            method_flag,
+            kernel_flag,
+        ),
+    )
+    RangePop()
     kernel_end = time.time()
     walltime = {
         "args": args_end - args_start,
@@ -735,6 +690,8 @@ def _cnv_GLB(device_pre, threads):
             for d in range(device_pre.dim_out):
                 if device_pre.has_sl and device_pre.has_dl:
                     device_pre.data.Hg[d, 0] = G01[d] + G02[d][0]
+                elif device_pre.has_sl:
+                    device_pre.data.Hg[d, 0] = G01[d]
                 else:
                     raise NotImplementedError(
                         "CNV summation not implemented for"
