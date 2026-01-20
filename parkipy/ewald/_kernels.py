@@ -391,6 +391,10 @@ class EwaldOptions:
     return_params: bool = False
 
     def __post_init__(self):
+        if not isinstance(self.box, list) or not isinstance(self.box, np.ndarray):
+            raise TypeError(
+                f"box expected to be list of numpy array, got type {type(self.box)}."
+            )
         for box_len in self.box:
             if box_len <= 0:
                 raise ValueError("box lengths must be positive.")
