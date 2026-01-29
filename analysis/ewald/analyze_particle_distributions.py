@@ -3,13 +3,83 @@ import argparse
 import numpy as np
 import pandas as pd
 import pickle
+from spheroid import spheroid_patches
+import matplotlib.pyplot as plt
 
+plt.rc("text", usetex=True)
+plt.rc("font", family="serif")
+
+def sample_gaussian(box, c, n):
+    """
+    rejects points outside of the box
+    """
+    lx, ly, lz = box
+    center = np.array([lx / 2, ly / 2, lz / 2])
+    lower = np.array([0.0, 0.0, 0.0])
+    upper = np.array([lx, ly, lz])
+
+    points = np.empty((3, n))
+    i = 0
+    num_accepted = 0
+    while num_accepted < n:
+        samples = np.random.normal(
+            loc=0.0, scale=c, size=(3, n)
+        ) + center.reshape(3, 1)
+        mask = np.all(
+            (samples > lower.reshape(3, 1)) & (samples < upper.reshape(3, 1)), axis=0
+        )
+        new_samples = samples[:, mask]
+        num_new_samples = min(new_samples.shape[1], n - num_accepted)
+        points[:, num_accepted : num_accepted + num_new_samples] = new_samples[
+            :, :num_new_samples
+        ]
+        num_accepted += num_new_samples
+        i += 1
+
+    return points
+
+def plot_distribution():
+
+    sph_points = spheroid_patches(m=32).reshape(3,-1)
+    sph_points /= 2
+    sph_points += 0.5
+    sph_x,sph_y,sph_z = sph_points
+    u_x, u_y, u_z = np.random.uniform(size=(3, sph_points.shape[1]))
+    n_x, n_y, n_z = sample_gaussian([1,1,1], 0.3, sph_points.shape[1]) 
+    print(sph_points.shape, u_x.shape)
+
+    fig, axs = plt.subplots(1, 3, figsize=(14, 6))
+    label_size = 30
+    tick_size = 18
+    for ax in axs:
+        ax.set_aspect("equal", adjustable="box")
+    
+    
+    _, _, _, im0 = axs[0].hist2d(u_x, u_z, bins=20)
+    _, _, _, im1 = axs[1].hist2d(n_x, n_z, bins=20)
+    _, _, _, im2 = axs[2].hist2d(sph_x, sph_z, bins=20)
+    axs[0].set_title("Uniform", fontsize=24)
+    axs[1].set_title("Gaussian", fontsize=24)
+    axs[2].set_title("Sphere", fontsize=24)
+
+
+    for ax, im in zip(axs, [im0, im1, im2]):
+        cbar = plt.colorbar(im, ax=ax, orientation='horizontal', fraction=0.05)
+        cbar.set_label("count", fontsize=14)
+        cbar.ax.tick_params(labelsize=12)
+
+    fig.suptitle("Particle Distributions Projected to the $x$-$z$ Plane", fontsize=label_size)
+
+    pname = "analysis/ewald/plots/distributions.pdf"
+    plt.savefig(pname, bbox_inches="tight")
+    #plt.show()
 
 def main(args):
     """
     Main function. Takes `args` from the ArgumentParser at the bottom of this
     file.
     """
+    plot_distribution()
     data = load_times_from_disk(args, timestamp=args.timestamp)
     distributions = data["times"].keys()
     stages = ["p2p", "p2g", "fft", "cnv", "ifft", "g2p", "total"]
@@ -45,7 +115,6 @@ def main(args):
             string = string[:-2]
             string += "\\\\\n"
         string += "\\bottomrule"
-        print(string)
     elif args.format.upper() == "CL":
         string = ""
         col_width = 12

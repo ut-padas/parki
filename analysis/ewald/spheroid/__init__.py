@@ -18,9 +18,9 @@ def spheroid_patches(c=1.0, m=8):
 
     Returns an array of shape ``(3, Ntot)``.
     """
-    pts, _ = create_patches_ellipsoid(m, m, 1.0, 1.0, c)
+    pts, _ = create_patches_ellipsoid(m, m, 1.0, 1.0, 1.0)
 
-    pts = pts.reshape(3, -1)
+    pts = pts.reshape(-1,3).T
     return pts
 
 
