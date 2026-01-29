@@ -78,7 +78,7 @@ class CellList:
         if not isinstance(self.particles, self.am.ndarray):
             raise ValueError(
                 f"particles expected to be {self.am.ndarray} "
-                "but are type {type(self.particles)}"
+                f"but are type {type(self.particles)}"
             )
         self._box = self.am.asarray(box, dtype=self.dtype)
         if self.box.size != 3:
