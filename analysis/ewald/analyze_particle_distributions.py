@@ -5,6 +5,9 @@ import pandas as pd
 import pickle
 from spheroid import spheroid_patches
 import matplotlib.pyplot as plt
+from matplotlib.ticker import PercentFormatter
+from scipy.stats import gaussian_kde
+
 
 plt.rc("text", usetex=True)
 plt.rc("font", family="serif")
@@ -38,41 +41,65 @@ def sample_gaussian(box, c, n):
 
     return points
 
+def sample_unit_sphere_surface(n):
+    points = np.random.normal(size=(3, n))
+    points /= np.linalg.norm(points, axis=0)
+    return points
+
 def plot_distribution():
-
-    sph_points = spheroid_patches(m=32).reshape(3,-1)
-    sph_points /= 2
-    sph_points += 0.5
-    sph_x,sph_y,sph_z = sph_points
-    u_x, u_y, u_z = np.random.uniform(size=(3, sph_points.shape[1]))
-    n_x, n_y, n_z = sample_gaussian([1,1,1], 0.3, sph_points.shape[1]) 
-    print(sph_points.shape, u_x.shape)
-
-    fig, axs = plt.subplots(1, 3, figsize=(14, 6))
+    n = 4_000
     label_size = 30
     tick_size = 18
+
+    # Sample points
+    sph_points = sample_unit_sphere_surface(n)
+    sph_points /= 2
+    sph_points += 0.5
+    sph_x, sph_y, sph_z = sph_points
+
+    u_x, u_y, u_z = np.random.uniform(size=(3, n))
+    n_x, n_y, n_z = sample_gaussian([1, 1, 1], 0.3, n)
+
+    # Create figure
+    fig, axs = plt.subplots(1, 3, figsize=(14, 6))
     for ax in axs:
         ax.set_aspect("equal", adjustable="box")
-    
-    
-    _, _, _, im0 = axs[0].hist2d(u_x, u_z, bins=20)
-    _, _, _, im1 = axs[1].hist2d(n_x, n_z, bins=20)
-    _, _, _, im2 = axs[2].hist2d(sph_x, sph_z, bins=20)
-    axs[0].set_title("Uniform", fontsize=24)
-    axs[1].set_title("Gaussian", fontsize=24)
-    axs[2].set_title("Sphere", fontsize=24)
 
+    # Prepare grid for KDE evaluation
+    def make_grid(x, z, bins=200):
+        xi = np.linspace(np.min(x), np.max(x), bins)
+        zi = np.linspace(np.min(z), np.max(z), bins)
+        X, Z = np.meshgrid(xi, zi)
+        positions = np.vstack([X.ravel(), Z.ravel()])
+        return X, Z, positions
 
-    for ax, im in zip(axs, [im0, im1, im2]):
-        cbar = plt.colorbar(im, ax=ax, orientation='horizontal', fraction=0.05)
-        cbar.set_label("count", fontsize=14)
+    # Plot each panel with 2D KDE
+    datasets = [(u_x, u_z, "Uniform"), (n_x, n_z, "Gaussian"), (sph_x, sph_z, "Sphere")]
+    for ax, (x, z, title) in zip(axs, datasets):
+        X, Z, positions = make_grid(x, z, bins=200)
+        
+        # KDE estimation
+        kde = gaussian_kde(np.vstack([x, z]))
+        density = kde(positions).reshape(X.shape)
+        
+        # Plot smooth density
+        im = ax.pcolormesh(X, Z, density/density.max(), shading='auto')
+        
+        # Colorbar beneath each subplot
+        cbar = plt.colorbar(im, ax=ax, orientation='horizontal', fraction=0.05, pad=0.15)
+        cbar.set_label("Density", fontsize=14)
         cbar.ax.tick_params(labelsize=12)
+        cbar.ax.xaxis.set_major_formatter(PercentFormatter(xmax=1))
 
+        ax.set_title(title, fontsize=24)
+
+    # Figure title
     fig.suptitle("Particle Distributions Projected to the $x$-$z$ Plane", fontsize=label_size)
 
-    pname = "analysis/ewald/plots/distributions.pdf"
+    # Save figure
+    pname = "analysis/ewald/plots/distributions_kde.pdf"
     plt.savefig(pname, bbox_inches="tight")
-    #plt.show()
+    plt.show()
 
 def main(args):
     """
