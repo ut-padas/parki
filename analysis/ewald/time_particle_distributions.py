@@ -5,9 +5,9 @@ import argparse
 import numpy as np
 import pykokkos as pk
 import pickle
-from spheroid import spheroid_patches
 
 import parkipy
+
 
 def main(args):
     """
@@ -15,8 +15,7 @@ def main(args):
     file. `args.nt` will be a list of integers, and we run `run()` with each of
     these integers as the number of targets.
     """
-    args.m = 818
-    nt_list = [6 * (args.m - 1) ** 2] #nt  = 4004934 when m = 818
+    nt_list = [4000000]
     repeats = 5
     all_times = dict()
     all_memory = dict()
@@ -41,22 +40,22 @@ def main(args):
                 for nthreads in threads:
                     print(f":::: Running threads={nthreads}")
                     args.threads = nthreads
-                    potential, times = run(
-                        args, time_every_step=True, verbosity=1
-                    )
+                    potential, times = run(args, time_every_step=True, verbosity=1)
                     tot_times.append(times)
                 print(f"   {j+1}th pass done (out of {repeats})")
                 # Initialize arrays for storing runtimes and memory
                 if i == 0 and j == 0:
                     for key in times:
-                        all_times[distribution][key] = np.full(shape=[repeats, len(nt_list)], fill_value=np.inf)
+                        all_times[distribution][key] = np.full(
+                            shape=[repeats, len(nt_list)], fill_value=np.inf
+                        )
                 # Store runtimes
                 for times in tot_times:
                     for key, val in times.items():
                         old_time = all_times[distribution][key][j, i]
-                        new_time = val['tot']
+                        new_time = val["tot"]
                         if new_time < old_time:
-                            all_times[distribution][key][j, i] = val['tot']
+                            all_times[distribution][key][j, i] = val["tot"]
     save_times_to_disk(nt_list, repeats, all_times, args)
     return
 
@@ -65,12 +64,14 @@ def save_times_to_disk(nt, repeats, times, args):
     now_str = time.strftime("%y%m%dT%H%M%S%Z")
     format_version = 1
     if args.device.upper() == "OPENMP":
-        args.device = 'host'
+        args.device = "host"
     if args.device.upper() == "HOST":
         import platform
+
         arch = platform.processor()
     else:
         import cupy as cp
+
         arch = cp.cuda.Device(0).compute_capability
     fname_base = (
         f"distributions_timing_result_up{args.up}_clsz{args.cell_size}_tol{args.tolerance}"
@@ -96,6 +97,7 @@ def save_times_to_disk(nt, repeats, times, args):
     print(f"Saved results to {fpath!r} and {fpath_link!r}")
     return
 
+
 def sample_gaussian(box, c, n):
     """
     rejects points outside of the box
@@ -110,9 +112,7 @@ def sample_gaussian(box, c, n):
     i = 0
     num_accepted = 0
     while num_accepted < n:
-        samples = am.random.normal(
-            loc=0.0, scale=c, size=(3, n)
-        ) + center.reshape(3, 1)
+        samples = am.random.normal(loc=0.0, scale=c, size=(3, n)) + center.reshape(3, 1)
         mask = am.all(
             (samples > lower.reshape(3, 1)) & (samples < upper.reshape(3, 1)), axis=0
         )
@@ -124,6 +124,11 @@ def sample_gaussian(box, c, n):
         num_accepted += num_new_samples
         i += 1
 
+    return points
+
+def sample_unit_sphere_surface(n):
+    points = np.random.normal(size=(3, n))
+    points /= np.linalg.norm(points, axis=0)
     return points
 
 
@@ -149,15 +154,14 @@ def run(args, time_every_step=False, verbosity=0) -> None:
                 c = 0.3
                 arr = sample_gaussian(box, c, n)
             case "ELLIPSOID":
-                arr = am.array(spheroid_patches(m=args.m))
+                arr = sample_unit_sphere_surface(n)
+                arr = cp.asarray(arr)
                 # scale to be inside box
                 arr *= 0.49
                 arr += 0.5
                 assert arr.shape[1] == n
             case "UNIFORM":
-                arr = am.random.uniform(size=(3, n)) * am.array(
-                    box
-                ).reshape(3, 1)
+                arr = am.random.uniform(size=(3, n)) * am.array(box).reshape(3, 1)
             case _:
                 raise ValueError(
                     f"Distribution must be one of 'GAUSSIAN', 'ELLIPSOID', or 'UNIFORM', got '{dis.upper()}'"
@@ -171,8 +175,23 @@ def run(args, time_every_step=False, verbosity=0) -> None:
     norms = cp.random.randn(3, ns)
     dens = cp.vstack((dens_sl, dens_dl))  # stack densities for ewald call
 
+    options = parkipy.ewald.EwaldOptions(
+        periodicity=1,
+        box=box,
+        tolerance=args.tolerance,
+        execution_space=args.device,
+        cell_size=args.cell_size,
+        return_walltime=True,
+        p2g_threads=args.threads,
+        g2p_threads=args.threads,
+        p2p_threads_x=args.threads,
+    )
     pot, walltimes = parkipy.ewald.stokes_comb(
-        trg, src, dens, norms, 1, box, args.tolerance, args.device, cell_size=args.cell_size, return_walltime=True, p2g_threads=args.threads, g2p_threads=args.threads, p2p_threads_x = args.threads,
+        trg,
+        src,
+        dens,
+        norms,
+        options,
     )
 
     # Compute and store runtimes in dict
@@ -213,6 +232,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--device",
         dest="device",
+        required=True,
         type=str,
         help="Device to run code on",
     )

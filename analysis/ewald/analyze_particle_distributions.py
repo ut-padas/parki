@@ -106,7 +106,7 @@ def main(args):
     Main function. Takes `args` from the ArgumentParser at the bottom of this
     file.
     """
-    plot_distribution()
+    #plot_distribution()
     data = load_times_from_disk(args, timestamp=args.timestamp)
     distributions = data["times"].keys()
     stages = ["p2p", "p2g", "fft", "cnv", "ifft", "g2p", "total"]
@@ -125,7 +125,7 @@ def main(args):
         string += "\\\\\n"
         # list the times per stage
         for stage in stages:
-            string += f"{stage} &"
+            string += f"{stage.upper()} &"
             for i, dist in enumerate(distributions):
                 if stage == 'total':
                     time = 0
@@ -135,8 +135,7 @@ def main(args):
                         time += data["times"][dist][_stage][:, nindx][1:].mean()
                 else:
                     time = data["times"][dist][stage][:, nindx][1:].mean()
-                pps = n / (time * 1e6)
-                string += f"{round(time*1e4, 2)}" + " &"
+                string += f"{round(time*1e3, 1)}" + " &"
                 if i < len(distributions) - 1:
                     string += " "
             string = string[:-2]
@@ -167,7 +166,7 @@ def main(args):
             string += row + "\n"
 
         string += "-" * len(header)
-        print(string)
+    print(string)
 
 
 def load_times_from_disk(args, timestamp="latest", version=1):

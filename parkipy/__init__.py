@@ -6,6 +6,7 @@ __version__ = "0.0.1"
 
 from ._celllist import CellList
 
+__parkipy_submodules__ = {"ewald", "distributed"}
 
 def __getattr__(attr):
     match attr:
