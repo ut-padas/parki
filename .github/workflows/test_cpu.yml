@@ -15,10 +15,10 @@ defaults:
 jobs:
   test_cpu:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, ubuntu-22.04-arm]
         python-version: ["3.11", "3.12", "3.13"]
-        fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
       - uses: conda-incubator/setup-miniconda@v3
