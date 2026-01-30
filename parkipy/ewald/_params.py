@@ -759,10 +759,14 @@ class SEParams:
         for reference.
         """
         # Compute upsampling factor for the zero mode
-        upsampling_zero = 1 + self.greens_truncation_R / np.min(self.box_ext[1:])
+        upsampling_zero = 1 + self.greens_truncation_R / np.min(
+            self.box_ext[self.periodicity :]
+        )
         upsampling_zero = np.ceil(upsampling_zero * 10) / 10  # round up slightly
         # Compute upsampling factor for the local (near-zero) modes
-        LextOverL = np.min(self.box_ext[1:] / self.box[1:])
+        LextOverL = np.min(
+            self.box_ext[self.periodicity :] / self.box[self.periodicity :]
+        )
         A = self.A_fun(self.source_quantity, self.xi, self.box_dict["box"][0])
         upsampling_local = (
             1 - 1 / (2 * np.pi) * np.log(2 * self.tolerance / A)
@@ -784,13 +788,13 @@ class SEParams:
         sl = upsampling_local
         sg = upsampling
         grid_ups_s0 = self.base_factor * np.ceil(
-            self.grid_shape_ext[1:] * s0 / self.base_factor
+            self.grid_shape_ext[self.periodicity :] * s0 / self.base_factor
         )
         grid_ups_sl = self.base_factor * np.ceil(
-            self.grid_shape_ext[1:] * sl / self.base_factor
+            self.grid_shape_ext[self.periodicity :] * sl / self.base_factor
         )
         grid_ups_sg = self.base_factor * np.ceil(
-            self.grid_shape_ext[1:] * sg / self.base_factor
+            self.grid_shape_ext[self.periodicity :] * sg / self.base_factor
         )
         if self.distributed:
             from mpi4py import MPI
@@ -800,7 +804,7 @@ class SEParams:
             # hence grid_ups_sg must divide the mpi comm size
             grid_ups_sg = np.ceil(grid_ups_sg / size) * size
 
-        self.actual_upsampling = grid_ups_sg / self.grid_shape_ext[1:]
+        self.actual_upsampling = grid_ups_sg / self.grid_shape_ext[self.periodicity :]
 
         return
 
