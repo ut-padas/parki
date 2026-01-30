@@ -297,8 +297,8 @@ class EwaldOptions:
 
     periodicity: {'0','1','2','3'}
         Periodicity of the computational box. Periodicity ``j``
-        means that ``box[i]`` is a periodic length for all ``i<j``,
-        with ``j=0`` indicating free space.
+        means that ``box[j:]`` represents periodic dimensions
+        and ``box[:j]`` represents free space.
 
     tolerance: float
         Tolerance for Ewald summation. Used to set internal Ewald parameters.
