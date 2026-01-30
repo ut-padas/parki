@@ -126,7 +126,6 @@ class EwaldKernel:
         return_walltime=False,
         return_params=False,
         fft_type="R2C",
-        fourier_upsampling_factor_global=None,
     ):
         """
         Evaluate the kernel using direct evaluation.
@@ -217,7 +216,6 @@ class EwaldKernel:
             periodicity=periodicity,
             execution_space=execution_space,
             fft_type=fft_type,
-            fourier_upsampling_factor_global=fourier_upsampling_factor_global,
         )
         # algorithm
         walltime = {}
