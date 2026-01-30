@@ -1,4 +1,4 @@
-name: CPU Testing
+name: CPU Testing - linux
 
 on:
   push:
