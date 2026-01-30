@@ -355,7 +355,6 @@ class DeviceData:
     Hg: Any = field(init=False)
     Hl: Any = None
     H0: Any = None
-    fft_up: bool = field(init=False)
     fft_shape: list[int] = field(init=False)
     ghost_H: Any = field(init=False)
     walltime: dict = field(init=False)
@@ -401,15 +400,16 @@ class DeviceData:
         self.opt.grid_res = self.opt.grid_res.astype(self.dtype)
 
         Mx, My, Mz = self.opt.grid_shape_ext
-        self.fft_up = True  # i.e., always do global upsampling
 
         L1 = self.opt.local_modes1
 
         match self.fft_type.upper():
             case "C2C":
-                dim_z = round(Mz * float(self.opt.actual_upsampling_global[1]))
+                dim_z = round(Mz * float(self.opt.actual_upsampling_global[-1]))
             case "R2C":
-                dim_z = round(Mz * float(self.opt.actual_upsampling_global[1])) // 2 + 1
+                dim_z = (
+                    round(Mz * float(self.opt.actual_upsampling_global[-1])) // 2 + 1
+                )
             case _:
                 raise NotImplementedError(
                     "FFT transform only implemented for type"
@@ -428,6 +428,7 @@ class DeviceData:
                 dtype=self.dtype,
                 order="C",
             )
+            # TODO: vectorize
             Mx_ups = int(self.opt.glb_grid_shape_ext[0])
             My_ups = round(
                 int(self.opt.glb_grid_shape_ext[1])
@@ -491,25 +492,6 @@ class DeviceData:
             raise TypeError("Expected H to be C_CONTIGUOUS!")
 
         self.Hg = am.empty(shape=Hg_shape, dtype=self.dtype)
-
-        if not self.fft_up:
-            self.Hl = am.empty(
-                shape=(
-                    self.dim_H,
-                    len(L1),
-                    round(My * float(self.opt.actual_upsampling_global[0])),
-                    round(Mz * float(self.opt.actual_upsampling_global[1])),
-                ),
-                dtype=self.dtype,
-            )
-            self.H0 = am.empty(
-                shape=(
-                    self.dim_H,
-                    round(My * float(self.opt.actual_upsampling_global[0])),
-                    round(Mz * float(self.opt.actual_upsampling_global[1])),
-                ),
-                dtype=self.dtype,
-            )
 
         self.owned_ns = self.sources.shape[1]
         if self.opt.distributed:

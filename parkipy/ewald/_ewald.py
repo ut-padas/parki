@@ -528,26 +528,23 @@ def fft(device_pre, fftmp_buffers=None):
             )
 
     else:
-        if device_pre.data.fft_up:  # all upsampling factors are the same
-            extra_args = {}
-            if device_pre.execution_space == pk.ExecutionSpace.OpenMP:
-                extra_args["workers"] = int(os.environ.get("OMP_NUM_THREADS"))
-            RangePush("FFT-kernel")
-            fftn = get_fftn(device_pre.execution_space, device_pre.data.fft_type)
-            device_pre.data.Hg[...] = (
-                fftn(
-                    device_pre.data.H[...],
-                    s=device_pre.data.fft_shape,
-                    axes=(1, 2, 3),
-                    overwrite_x=True,
-                    **extra_args,
-                )
-                .view(device_pre.data.dtype)
-                .reshape(device_pre.data.Hg.shape)
+        extra_args = {}
+        if device_pre.execution_space == pk.ExecutionSpace.OpenMP:
+            extra_args["workers"] = int(os.environ.get("OMP_NUM_THREADS"))
+        RangePush("FFT-kernel")
+        fftn = get_fftn(device_pre.execution_space, device_pre.data.fft_type)
+        device_pre.data.Hg[...] = (
+            fftn(
+                device_pre.data.H[...],
+                s=device_pre.data.fft_shape,
+                axes=(1, 2, 3),
+                overwrite_x=True,
+                **extra_args,
             )
-            RangePop()
-        else:
-            raise NotImplementedError("Local upsampling fft not yet implemented.")
+            .view(device_pre.data.dtype)
+            .reshape(device_pre.data.Hg.shape)
+        )
+        RangePop()
     fft_end = time.time()
     walltime = {"tot": fft_end - fft_start}
     return walltime
