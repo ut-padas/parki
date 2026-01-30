@@ -13,7 +13,7 @@ defaults:
     shell: bash
 
 jobs:
-  test_cpu:
+  run_analysis:
     strategy:
       fail-fast: false
       matrix:
