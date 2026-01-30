@@ -29,4 +29,5 @@ jobs:
         run: |
           bash  install.sh
       - name: test
-        pytest tests
+        run: |
+          pytest tests
