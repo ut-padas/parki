@@ -49,49 +49,31 @@ elif [[ "$ENABLE_HIP" == "ON" ]]; then
   conda install -y -c conda-forge cupy-hip
 fi
 
-
-############################
-# Build pykokkos-base
-############################
-
-echo "Installing pykokkos-base"
-
-if [[ -d external ]]; then
-  rm -rf external
-fi
-mkdir external; cd external
-git clone https://github.com/kokkos/pykokkos-base.git
-cd pykokkos-base
-
-conda install -y -c conda-forge --file requirements.txt
-
-export PYKOKKOS_BASE_SETUP_ARGS="\
--DKokkos_ENABLE_SERIAL=OFF \
--DKokkos_ENABLE_THREADS=OFF \
--DKokkos_ENABLE_OPENMP=${ENABLE_OPENMP} \
--DENABLE_CUDA=${ENABLE_CUDA} \
--DENABLE_HIP=${ENABLE_HIP} \
--DENABLE_LAYOUTS=ON \
--DENABLE_MEMORY_TRAITS=OFF \
--DENABLE_VIEW_RANKS=4"
-
-echo "PYKOKKOS_BASE_SETUP_ARGS:"
-printf '  %q\n' $PYKOKKOS_BASE_SETUP_ARGS
-
-pip install . --verbose
-
-cd ..
-
 ############################
 # Install pykokkos
 ############################
 
 echo "Installing pykokkos"
 
+if [[ -d external ]]; then
+  rm -rf external
+fi
+mkdir external; cd external
+
 git clone https://github.com/kokkos/pykokkos.git
 cd pykokkos
 
-pip install -e .
+conda env update -n $ENV_NAME -f base/environment.yml
+python install_base.py install -- \
+	-DENABLE_VIEW_RANKS=4 \
+	-DENABLE_MEMORY_TRAITS=OFF \
+	-DENABLE_THREADS=OFF \
+	-DENABLE_LAYOUTS=ON \
+	-DENABLE_CUDA=$ENABLE_CUDA \
+	-DENABLE_HIP=$ENABLE_HIP \
+	-DENABLE_OPENMP=$ENABLE_OPENMP
+
+pip install --user -e .
 
 cd ../..
 
