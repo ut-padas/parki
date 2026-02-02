@@ -15,6 +15,7 @@ from parkipy.utils import get_array_module, get_execution_space
 from ._ewald import p2p, p2g, fft, cnv, ifft, g2p
 from ._prepare import DevicePre
 from ._params import SEParams
+from ._perf import PerfModel
 
 
 class EwaldKernel:
@@ -219,7 +220,7 @@ class EwaldKernel:
         )
         # algorithm
         walltime = {}
-        walltime["p2p"] = p2p(
+        walltime["p2p"], source_cell_size = p2p(
             device_pre,
             method=p2p_method,
             threads_x=p2p_threads_x,
@@ -248,7 +249,18 @@ class EwaldKernel:
             )
         out = [val]
         if return_walltime:
-            out.append(walltime)
+            perf = PerfModel(
+                kernel=self.kernel,
+                N_out=N_out,
+                N_in=N_in,
+                fft_dim=device_pre.data.dim_H,
+                ifft_dim=device_pre.dim_out,
+                fft_shape=device_pre.data.fft_shape,
+                cell_size=source_cell_size,
+                window_P=device_pre.data.opt.window_P,
+                execution_space=execution_space,
+            )
+            out.append(perf)
         if return_params:
             out.append(params)
         out = tuple(out)
@@ -359,8 +371,8 @@ class EwaldOptions:
         Near field cutoff radius. If ``None``, ``cell_size`` must be provided. The defaults to ``None``.
 
     return_walltime: bool, optional
-        Flag to return the walltime dict of Ewald stage wall-clock times. If true, the ``walltime`` dict
-        will be the second item returned for a kernel call. The default is ``False``.
+        Flag to return the walltime dict of Ewald stage wall-clock times. If true, the ``parkipy.ewald.PerfHistory``
+        object will be the second item returned for a kernel call. The default is ``False``.
 
     return_params: bool, optional
         Flag to return the ``params`` struct for the parameters of the Ewald algorithm.

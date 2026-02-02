@@ -252,7 +252,7 @@ def p2p(
         "kernel": kernel_end - kernel_start,
         "tot": kernel_end - args_start,
     }
-    return walltime
+    return walltime, source_list.cell_size
 
 
 def p2g(

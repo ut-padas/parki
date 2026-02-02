@@ -10,7 +10,6 @@ The ParKI library provides a python API, ParkiPy, supporting a `CellList` class 
 | 2-periodic | ❌                  | ❌                           | ❌      |
 | 3-periodic | ✅                  | ✅                           | ✅      |
 
-
 # Repository layout
 ... 
 
