@@ -716,7 +716,7 @@ class SEParams:
         match self.periodicity:
             case 1:
                 self._prepare_1p(grid_shape, glb_grid_shape)
-            case 3:
+            case 2 | 3:
                 self._prepare_3p(grid_shape, glb_grid_shape)
             case _:
                 raise ValueError(
@@ -744,14 +744,7 @@ class SEParams:
         See https://github.com/joarbagge/SE_unified_v2/blob/master/SE3P/src/SE3P_check_options.m
         for reference
         """
-        self.actual_upsampling = np.array([1, 1])
-
-    def _prepare_2p(self, grid_shape, glb_grid_shape):
-        """
-        See https://github.com/joarbagge/SE_unified_v2/blob/master/SE2P/src/SE2P_check_options.m
-        for reference
-        """
-        self.actual_upsampling = ...
+        self.actual_upsampling = np.array([1, 1, 1])
 
     def _prepare_1p(self, grid_shape, glb_grid_shape):
         """
@@ -804,7 +797,8 @@ class SEParams:
             # hence grid_ups_sg must divide the mpi comm size
             grid_ups_sg = np.ceil(grid_ups_sg / size) * size
 
-        self.actual_upsampling = grid_ups_sg / self.grid_shape_ext[self.periodicity :]
+        self.actual_upsampling = np.ones(3)
+        self.actual_upsampling[self.periodicity:] = grid_ups_sg / self.grid_shape_ext[self.periodicity :]
 
         return
 

@@ -167,7 +167,7 @@ class Options:
                 2 * self.h
             )
             self.k1_off = (
-                round(self.grid_shape_ext[1] * float(self.actual_upsampling_global[0]))
+                round(self.grid_shape_ext[1] * float(self.actual_upsampling_global[-2]))
                 // mpi_comm.size
             ) * mpi_comm.rank
         else:
@@ -432,11 +432,11 @@ class DeviceData:
             Mx_ups = int(self.opt.glb_grid_shape_ext[0])
             My_ups = round(
                 int(self.opt.glb_grid_shape_ext[1])
-                * float(self.opt.actual_upsampling_global[0])
+                * float(self.opt.actual_upsampling_global[-2])
             )
             Mz_ups = round(
                 int(self.opt.glb_grid_shape_ext[2])
-                * float(self.opt.actual_upsampling_global[1])
+                * float(self.opt.actual_upsampling_global[-1])
             )
             match self.fft_type.upper():
                 case "C2C":
@@ -479,14 +479,14 @@ class DeviceData:
             Hg_shape = (
                 self.dim_H,
                 Mx,
-                round(My * float(self.opt.actual_upsampling_global[0])),
+                round(My * float(self.opt.actual_upsampling_global[-2])),
                 dim_z,
                 2,
             )
             self.fft_shape = [
                 Mx,
-                round(My * float(self.opt.actual_upsampling_global[0])),
-                round(Mz * float(self.opt.actual_upsampling_global[1])),
+                round(My * float(self.opt.actual_upsampling_global[-2])),
+                round(Mz * float(self.opt.actual_upsampling_global[-1])),
             ]
         if not self.H.flags["C_CONTIGUOUS"]:
             raise TypeError("Expected H to be C_CONTIGUOUS!")
@@ -857,7 +857,6 @@ class DevicePre:
         execution_space=None,
         fft_type="R2C",
         distributed=False,
-        fourier_upsampling_factor_global=None,
     ):
         """
         Construct a `DevicePre` object from minimal input.
@@ -921,11 +920,6 @@ class DevicePre:
             **params_kwargs,
         )
         # setup options and parameters
-        if fourier_upsampling_factor_global is not None:
-            am = get_array_module(execution_space)
-            params.actual_upsampling = am.array(
-                [fourier_upsampling_factor_global, fourier_upsampling_factor_global]
-            )
         opt = Options.from_params(params, execution_space)
         opt_sc = SEPre.from_params(params, execution_space)
         data = DeviceData(

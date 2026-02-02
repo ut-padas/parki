@@ -114,13 +114,13 @@ def laplace_convolution_kernel_LAPLACECNV(
         # compute k-vector
         k0: pk.double = 0.0
         if num_locals == 0:
-            k0 = _k_vector_fp64(grid[0], box[0], 1.0, i)
+            k0 = _k_vector_fp64(grid[0], box[0], ups[0], i)
         else:
-            k0 = _k_vector_fp64(grid[0], box[0], 1.0, locals[i])
+            k0 = _k_vector_fp64(grid[0], box[0], ups[0], locals[i])
         k1: pk.double = _k_vector_fp64(
-            grid[1], box[1], ups[0], j + k1_off
+            grid[1], box[1], ups[1], j + k1_off
         )  # free direction
-        k2: pk.double = _k_vector_fp64(grid[2], box[2], ups[1], k)  # free direction
+        k2: pk.double = _k_vector_fp64(grid[2], box[2], ups[2], k)  # free direction
         kk: pk.double = k0 * k0 + k1 * k1 + k2 * k2
 
         # kernel dependent computations
@@ -184,13 +184,13 @@ def stokeslet_convolution_kernel_STOKESCNV(
         # compute k-vector
         k0: pk.double = 0.0
         if num_locals == 0:
-            k0 = _k_vector_fp64(grid[0], box[0], 1.0, i)
+            k0 = _k_vector_fp64(grid[0], box[0], ups[0], i)
         else:
-            k0 = _k_vector_fp64(grid[0], box[0], 1.0, locals[i])
+            k0 = _k_vector_fp64(grid[0], box[0], ups[0], locals[i])
         k1: pk.double = _k_vector_fp64(
-            grid[1], box[1], ups[0], j + k1_off
+            grid[1], box[1], ups[1], j + k1_off
         )  # free direction
-        k2: pk.double = _k_vector_fp64(grid[2], box[2], ups[1], k)  # free direction
+        k2: pk.double = _k_vector_fp64(grid[2], box[2], ups[2], k)  # free direction
         kk: pk.double = k0 * k0 + k1 * k1 + k2 * k2
 
         scaling: pk.double = stokes_kernel_fp64(kk, k0, k1, k2, xi, wsh, whw, ksc, pw)
@@ -244,13 +244,13 @@ def stokeslet_convolution_kernel_range(
     # compute k-vector
     k0: pk.double = 0.0
     if num_locals == 0:
-        k0 = _k_vector_fp64(grid[0], box[0], 1.0, i)
+        k0 = _k_vector_fp64(grid[0], box[0], ups[0], i)
     else:
-        k0 = _k_vector_fp64(grid[0], box[0], 1.0, locals[i])
+        k0 = _k_vector_fp64(grid[0], box[0], ups[0], locals[i])
     k1: pk.double = _k_vector_fp64(
-        grid[1], box[1], ups[0], j + k1_off
+        grid[1], box[1], ups[1], j + k1_off
     )  # free direction
-    k2: pk.double = _k_vector_fp64(grid[2], box[2], ups[1], k)  # free direction
+    k2: pk.double = _k_vector_fp64(grid[2], box[2], ups[2], k)  # free direction
     kk: pk.double = k0 * k0 + k1 * k1 + k2 * k2
 
     # See the MATLAB code for details on the method
@@ -432,9 +432,9 @@ def stokeslet_convolution_zero_kernel_STOKESCNV0(
         # compute k-vector
         k0: pk.double = 0.0
         k1: pk.double = _k_vector_fp64(
-            grid[1], box[1], ups[0], i + k1_off
+            grid[1], box[1], ups[1], i + k1_off
         )  # free direction
-        k2: pk.double = _k_vector_fp64(grid[2], box[2], ups[1], j)  # free direction
+        k2: pk.double = _k_vector_fp64(grid[2], box[2], ups[2], j)  # free direction
         kk: pk.double = k0 * k0 + k1 * k1 + k2 * k2
 
         scaling_b: pk.double = 0.0
@@ -533,9 +533,9 @@ def stokeslet_convolution_zero_kernel_range(
     # compute k-vector
     k0: pk.double = 0.0
     k1: pk.double = _k_vector_fp64(
-        grid[1], box[1], ups[0], i + k1_off
+        grid[1], box[1], ups[1], i + k1_off
     )  # free direction
-    k2: pk.double = _k_vector_fp64(grid[2], box[2], ups[1], j)  # free direction
+    k2: pk.double = _k_vector_fp64(grid[2], box[2], ups[2], j)  # free direction
     kk: pk.double = k0 * k0 + k1 * k1 + k2 * k2
 
     scaling_b: pk.double = 0.0
@@ -642,13 +642,13 @@ def stresslet_convolution_kernel_STRESSCNV(
         # compute k-vector
         k0: pk.double = 0.0
         if num_locals == 0:
-            k0 = _k_vector_fp64(grid[0], box[0], 1.0, i)
+            k0 = _k_vector_fp64(grid[0], box[0], ups[0], i)
         else:
-            k0 = _k_vector_fp64(grid[0], box[0], 1.0, locals[i])
+            k0 = _k_vector_fp64(grid[0], box[0], ups[0], locals[i])
         k1: pk.double = _k_vector_fp64(
-            grid[1], box[1], ups[0], j + k1_off
+            grid[1], box[1], ups[1], j + k1_off
         )  # free direction
-        k2: pk.double = _k_vector_fp64(grid[2], box[2], ups[1], k)  # free direction
+        k2: pk.double = _k_vector_fp64(grid[2], box[2], ups[2], k)  # free direction
         kk: pk.double = k0 * k0 + k1 * k1 + k2 * k2
 
         # see the Matlab code for details on the method
@@ -781,13 +781,13 @@ def stresslet_convolution_kernel_range(
     # compute k-vector
     k0: pk.double = 0.0
     if num_locals == 0:
-        k0 = _k_vector_fp64(grid[0], box[0], 1.0, i)
+        k0 = _k_vector_fp64(grid[0], box[0], ups[0], i)
     else:
-        k0 = _k_vector_fp64(grid[0], box[0], 1.0, locals[i])
+        k0 = _k_vector_fp64(grid[0], box[0], ups[0], locals[i])
     k1: pk.double = _k_vector_fp64(
-        grid[1], box[1], ups[0], j + k1_off
+        grid[1], box[1], ups[1], j + k1_off
     )  # free direction
-    k2: pk.double = _k_vector_fp64(grid[2], box[2], ups[1], k)  # free direction
+    k2: pk.double = _k_vector_fp64(grid[2], box[2], ups[2], k)  # free direction
     kk: pk.double = k0 * k0 + k1 * k1 + k2 * k2
 
     # see the Matlab code for details on the method
@@ -921,9 +921,9 @@ def stresslet_convolution_zero_kernel_STRESSCNV0(
         # compute k-vector
         k0: pk.double = 0.0
         k1: pk.double = _k_vector_fp64(
-            grid[1], box[1], ups[0], i + k1_off
+            grid[1], box[1], ups[1], i + k1_off
         )  # free direction
-        k2: pk.double = _k_vector_fp64(grid[2], box[2], ups[1], j)  # free direction
+        k2: pk.double = _k_vector_fp64(grid[2], box[2], ups[2], j)  # free direction
         kk: pk.double = k0 * k0 + k1 * k1 + k2 * k2
 
         scaling_b: pk.double = 0.0
@@ -1076,9 +1076,9 @@ def stresslet_convolution_zero_kernel_range(
     # compute k-vector
     k0: pk.double = 0.0
     k1: pk.double = _k_vector_fp64(
-        grid[1], box[1], ups[0], i + k1_off
+        grid[1], box[1], ups[1], i + k1_off
     )  # free direction
-    k2: pk.double = _k_vector_fp64(grid[2], box[2], ups[1], j)  # free direction
+    k2: pk.double = _k_vector_fp64(grid[2], box[2], ups[2], j)  # free direction
     kk: pk.double = k0 * k0 + k1 * k1 + k2 * k2
 
     scaling_b: pk.double = 0.0
