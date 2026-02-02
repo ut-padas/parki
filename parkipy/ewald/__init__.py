@@ -53,6 +53,7 @@ Ewald Kernel Support
 
     EwaldOptions
     SEParams
+    PerfModel
 
 References
 __________
@@ -79,5 +80,6 @@ from ._kernels import (
 )
 
 from ._params import SEParams
+from ._perf import PerfModel
 
 __all__ = ["stokes_comb", "laplace"]

@@ -46,11 +46,14 @@ class PerfModel:
         kernel,
         N_out,
         N_in,
+        d_out,
+        d_in,
         fft_dim,
         ifft_dim,
         fft_shape,
         cell_size,
         window_P,
+        dtype,
         execution_space,
     ):
         """
@@ -84,6 +87,25 @@ class PerfModel:
             + self.flop_cnv
             + self.flop_ifft
             + self.flop_g2p
+        )
+
+        # count bytes
+        N_fft = np.array(fft_shape).prod()
+        d_fft = fft_dim
+        d_ifft = ifft_dim
+        self._mop_p2p = self._count_mop_p2p(N_out, N_in, d_out, d_in, dtype.itemsize)
+        self._mop_p2g = self._count_mop_p2g(N_in, d_in, N_fft, d_fft, dtype.itemsize)
+        self._mop_fft = self._count_mop_fft(N_fft, d_fft, 2 * dtype.itemsize)
+        self._mop_cnv = self._count_mop_cnv(N_fft, d_fft, 2 * dtype.itemsize)
+        self._mop_ifft = self._count_mop_ifft(N_fft, d_ifft, 2 * dtype.itemsize)
+        self._mop_g2p = self._count_mop_g2p(N_fft, d_ifft, N_out, d_out, dtype.itemsize)
+        self._mop_ewald = (
+            self.mop_p2p
+            + self.mop_p2g
+            + self.mop_fft
+            + self.mop_cnv
+            + self.mop_ifft
+            + self.mop_g2p
         )
 
     @property
@@ -141,6 +163,62 @@ class PerfModel:
         Read-only.
         """
         return self._flop_ewald
+
+    @property
+    def mop_p2p(self):
+        """
+        MOP model for the P2P algorithm.
+        Read-only.
+        """
+        return self._mop_p2p
+
+    @property
+    def mop_p2g(self):
+        """
+        MOP model for the P2G algorithm.
+        Read-only.
+        """
+        return self._mop_p2g
+
+    @property
+    def mop_fft(self):
+        """
+        MOP model for the FFT algorithm.
+        Read-only.
+        """
+        return self._mop_fft
+
+    @property
+    def mop_cnv(self):
+        """
+        MOP model for the CNV algorithm.
+        Read-only.
+        """
+        return self._mop_cnv
+
+    @property
+    def mop_ifft(self):
+        """
+        MOP model for the IFFT algorithm.
+        Read-only.
+        """
+        return self._mop_ifft
+
+    @property
+    def mop_g2p(self):
+        """
+        MOP model for the G2P algorithm.
+        Read-only.
+        """
+        return self._mop_g2p
+
+    @property
+    def mop_ewald(self):
+        """
+        MOP model for the Ewald sum.
+        Read-only.
+        """
+        return self._mop_ewald
 
     def _count_flop_p2p(self, kernel, N_out, cell_size, device_name):
         C_stokes_ewald = (
@@ -222,6 +300,8 @@ class PerfModel:
             + 3 * C_kb
         )
         match kernel:
+            case "stokes_sl":
+                C_cnv = C_sl
             case "stokes_comb":
                 C_cnv = C_sl + C_dl
             case _:
@@ -248,3 +328,21 @@ class PerfModel:
                 + 1 * OPERATION_CONSTANTS[device_name]["fmul"]
             )
         )
+
+    def _count_mop_p2p(self, N_out, N_in, d_out, d_in, real_bytes):
+        return real_bytes * (N_out * d_out + N_in * d_in)
+
+    def _count_mop_p2g(self, N_in, d_in, N_fft, d_fft, real_bytes):
+        return real_bytes * (N_in * d_in + N_fft * d_fft)
+
+    def _count_mop_fft(self, N_fft, d_fft, cmpx_bytes):
+        return cmpx_bytes * (N_fft * d_fft)
+
+    def _count_mop_cnv(self, N_fft, d_fft, cmpx_bytes):
+        return cmpx_bytes * (N_fft * d_fft)
+
+    def _count_mop_ifft(self, N_ifft, d_ifft, cmpx_bytes):
+        return cmpx_bytes * (N_ifft * d_ifft)
+
+    def _count_mop_g2p(self, N_ifft, d_ifft, N_out, d_out, real_bytes):
+        return real_bytes * (N_out * d_out + N_ifft * d_ifft)

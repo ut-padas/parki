@@ -175,10 +175,12 @@ class EwaldKernel:
         N_out = x_out.shape[1]
         if x_out.shape != (3, N_out):
             raise ValueError(f"x_out must be of shape (3, N_out), found {x_out.shape}")
+        d_out = x_out.shape[0]
         x_in = args[1]
         N_in = x_in.shape[1]
         if x_in.shape != (3, N_in):
             raise ValueError(f"x_in must be of shape (3, N_in), found {x_in.shape}")
+        d_in = x_in.shape[0]
         q_in = args[2]
         if q_in.shape != self.get_shape_in(N_in):
             raise ValueError(
@@ -189,11 +191,13 @@ class EwaldKernel:
                 "q_in must have the same dtype as x_in,"
                 f" got {q_in.dtype}, expected {x_in.dtype}."
             )
+        d_in += q_in.shape[0]
         n_in = None
         if self.takes_normals:
             n_in = args[3]
             if n_in.shape != (3, N_in):
                 raise ValueError(f"n_in must be of shape (3, N_in), found {n_in.shape}")
+            d_in += n_in.shape[0]
         periodicity = args[3 + self.takes_normals]
         box = args[4 + self.takes_normals]
         if isinstance(box, list):
@@ -220,7 +224,7 @@ class EwaldKernel:
         )
         # algorithm
         walltime = {}
-        walltime["p2p"], source_cell_size = p2p(
+        walltime["p2p"] = p2p(
             device_pre,
             method=p2p_method,
             threads_x=p2p_threads_x,
@@ -253,11 +257,14 @@ class EwaldKernel:
                 kernel=self.kernel,
                 N_out=N_out,
                 N_in=N_in,
+                d_out=d_out,
+                d_in=d_in,
                 fft_dim=device_pre.data.dim_H,
                 ifft_dim=device_pre.dim_out,
                 fft_shape=device_pre.data.fft_shape,
-                cell_size=source_cell_size,
+                cell_size=cell_size,
                 window_P=device_pre.data.opt.window_P,
+                dtype=q_in.dtype,
                 execution_space=execution_space,
             )
             out.append(perf)
