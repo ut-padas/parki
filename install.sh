@@ -62,6 +62,7 @@ mkdir external; cd external
 
 git clone https://github.com/kokkos/pykokkos.git
 cd pykokkos
+git checkout 0987b8fa57a393c7e8f6bc8eb34f73303b0c6a0f # checkout pykokkos version w/ workloads
 
 conda env update -n $ENV_NAME -f base/environment.yml
 python install_base.py install -- \
