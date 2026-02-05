@@ -36,9 +36,9 @@ def determine_degree(P):
 
 
 def p2g_count_flops(method, Ns, P):
-    if method.upper()  == 'HYBRID':
+    if method.upper() == "HYBRID":
         return Ns * (P) ** 3 * 35
-    elif method.upper() in ['BASE', 'SOURCE']:
+    elif method.upper() in ["BASE", "SOURCE"]:
         return Ns * (P) ** 3 * 37
     elif method.upper() == "GRID":
         nu = determine_degree(P)

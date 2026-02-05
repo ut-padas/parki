@@ -3,7 +3,6 @@ import argparse
 import numpy as np
 import pandas as pd
 import pickle
-from spheroid import spheroid_patches
 import matplotlib.pyplot as plt
 from matplotlib.ticker import PercentFormatter
 from scipy.stats import gaussian_kde
@@ -11,6 +10,7 @@ from scipy.stats import gaussian_kde
 
 plt.rc("text", usetex=True)
 plt.rc("font", family="serif")
+
 
 def sample_gaussian(box, c, n):
     """
@@ -25,9 +25,7 @@ def sample_gaussian(box, c, n):
     i = 0
     num_accepted = 0
     while num_accepted < n:
-        samples = np.random.normal(
-            loc=0.0, scale=c, size=(3, n)
-        ) + center.reshape(3, 1)
+        samples = np.random.normal(loc=0.0, scale=c, size=(3, n)) + center.reshape(3, 1)
         mask = np.all(
             (samples > lower.reshape(3, 1)) & (samples < upper.reshape(3, 1)), axis=0
         )
@@ -41,10 +39,12 @@ def sample_gaussian(box, c, n):
 
     return points
 
+
 def sample_unit_sphere_surface(n):
     points = np.random.normal(size=(3, n))
     points /= np.linalg.norm(points, axis=0)
     return points
+
 
 def plot_distribution():
     n = 4_000
@@ -74,39 +74,49 @@ def plot_distribution():
         return X, Z, positions
 
     # Plot each panel with 2D KDE
-    datasets = [(u_x, u_z, "Uniform"), (n_x, n_z, "Gaussian"), (sph_x, sph_z, "Sphere")]
+    datasets = [
+        (u_x, u_z, r"Uniform (\textbf{U})"),
+        (n_x, n_z, r" Truncated Gaussian (\textbf{N})"),
+        (sph_x, sph_z, r"Sphere (\textbf{S})"),
+    ]
     for ax, (x, z, title) in zip(axs, datasets):
         X, Z, positions = make_grid(x, z, bins=200)
-        
+
         # KDE estimation
         kde = gaussian_kde(np.vstack([x, z]))
-        density = kde(positions).reshape(X.shape)
-        
+        density = kde(positions).reshape(X.shape) * 1e3
+
         # Plot smooth density
-        im = ax.pcolormesh(X, Z, density/density.max(), shading='auto')
-        
+        im = ax.pcolormesh(X, Z, density, shading="auto")
+
         # Colorbar beneath each subplot
-        cbar = plt.colorbar(im, ax=ax, orientation='horizontal', fraction=0.05, pad=0.15)
+        cbar = plt.colorbar(
+            im, ax=ax, orientation="horizontal", fraction=0.05, pad=0.15
+        )
         cbar.set_label("Density", fontsize=14)
         cbar.ax.tick_params(labelsize=12)
-        cbar.ax.xaxis.set_major_formatter(PercentFormatter(xmax=1))
+        # cbar.ax.xaxis.set_major_formatter(PercentFormatter(xmax=1))
 
         ax.set_title(title, fontsize=24)
 
     # Figure title
-    fig.suptitle("Particle Distributions Projected to the $x$-$z$ Plane", fontsize=label_size)
+    fig.suptitle(
+        "Particle Distributions Projected to the $x$-$z$ Plane", fontsize=label_size
+    )
 
     # Save figure
     pname = "analysis/ewald/plots/distributions_kde.pdf"
-    plt.savefig(pname, bbox_inches="tight")
+    plt.rcParams["pdf.compression"] = 0
+    plt.savefig(pname, format="pdf", bbox_inches="tight")
     plt.show()
+
 
 def main(args):
     """
     Main function. Takes `args` from the ArgumentParser at the bottom of this
     file.
     """
-    #plot_distribution()
+    plot_distribution()
     data = load_times_from_disk(args, timestamp=args.timestamp)
     distributions = data["times"].keys()
     stages = ["p2p", "p2g", "fft", "cnv", "ifft", "g2p", "total"]
@@ -127,10 +137,10 @@ def main(args):
         for stage in stages:
             string += f"{stage.upper()} &"
             for i, dist in enumerate(distributions):
-                if stage == 'total':
+                if stage == "total":
                     time = 0
                     for _stage in stages:
-                        if _stage == 'total':
+                        if _stage == "total":
                             continue
                         time += data["times"][dist][_stage][:, nindx][1:].mean()
                 else:

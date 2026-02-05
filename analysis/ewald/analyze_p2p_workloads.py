@@ -234,13 +234,13 @@ def get_time_eff_dicts(args, Dev, Arch, Nt, Variant, Tol):
             effs_kernels[kernel] = {}
         for k, method in enumerate(methods):
             if method != Variant:
-                print(f'skipping method {method}.')
+                print(f"skipping method {method}.")
                 continue
             cell_size_list = list(times[kernel][method].keys())
             for cell_size in times[kernel][method].keys():
                 for tol in times[kernel][method][cell_size].keys():
                     if tol != Tol:
-                        print(f'skipping tol {tol}')
+                        print(f"skipping tol {tol}")
                         continue
                     for nt in times[kernel][method][cell_size][tol].keys():
                         if nt != Nt:

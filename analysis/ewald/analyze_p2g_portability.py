@@ -119,9 +119,9 @@ def determine_degree(P):
 
 
 def p2g_count_flops(method, Ns, P):
-    if method.upper()  == 'HYBRID':
+    if method.upper() == "HYBRID":
         return Ns * (P) ** 3 * 35
-    elif method.upper() in ['BASE', 'SOURCE']:
+    elif method.upper() in ["BASE", "SOURCE"]:
         return Ns * (P) ** 3 * 37
     elif method.upper() == "GRID":
         nu = determine_degree(P)
@@ -237,7 +237,6 @@ def p2g_efficiency(dev, arch, method, time, ns, P, fs_cell_size, dp_flag):
     return string
 
 
-
 def get_dicts_for_method(METHOD):
     times_dict = {}
     eff_dict = {}
@@ -254,7 +253,6 @@ def get_dicts_for_method(METHOD):
         data = load_times_from_disk(args, timestamp=args.timestamp)
         df_times = pd.DataFrame(data["times"]["p2g"])
         nss = data["nt"] * args.up
-
 
         params_dict[device + str(arch)] = pd.DataFrame(data["params"]["p2g"])
         methods = df_times.keys()
@@ -309,7 +307,6 @@ def get_dicts_for_method(METHOD):
     return times_dict, eff_dict, nss
 
 
-
 def main(args):
     """
     Main function. Takes `args` from the ArgumentParser at the bottom of this
@@ -349,9 +346,7 @@ def main(args):
         for q, p2g_method in enumerate(args.p2g_methods):
 
             ax = axs[p, q]
-            times_devs, effs_devs, nt_list = get_dicts_for_method(
-                p2g_method
-            )
+            times_devs, effs_devs, nt_list = get_dicts_for_method(p2g_method)
             times_devs = {
                 key_mapping.get(key, key): value for key, value in times_devs.items()
             }

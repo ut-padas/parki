@@ -30,10 +30,10 @@ def main(args):
         for stage in stages:
             string += f"{stage} &"
             for i, dtype in enumerate(dtypes):
-                if stage == 'total':
+                if stage == "total":
                     time = 0
                     for _stage in stages:
-                        if _stage == 'total':
+                        if _stage == "total":
                             continue
                         time += data["times"][dtype][_stage][:, nindx][1:].mean()
                 else:

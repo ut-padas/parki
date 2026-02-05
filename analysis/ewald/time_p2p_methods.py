@@ -2,7 +2,6 @@ import os
 import time
 import argparse
 import numpy as np
-import cupy as cp
 import pykokkos as pk
 import pickle
 
@@ -33,10 +32,10 @@ def main(args):
             print(f":::: pass {j}")
             for method in methods:
                 args.method = method
-                if method.upper().split('-')[1] == '1D':
+                if method.upper().split("-")[1] == "1D":
                     threads_x = [32, 64, 128, 256, 512]
                     threads_y = [1]
-                elif method == 'SM-2D':
+                elif method == "SM-2D":
                     threads_x = [1, 2, 8, 16, 32, 64, 128]
                     threads_y = [2, 4, 8]
                 else:

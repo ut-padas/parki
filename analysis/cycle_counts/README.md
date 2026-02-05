@@ -2,7 +2,7 @@
 
 This test can be used to count device cycles for some common
 operations and special functions on CUDA devices. It is used to
-produce Table 1 and Figure 2 in the manuscript.
+produce Table 1 and Figure 4 in the manuscript.
 
 This particular test does not currently support other devices,
 such as ROCm devices, CPUs etc.

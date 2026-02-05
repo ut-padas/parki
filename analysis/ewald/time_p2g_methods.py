@@ -132,7 +132,6 @@ def run(args, time_every_step=False, verbosity=0) -> None:
     dens = cp.vstack((dens_sl, dens_dl))
     norms = cp.random.randn(3, ns)
 
-
     device_pre, params = parkipy.ewald._prepare.DevicePre.from_particles(
         targets=trg,
         sources=src,
@@ -146,7 +145,9 @@ def run(args, time_every_step=False, verbosity=0) -> None:
         execution_space=args.device,
         fourier_upsampling_factor_global=0,
     )
-    walltime = parkipy.ewald._ewald.p2g(device_pre, method=args.method, threads=args.threads) 
+    walltime = parkipy.ewald._ewald.p2g(
+        device_pre, method=args.method, threads=args.threads
+    )
     runtimes = {"p2g": walltime["kernel"]}
 
     return None, runtimes, params

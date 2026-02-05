@@ -9,12 +9,17 @@ import pickle
 plt.rc("text", usetex=True)
 plt.rc("font", family="serif")
 
-sys.path.insert(0, os.path.join(os.path.split(__file__)[0], '..')) # for `_utils, _parmas`
+sys.path.insert(
+    0, os.path.join(os.path.split(__file__)[0], "..")
+)  # for `_utils, _parmas`
 from _utils import p2p_efficiency, p2g_efficiency, g2p_efficiency
 from _params import se_params_stokes_comb
 
+
 def get_eff(stage, args, time, nt):
-    params = se_params_stokes_comb({'box' : [1,1,1]}, tolerance=args.tol, cell_size=args.cell_size, num_sources=nt) 
+    params = se_params_stokes_comb(
+        {"box": [1, 1, 1]}, tolerance=args.tol, cell_size=args.cell_size, num_sources=nt
+    )
     fs_cell_size = np.ceil(
         nt
         / (
@@ -23,20 +28,60 @@ def get_eff(stage, args, time, nt):
         )
     )
     match stage.upper():
-        case 'P2P':
-            p2p_eff = p2p_efficiency(args.device, args.arch, 'GM-1D', time, nt, args.cell_size, -1, -1, dp=True, both=True)
+        case "P2P":
+            p2p_eff = p2p_efficiency(
+                args.device,
+                args.arch,
+                "GM-1D",
+                time,
+                nt,
+                args.cell_size,
+                -1,
+                -1,
+                dp=True,
+                both=True,
+            )
             return p2p_eff[0]
-        case 'P2G':
+        case "P2G":
             if args.device == "HIP":
-                p2g_eff = p2g_efficiency(args.device, args.arch, 'GRID', time, nt, params.window_P, fs_cell_size, True)
+                p2g_eff = p2g_efficiency(
+                    args.device,
+                    args.arch,
+                    "GRID",
+                    time,
+                    nt,
+                    params.window_P,
+                    fs_cell_size,
+                    True,
+                )
             else:
-                p2g_eff = p2g_efficiency(args.device, args.arch, 'HYBRID', time, nt, params.window_P, fs_cell_size, True)
-            return p2g_eff.split('\n')[0]
-        case 'G2P':
-            g2p_eff =  g2p_efficiency(args.device, args.arch, 'TARGET', time, nt, params.window_P, dp_flag=True)
-            return g2p_eff.split(' ')[0]
+                p2g_eff = p2g_efficiency(
+                    args.device,
+                    args.arch,
+                    "HYBRID",
+                    time,
+                    nt,
+                    params.window_P,
+                    fs_cell_size,
+                    True,
+                )
+            return p2g_eff.split("\n")[0]
+        case "G2P":
+            g2p_eff = g2p_efficiency(
+                args.device,
+                args.arch,
+                "TARGET",
+                time,
+                nt,
+                params.window_P,
+                dp_flag=True,
+            )
+            return g2p_eff.split(" ")[0]
         case _:
-            raise NotImplementedError(f'stage {stage.upper()} efficiency not implemented.')
+            raise NotImplementedError(
+                f"stage {stage.upper()} efficiency not implemented."
+            )
+
 
 def get_time_eff_dicts(args):
     times_dict = {}
@@ -56,7 +101,7 @@ def get_time_eff_dicts(args):
 
         times_dict[device + str(arch)] = {}
         effs_dict[device + str(arch)] = {}
-        for i, nt in enumerate(nt_list): 
+        for i, nt in enumerate(nt_list):
             times_dict[device + str(arch)][nt] = {}
             effs_dict[device + str(arch)][nt] = {}
             for stage in data["times"].keys():
@@ -136,7 +181,7 @@ def main(args):
 
         # For tracking bar bottoms (for stacking)
         D = len(devices)
-        offsets = np.linspace(-width*(D-1)/2, width*(D-1)/2, D)
+        offsets = np.linspace(-width * (D - 1) / 2, width * (D - 1) / 2, D)
         for i, nt in enumerate(nt_list):
             bottom = {device: 0 for device in devices}
             for j, stage in enumerate(pivot_df.columns):
@@ -163,10 +208,12 @@ def main(args):
                     else:
                         ax.text(
                             i + offsets[k],
-                            bottom[device] + spp / 2,   # vertical middle of this stage
+                            bottom[device] + spp / 2,  # vertical middle of this stage
                             eff_str,
-                            ha="center", va="center",   # center horizontally and vertically
-                            fontsize=10, color="black",
+                            ha="center",
+                            va="center",  # center horizontally and vertically
+                            fontsize=10,
+                            color="black",
                             fontweight="bold",
                         )
                     bottom[device] += spp
@@ -229,18 +276,18 @@ def load_times_from_disk(args, timestamp="latest", version=1):
     try:
         with open(fpath, "rb") as f:
             data_dict = pickle.load(f)
-    except: # 0 data_dict if device data not found
+    except:  # 0 data_dict if device data not found
         print(fpath)
         data_dict = {
-                'nt' : [250000, 1000000, 4000000],
-                'times' : {
-                    "p2p" : [[0.0, 0.0, 0.0], [0.0,0.0,0.0]],
-                    "p2g" : [[0.0, 0.0, 0.0], [0.0,0.0,0.0]],
-                    "fft" : [[0.0, 0.0, 0.0], [0.0,0.0,0.0]],
-                    "cnv" : [[0.0, 0.0, 0.0], [0.0,0.0,0.0]],
-                    "ifft": [[0.0, 0.0, 0.0], [0.0,0.0,0.0]],
-                    "g2p" : [[0.0, 0.0, 0.0], [0.0,0.0,0.0]],
-                }
+            "nt": [250000, 1000000, 4000000],
+            "times": {
+                "p2p": [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+                "p2g": [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+                "fft": [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+                "cnv": [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+                "ifft": [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+                "g2p": [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+            },
         }
     return data_dict
 
@@ -287,8 +334,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--ylim",
         dest="ylim",
-        #default=[30e6, 1.9e6],
-        default=None
+        # default=[30e6, 1.9e6],
+        default=None,
     )
 
     args = parser.parse_args()

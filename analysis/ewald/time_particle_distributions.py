@@ -126,6 +126,7 @@ def sample_gaussian(box, c, n):
 
     return points
 
+
 def sample_unit_sphere_surface(n):
     points = np.random.normal(size=(3, n))
     points /= np.linalg.norm(points, axis=0)

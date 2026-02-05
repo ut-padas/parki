@@ -448,7 +448,11 @@ def run(
     if verbosity >= 2:
         print("1) p2p")
     walltime = parkipy.ewald._ewald.p2p(
-        device_pre, method=variant, threads_x=threads, threads_y=s_threads_2d, kernel=kernel
+        device_pre,
+        method=variant,
+        threads_x=threads,
+        threads_y=s_threads_2d,
+        kernel=kernel,
     )
     runtimes = {}
     runtimes["p2p"] = walltime["kernel"]

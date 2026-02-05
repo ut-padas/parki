@@ -1,10 +1,12 @@
 import os
+
 """ the following try/execpt block is a hacky workaround to speedup scipt FFTs when conflicting with pykokkos"""
 try:
     import numpy as np
     from scipy.fft import rfftn
+
     workers = int(os.environ.get("OMP_NUM_THREADS"))
-    xfft = rfftn(np.ones((2,2,2,2)), axes = (1, 2, 3), workers=workers)
+    xfft = rfftn(np.ones((2, 2, 2, 2)), axes=(1, 2, 3), workers=workers)
 except:
     pass
 
@@ -14,6 +16,7 @@ import numpy as np
 import pickle
 
 import parkipy
+
 
 def main(args):
     """
@@ -38,22 +41,22 @@ def main(args):
             for nthreads in threads:
                 print(f":::: Running threads={nthreads}")
                 args.threads = nthreads
-                potential, times = run(
-                    args, time_every_step=True, verbosity=1
-                )
+                potential, times = run(args, time_every_step=True, verbosity=1)
                 tot_times.append(times)
             print(f"   {j+1}th pass done (out of {repeats})")
             # Initialize arrays for storing runtimes and memory
             if i == 0 and j == 0:
                 for key in times:
-                    all_times[key] = np.full(shape=[repeats, len(nt_list)], fill_value=np.inf)
+                    all_times[key] = np.full(
+                        shape=[repeats, len(nt_list)], fill_value=np.inf
+                    )
             # Store runtimes
             for times in tot_times:
                 for key, val in times.items():
                     old_time = all_times[key][j, i]
-                    new_time = val['tot']
+                    new_time = val["tot"]
                     if new_time < old_time:
-                        all_times[key][j, i] = val['tot']
+                        all_times[key][j, i] = val["tot"]
     save_times_to_disk(nt_list, repeats, all_times, args)
     return
 
@@ -62,12 +65,14 @@ def save_times_to_disk(nt, repeats, times, args):
     now_str = time.strftime("%y%m%dT%H%M%S%Z")
     format_version = 1
     if args.device.upper() == "OPENMP":
-        args.device = 'host'
+        args.device = "host"
     if args.device.upper() == "HOST":
         import platform
+
         arch = platform.processor()
     else:
         import cupy as cp
+
         arch = cp.cuda.Device(0).compute_capability
     fname_base = (
         f"ewald_timing_result_up{args.up}_clsz{args.cell_size}_tol{args.tolerance}"
@@ -102,21 +107,25 @@ def run(args, time_every_step=False, verbosity=0) -> None:
     ns = nt * args.up
 
     cp = parkipy.utils.get_array_module(args.device)
-    trg = cp.random.rand(3, nt) * cp.array(box).reshape(3,1)
-    src = cp.random.rand(3, ns) * cp.array(box).reshape(3,1)
+    trg = cp.random.rand(3, nt) * cp.array(box).reshape(3, 1)
+    src = cp.random.rand(3, ns) * cp.array(box).reshape(3, 1)
     dens_sl = cp.random.randn(3, ns)
     dens_dl = cp.random.randn(3, ns)
     norms = cp.random.randn(3, ns)
     dens = cp.vstack((dens_sl, dens_dl))  # stack densities for ewald call
 
     options = parkipy.ewald.EwaldOptions(
-            periodicity=1, box=box, tolerance=args.tolerance, execution_space=args.device,
-            cell_size=args.cell_size, return_walltime=True, p2g_threads=args.threads, g2p_threads=args.threads,
-            p2p_threads_x=args.threads
-            )
-    pot, walltimes = parkipy.ewald.stokes_comb(
-        trg, src, dens, norms, options 
+        periodicity=1,
+        box=box,
+        tolerance=args.tolerance,
+        execution_space=args.device,
+        cell_size=args.cell_size,
+        return_walltime=True,
+        p2g_threads=args.threads,
+        g2p_threads=args.threads,
+        p2p_threads_x=args.threads,
     )
+    pot, walltimes = parkipy.ewald.stokes_comb(trg, src, dens, norms, options)
 
     # Compute and store runtimes in dict
     return pot, walltimes

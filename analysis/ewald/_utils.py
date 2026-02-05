@@ -110,9 +110,9 @@ def determine_degree(P):
 
 
 def p2g_count_flops(method, Ns, P):
-    if method.upper()  == 'HYBRID':
+    if method.upper() == "HYBRID":
         return Ns * (P) ** 3 * 35
-    elif method.upper() in ['BASE', 'SOURCE']:
+    elif method.upper() in ["BASE", "SOURCE"]:
         return Ns * (P) ** 3 * 37
     elif method.upper() == "GRID":
         nu = determine_degree(P)
@@ -199,9 +199,9 @@ def p2g_efficiency(dev, arch, method, time, ns, P, fs_cell_size, dp_flag):
         else:
             raise ValueError(f"Unknown architecture {arch}")
     elif dev.upper() == "HOST":
-        if arch == 0 or arch == 'aarch64':
+        if arch == 0 or arch == "aarch64":
             dev_name = "grace"
-        elif arch == 1 or arch == 'x86_64':
+        elif arch == 1 or arch == "x86_64":
             dev_name = "epyc"
         else:
             raise ValueError(f"Unknown architecture {arch}")
@@ -225,6 +225,7 @@ def p2g_efficiency(dev, arch, method, time, ns, P, fs_cell_size, dp_flag):
         string = f"${p2g_mops/dev_cons['peak band']/time:.0%}$\nmops"
     string = string.replace("%", "\\%")
     return string
+
 
 def p2p_cnt_flop(op_cons, Nt, s):
 
@@ -298,9 +299,9 @@ def p2p_efficiency(dev, arch, method, time, nt, s, bt, bs, dp=True, both=False):
         else:
             raise ValueError(f"Unknown architecture {arch}")
     elif dev.upper() == "HOST":
-        if arch == 0 or arch == 'aarch64':
+        if arch == 0 or arch == "aarch64":
             dev_name = "grace"
-        elif arch == 1 or arch == 'x86_64':
+        elif arch == 1 or arch == "x86_64":
             dev_name = "epyc"
         else:
             raise ValueError(f"Unknown architecture {arch}")
@@ -328,6 +329,8 @@ def p2p_efficiency(dev, arch, method, time, nt, s, bt, bs, dp=True, both=False):
         string_mops = string_mops.replace("%", "\\%")
         string = [string_flops, string_mops]
     return string
+
+
 def g2p_count_flops(method, Nt, P):
     return Nt * P**3 * (2 * 3 + 1)
 
@@ -380,9 +383,9 @@ def g2p_efficiency(dev, arch, method, time, ns, P, dp_flag):
         else:
             raise ValueError(f"Unknown architecture {arch}")
     elif dev.upper() == "HOST":
-        if arch == 0 or arch == 'aarch64':
+        if arch == 0 or arch == "aarch64":
             dev_name = "grace"
-        elif arch == 1 or arch == 'x86_64':
+        elif arch == 1 or arch == "x86_64":
             dev_name = "epyc"
         else:
             raise ValueError(f"Unknown architecture {arch}")
@@ -399,4 +402,3 @@ def g2p_efficiency(dev, arch, method, time, ns, P, dp_flag):
         string = f"${g2p_mops/dev_cons['peak band']/time:.0%}$ (mops)"
     string = string.replace("%", "\\%")
     return string
-
