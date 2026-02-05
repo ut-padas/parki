@@ -355,7 +355,11 @@ def main(args):
 def save_times_to_disk(repeats, times, threads, args):
     now_str = time.strftime("%y%m%dT%H%M%S%Z")
     format_version = 1
-    arch = cp.cuda.Device(0).compute_capability
+    arch = None
+    if not pk.is_host_execution_space(parkipy.utils.get_array_module(args.device)):
+        import cupy
+
+        arch = cupy.cuda.Device(0).compute_capability
     fname_base = (
         f"p2p_timing_workload_result_up{args.up}"
         f"_dev{args.device}_arch{arch}_v{format_version}"
@@ -415,6 +419,7 @@ def run(
     s_threads_2d=2,
     verbosity=0,
 ) -> None:
+    am = parkipy.utils.get_array_module(args.device)
     # input arguments
     nt = args.nt
     box = np.array([1.0, 1.0, 1.0])
@@ -422,12 +427,12 @@ def run(
     # deterministic arguments
     ns = nt * args.up
 
-    trg = cp.random.rand(3, nt) * cp.array(box).reshape(3, 1)
-    src = cp.random.rand(3, ns) * cp.array(box).reshape(3, 1)
-    dens_sl = cp.random.randn(3, ns)
-    dens_dl = cp.random.randn(3, ns)
-    dens = cp.vstack((dens_sl, dens_dl))
-    normal = cp.random.randn(3, ns)
+    trg = am.random.rand(3, nt) * am.array(box).reshape(3, 1)
+    src = am.random.rand(3, ns) * am.array(box).reshape(3, 1)
+    dens_sl = am.random.randn(3, ns)
+    dens_dl = am.random.randn(3, ns)
+    dens = am.vstack((dens_sl, dens_dl))
+    normal = am.random.randn(3, ns)
 
     device_pre, params = parkipy.ewald._prepare.DevicePre.from_particles(
         trg,
@@ -474,7 +479,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-o",
         "--output-dir",
-        default="analysis/stokes1p/data",
+        default="analysis/ewald/data",
         help="output directory for timing results (default: .)",
     )
     parser.add_argument(

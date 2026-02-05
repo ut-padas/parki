@@ -64,10 +64,12 @@ def main(args):
                             )
                             if not pk.is_host_execution_space(execution_space):
                                 import cupy
+
                                 cupy.get_default_memory_pool().free_all_blocks()  # free gpu memory
                             _, times, params = run(args, verbosity=0)
                             if not pk.is_host_execution_space(execution_space):
                                 import cupy
+
                                 cupy.get_default_memory_pool().free_all_blocks()  # free gpu memory
                             # init alltimes
                             for key in times:
@@ -161,25 +163,19 @@ def run(args, time_every_step=False, verbosity=0) -> None:
     norms = am.random.randn(3, ns)
 
     options = parkipy.ewald.EwaldOptions(
-            periodicity=1,
-            box=box,
-            tolerance=args.tolerance,
-            execution_space=args.device,
-            cell_size=args.cell_size,
-            return_walltime=True,
-            return_params=True,
-            p2p_method=args.method,
-            p2p_threads_x=args.threads_x,
-            p2p_threads_y=args.threads_y
+        periodicity=1,
+        box=box,
+        tolerance=args.tolerance,
+        execution_space=args.device,
+        cell_size=args.cell_size,
+        return_walltime=True,
+        return_params=True,
+        p2p_method=args.method,
+        p2p_threads_x=args.threads_x,
+        p2p_threads_y=args.threads_y,
     )
-    pot, walltime, params = parkipy.ewald.stokes_comb(
-        trg,
-        src,
-        dens,
-        norms,
-        options
-    )
-    runtimes = {"p2p": walltime["p2p"]["kernel"]}
+    pot, walltime, params = parkipy.ewald.stokes_comb(trg, src, dens, norms, options)
+    runtimes = {"p2p": walltime.time_p2p["kernel"]}
 
     return None, runtimes, params
 

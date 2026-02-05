@@ -10,8 +10,18 @@ def main(args):
     Main function. Takes `args` from the ArgumentParser at the bottom of this
     file.
     """
-    ranks = [1,2,4,8,16,32,64]
-    stages = ["p2p", "p2g", "fft", "cnv", "ifft", "g2p", "mpi_sort", "mpi_ghost", "mpi_grid_ghost"]
+    ranks = [1, 2, 4, 8, 16, 32, 64]
+    stages = [
+        "p2p",
+        "p2g",
+        "fft",
+        "cnv",
+        "ifft",
+        "g2p",
+        "mpi_sort",
+        "mpi_ghost",
+        "mpi_grid_ghost",
+    ]
     nindx = -1
 
     if args.format.upper() == "LATEX":
@@ -33,10 +43,10 @@ def main(args):
                 except:
                     continue
                 n = data["nt"][nindx]
-                if stage == 'total':
+                if stage == "total":
                     time = 0
                     for _stage in stages:
-                        if _stage == 'total':
+                        if _stage == "total":
                             continue
                         time += data["times"][_stage][:, nindx][1:].mean()
                         string += f"{round(time*1e3, 2)}" + " &"
@@ -63,7 +73,7 @@ def load_times_from_disk(args, N, timestamp="latest", version=1):
         f"distributed_ewald_timing_result_N{N}_up{args.up}_clsz{args.cell_size}_tol{args.tolerance}"
         f"_dev{args.device.upper()}_arch{args.arch}_v{version}_latest.pkl"
     )
-    #print(f"Loading from {fname}")
+    # print(f"Loading from {fname}")
     fpath = os.path.join(args.output_dir, fname)
     with open(fpath, "rb") as f:
         data_dict = pickle.load(f)

@@ -798,7 +798,9 @@ class SEParams:
             grid_ups_sg = np.ceil(grid_ups_sg / size) * size
 
         self.actual_upsampling = np.ones(3)
-        self.actual_upsampling[self.periodicity:] = grid_ups_sg / self.grid_shape_ext[self.periodicity :]
+        self.actual_upsampling[self.periodicity :] = (
+            grid_ups_sg / self.grid_shape_ext[self.periodicity :]
+        )
 
         return
 

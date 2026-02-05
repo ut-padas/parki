@@ -1020,31 +1020,16 @@ def g2p(device_pre, method="TARGET", threads=128):
     - Cell-based sorting is triggered for 'TARGET' method using a `CellList`.
     - The final far-field potentials are scaled by `1/(8π)` as part of the solution.
     """
-    args_start = time.time()
+    walltime = {}
+    walltime["tot"] = time.time()
     if device_pre.execution_space == pk.ExecutionSpace.OpenMP and threads != 1:
         warnings.warn(
             "'threads' argument is overridden to 1 in OpenMP execution space.",
             RuntimeWarning,
         )
         threads = 1
-    # method info
-    sort_flag = False
-    method_flag = -1
-    match method.upper():
-        case "BASE":
-            method_flag = 0
-            H_view = device_pre.data.ghost_H.transpose(1, 2, 3, 0).copy()
-        case "TARGET":
-            sort_flag = True
-            method_flag = 1
-            H_view = device_pre.data.ghost_H
-        case _:
-            raise ValueError(
-                f"g2p method expected to be one of 'BASE', 'TARGET', got '{method.upper()}'."
-            )
 
-    args_end = sort_start = time.time()
-    # sorting
+    # scale targets to the Fourier grid
     offsets = device_pre.am.array(
         [
             (
@@ -1057,17 +1042,73 @@ def g2p(device_pre, method="TARGET", threads=128):
         dtype=device_pre.data.dtype,
     ).reshape(3, 1)
     scaled_targets = (device_pre.data.targets - offsets) * device_pre.data.opt.grid_res
+    # method info
+    sort_flag = False
+    method_flag = -1
+    match method.upper():
+        case "BASE":
+            method_flag = 0
+            H_view = device_pre.data.ghost_H.transpose(1, 2, 3, 0).copy()
+        case "TARGET":
+            method_flag = 1
+            H_view = device_pre.data.ghost_H
+
+            # sort target arrays
+            walltime["sort"] = time.time()
+            target_list = CellList(
+                scaled_targets,
+                device_pre.data.opt.window_P / 2,
+                device_pre.am.array(device_pre.data.opt.ghost_grid_shape_ext).astype(
+                    device_pre.data.dtype
+                ),
+                execution_space=device_pre.execution_space,
+            )
+            walltime["sort"] = time.time() - walltime["sort"]
+
+            # setup Kokkos workunit call
+            walltime["kernel"] = time.time()
+            RangePush("G2P-kernel")
+
+            teams_per_cell = math.ceil(target_list.cell_size / threads)
+            name = "G2P-TARGET"
+            policy = pk.TeamPolicy(
+                device_pre.execution_space,
+                target_list.num_nonempty_cells * teams_per_cell,
+                threads,
+            )
+            workunit = device_pre.g2p_workunit[method.upper()]
+            kwargs = {
+                "u": device_pre.far_potential,
+                "x": target_list.particle_list,
+                "x_index": target_list.particle_index,
+                "H": H_view,
+                "window_P": device_pre.data.opt.window_P,
+                "dim_out": device_pre.dim_out,
+                "H_shape": device_pre.am.asarray(
+                    device_pre.data.opt.ghost_grid_shape_ext
+                ),
+                "hhh": float(device_pre.data.opt.h) ** 3,
+                "cell_size": target_list.cell_size,
+                "periodicity": (
+                    device_pre.data.opt.periodicity
+                    if not device_pre.data.opt.distributed
+                    else 0
+                ),
+                "threads": threads,
+                "cell_teams": teams_per_cell,
+            }
+            pk.parallel_for(name, policy, workunit, **kwargs)
+        case _:
+            raise ValueError(
+                f"g2p method expected to be one of 'BASE', 'TARGET', got '{method.upper()}'."
+            )
+
+    # sorting
     if sort_flag:
-        target_list = CellList(
-            scaled_targets,
-            device_pre.data.opt.window_P / 2,
-            device_pre.am.array(device_pre.data.opt.ghost_grid_shape_ext).astype(
-                device_pre.data.dtype
-            ),
-            execution_space=device_pre.execution_space,
-        )
         # set targets array to be the targets list
+        pass
     else:
+        sort_start = time.time()
         # dummy target list object
         target_list = SimpleNamespace(
             particle_list=scaled_targets,
@@ -1077,34 +1118,34 @@ def g2p(device_pre, method="TARGET", threads=128):
             num_cells=1,
         )
 
-    sort_end = kernel_start = time.time()
-    RangePush("G2P-kernel")
-    pk.execute(
-        device_pre.execution_space,
-        device_pre.g2p_workload(
-            pk.array(device_pre.far_potential),
-            pk.array(target_list.particle_list),
-            pk.array(target_list.particle_index),
-            pk.array(H_view),
-            device_pre.data.opt.window_P,
-            device_pre.dim_out,
-            device_pre.data.opt.ghost_grid_shape_ext,
-            device_pre.data.opt.h,
-            target_list.num_cells,
-            target_list.num_nonempty_cells,
-            target_list.cell_size,
-            method_flag,
-            (
-                device_pre.data.opt.periodicity
-                if not device_pre.data.opt.distributed
-                else 0
+        sort_end = kernel_start = time.time()
+        RangePush("G2P-kernel")
+        pk.execute(
+            device_pre.execution_space,
+            device_pre.g2p_workload(
+                pk.array(device_pre.far_potential),
+                pk.array(target_list.particle_list),
+                pk.array(target_list.particle_index),
+                pk.array(H_view),
+                device_pre.data.opt.window_P,
+                device_pre.dim_out,
+                device_pre.data.opt.ghost_grid_shape_ext,
+                device_pre.data.opt.h,
+                target_list.num_cells,
+                target_list.num_nonempty_cells,
+                target_list.cell_size,
+                method_flag,
+                (
+                    device_pre.data.opt.periodicity
+                    if not device_pre.data.opt.distributed
+                    else 0
+                ),
+                threads,
             ),
-            threads,
-        ),
-    )
-    RangePop()
-    pk.fence()
-    kernel_end = adj_start = time.time()
+        )
+        RangePop()
+        pk.fence()
+        kernel_end = adj_start = time.time()
     # Compute adjustment
     match device_pre.kernel.upper():
         case "STOKES_COMB" | "STOKES_SL":
@@ -1181,11 +1222,5 @@ def g2p(device_pre, method="TARGET", threads=128):
             )
     adj_end = time.time()
 
-    walltime = {
-        "args": args_end - args_start,
-        "sort": sort_end - sort_start,
-        "kernel": kernel_end - kernel_start,
-        "adj": adj_end - adj_start,
-        "tot": adj_end - args_start,
-    }
+    walltime["tot"] = time.time() - walltime["tot"]
     return walltime
