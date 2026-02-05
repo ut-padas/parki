@@ -41,7 +41,7 @@ source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate "$ENV_NAME"
 conda info --envs
 
-conda install -y -c conda-forge pybind11 patchelf pandas
+conda install -y -c conda-forge pybind11 patchelf pandas matplotlib scipy black
 
 if [[ "$ENABLE_CUDA" == "ON" ]]; then
   conda install -y -c conda-forge cupy
