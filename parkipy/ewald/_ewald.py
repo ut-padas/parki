@@ -1049,6 +1049,30 @@ def g2p(device_pre, method="TARGET", threads=128):
         case "BASE":
             method_flag = 0
             H_view = device_pre.data.ghost_H.transpose(1, 2, 3, 0).copy()
+
+            walltime["kernel"] = time.time()
+            # setup Kokkos workunit call
+            teams = math.ceil(device_pre.Nt / threads)
+            policy = pk.TeamPolicy(device_pre.execution_space, teams, threads)
+            kwargs = {
+                "u": device_pre.far_potential,
+                "x": scaled_targets,
+                "H": H_view,
+                "window_P": device_pre.data.opt.window_P,
+                "dim_out": device_pre.dim_out,
+                "H_shape": device_pre.am.asarray(
+                    device_pre.data.opt.ghost_grid_shape_ext
+                ),
+                "hhh": float(device_pre.data.opt.h) ** 3,
+                "periodicity": (
+                    device_pre.data.opt.periodicity
+                    if not device_pre.data.opt.distributed
+                    else 0
+                ),
+                "nt": device_pre.Nt,
+                "threads": threads,
+            }
+
         case "TARGET":
             method_flag = 1
             H_view = device_pre.data.ghost_H
@@ -1067,16 +1091,13 @@ def g2p(device_pre, method="TARGET", threads=128):
 
             # setup Kokkos workunit call
             walltime["kernel"] = time.time()
-            RangePush("G2P-kernel")
 
             teams_per_cell = math.ceil(target_list.cell_size / threads)
-            name = "G2P-TARGET"
             policy = pk.TeamPolicy(
                 device_pre.execution_space,
                 target_list.num_nonempty_cells * teams_per_cell,
                 threads,
             )
-            workunit = device_pre.g2p_workunit[method.upper()]
             kwargs = {
                 "u": device_pre.far_potential,
                 "x": target_list.particle_list,
@@ -1097,56 +1118,22 @@ def g2p(device_pre, method="TARGET", threads=128):
                 "threads": threads,
                 "cell_teams": teams_per_cell,
             }
-            pk.parallel_for(name, policy, workunit, **kwargs)
         case _:
             raise ValueError(
                 f"g2p method expected to be one of 'BASE', 'TARGET', got '{method.upper()}'."
             )
 
-    # sorting
-    if sort_flag:
-        # set targets array to be the targets list
-        pass
-    else:
-        sort_start = time.time()
-        # dummy target list object
-        target_list = SimpleNamespace(
-            particle_list=scaled_targets,
-            particle_index=device_pre.am.empty(1, dtype=device_pre.am.int32),
-            num_nonempty_cells=1,
-            cell_size=1,
-            num_cells=1,
-        )
+    RangePush("G2P-kernel")
+    pk.parallel_for(
+        f"G2P-{method.upper()}",
+        policy,
+        device_pre.g2p_workunit[method.upper()],
+        **kwargs,
+    )
+    RangePop()
 
-        sort_end = kernel_start = time.time()
-        RangePush("G2P-kernel")
-        pk.execute(
-            device_pre.execution_space,
-            device_pre.g2p_workload(
-                pk.array(device_pre.far_potential),
-                pk.array(target_list.particle_list),
-                pk.array(target_list.particle_index),
-                pk.array(H_view),
-                device_pre.data.opt.window_P,
-                device_pre.dim_out,
-                device_pre.data.opt.ghost_grid_shape_ext,
-                device_pre.data.opt.h,
-                target_list.num_cells,
-                target_list.num_nonempty_cells,
-                target_list.cell_size,
-                method_flag,
-                (
-                    device_pre.data.opt.periodicity
-                    if not device_pre.data.opt.distributed
-                    else 0
-                ),
-                threads,
-            ),
-        )
-        RangePop()
-        pk.fence()
-        kernel_end = adj_start = time.time()
     # Compute adjustment
+    walltime["adj"] = time.time()
     match device_pre.kernel.upper():
         case "STOKES_COMB" | "STOKES_SL":
             if device_pre.has_sl:
@@ -1220,7 +1207,7 @@ def g2p(device_pre, method="TARGET", threads=128):
                 "G2P adjustment is only implemented for 'STOKES_COMB' and 'LAPLACE' kernels,"
                 f" got {device_pre.kernel.upper()}."
             )
-    adj_end = time.time()
+    walltime["adj"] = time.time() - walltime["adj"]
 
     walltime["tot"] = time.time() - walltime["tot"]
     return walltime

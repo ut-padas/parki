@@ -6,11 +6,33 @@ import pykokkos as pk
 
 
 @pk.workunit
-def g2p_base_fp32(team_member: pk.TeamMember, x):
+def g2p_base_fp32(
+    team_member: pk.TeamMember,
+    u,
+    x,
+    H,
+    H_shape,
+    window_P,
+    dim_out,
+    periodicity,
+    hhh,
+    nt,
+    threads,
+):
     """
     args:
-        x: (3, N) target array
+        u: (dim_out, N) potentials to write to
+        x: (3, N) target list
+        H: (d, *grid_shape) grid
+        H_shape: (*grid_shape) grid shape
+        window_P: int, window function support
+        dim_out: int, dimension of the output potential
+        periodicity: int, periodicity of the domain
+        hhh: real, the grid spacing cubed
+        nt, int: number of target points
+        threads: int, number of threads per team
     """
+    po2: int = window_P / 2
     ioff: int = team_member.league_rank() * threads
 
     def thread_loop(ii: int):
@@ -104,7 +126,7 @@ def g2p_base_fp32(team_member: pk.TeamMember, x):
                     for d in range(dim_out):
                         potj[d] += w * H[l][m][n][d]
         for d in range(dim_out):
-            u[d][t] = hhh * potj[d]
+            u[d][i] = hhh * potj[d]
 
     pk.parallel_for(pk.TeamThreadRange(team_member, threads), thread_loop)
 
@@ -966,11 +988,33 @@ def _basic_kaiser_poly_p14_fp32(x: pk.float, i: int) -> float:
 
 
 @pk.workunit
-def g2p_base_fp64(team_member: pk.TeamMember, x):
+def g2p_base_fp64(
+    team_member: pk.TeamMember,
+    u,
+    x,
+    H,
+    H_shape,
+    window_P,
+    dim_out,
+    periodicity,
+    hhh,
+    nt,
+    threads,
+):
     """
     args:
-        x: (3, N) target array
+        u: (dim_out, N) potentials to write to
+        x: (3, N) target list
+        H: (d, *grid_shape) grid
+        H_shape: (*grid_shape) grid shape
+        window_P: int, window function support
+        dim_out: int, dimension of the output potential
+        periodicity: int, periodicity of the domain
+        hhh: real, the grid spacing cubed
+        nt, int: number of target points
+        threads: int, number of threads per team
     """
+    po2: int = window_P / 2
     ioff: int = team_member.league_rank() * threads
 
     def thread_loop(ii: int):
@@ -1064,7 +1108,7 @@ def g2p_base_fp64(team_member: pk.TeamMember, x):
                     for d in range(dim_out):
                         potj[d] += w * H[l][m][n][d]
         for d in range(dim_out):
-            u[d][t] = hhh * potj[d]
+            u[d][i] = hhh * potj[d]
 
     pk.parallel_for(pk.TeamThreadRange(team_member, threads), thread_loop)
 
