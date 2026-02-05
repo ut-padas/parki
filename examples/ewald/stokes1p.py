@@ -2,9 +2,8 @@
 
 """
 Ewald summation for the combined stokes single and double
-layer potential with one periodic direction. 
+layer potential with one periodic direction.
 """
-import pprint
 import argparse
 import parkipy
 
@@ -29,12 +28,16 @@ def main(args):
 
     # call the PDE kernel
     options = parkipy.ewald.EwaldOptions(
-        periodicity=1, box=box, tolerance=tol, 
-        cell_size=224, execution_space=args.device,
+        periodicity=1,
+        box=box,
+        tolerance=tol,
+        cell_size=224,
+        execution_space=args.device,
         return_walltime=True,
     )
     pot, walltime = parkipy.ewald.stokes_comb(trg, src, dens, norms, options)
-    pprint.pprint(walltime)
+    print(walltime)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(

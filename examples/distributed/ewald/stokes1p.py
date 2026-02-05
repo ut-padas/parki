@@ -5,7 +5,7 @@ Ewald summation for the combined stokes single and double
 layer potential with one periodic direction executed with
 multiple processes.
 
->>> mpiexec -n 2 python examples/ewald/stokes1p_mp.py 
+>>> mpiexec -n 2 python examples/ewald/stokes1p_mp.py
 """
 import sys
 import pprint
@@ -30,10 +30,10 @@ def main(args):
     cell_size = 224
 
     # generate *local* sources, targets, densities, and normals
-    nt = int(4e+6)
-    ns = int(4e+6)
+    nt = int(4e6)
+    ns = int(4e6)
 
-    rc = np.ceil(ns/cell_size) ** (-1 / 3)
+    rc = np.ceil(ns / cell_size) ** (-1 / 3)
 
     trg = am.random.rand(3, nt) * am.array(box).reshape(3, 1)
     src = am.random.rand(3, ns) * am.array(box).reshape(3, 1)
@@ -95,14 +95,17 @@ def main(args):
         norms_ref = am.asarray(norms_ref)
         dens_ref = am.vstack((dens_sl_ref, dens_dl_ref))
 
-        options = parkipy.ewald.EwaldOptions(periodicity=1, box=box, tolerance=tol, execution_space=args.device, cell_size=224, return_walltime=True)
+        options = parkipy.ewald.EwaldOptions(
+            periodicity=1,
+            box=box,
+            tolerance=tol,
+            execution_space=args.device,
+            cell_size=224,
+            return_walltime=True,
+        )
 
         pot_ref, ref_time = parkipy.ewald.stokes_comb(
-            trg_ref,
-            src_ref,
-            dens_ref,
-            norms_ref,
-            options
+            trg_ref, src_ref, dens_ref, norms_ref, options
         )
         print("--------- ref runtimes ---------------")
         pprint.pprint(ref_time)

@@ -1,7 +1,7 @@
 #!python3
 
 """
-Ewald summation for the Laplace potential using a Cuda execution space. 
+Ewald summation for the Laplace potential using a Cuda execution space.
 """
 
 import argparse
@@ -26,9 +26,16 @@ def main(args):
     charges -= am.mean(charges)
 
     # call the PDE kernel
-    pot = parkipy.ewald.laplace(
-        trg, src, charges, 3, box, tol, execution_space, cell_size=512
+    options = parkipy.ewald.EwaldOptions(
+        periodicity=3,
+        box=box,
+        tolerance=tol,
+        execution_space=execution_space,
+        cell_size=512,
+        return_walltime=True,
     )
+    pot, walltime = parkipy.ewald.laplace(trg, src, charges, options)
+    print(walltime)
 
 
 if __name__ == "__main__":
