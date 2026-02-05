@@ -29,7 +29,7 @@ def p2g_base_fp32(
     H_shape,
     ny,
     window_P,
-    periodicity: int,
+    periodicity,
     threads,
 ):
     """
@@ -75,33 +75,33 @@ def p2g_base_fp32(
         w2: List[pk.float] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         for r in range(window_P):
             if window_P == 14:
-                w0[r] = _basic_kaiser_poly_p14(d_x, r)
-                w1[r] = _basic_kaiser_poly_p14(d_y, r)
-                w2[r] = _basic_kaiser_poly_p14(d_z, r)
+                w0[r] = _basic_kaiser_poly_p14_fp32(d_x, r)
+                w1[r] = _basic_kaiser_poly_p14_fp32(d_y, r)
+                w2[r] = _basic_kaiser_poly_p14_fp32(d_z, r)
             elif window_P == 12:
-                w0[r] = _basic_kaiser_poly_p12(d_x, r)
-                w1[r] = _basic_kaiser_poly_p12(d_y, r)
-                w2[r] = _basic_kaiser_poly_p12(d_z, r)
+                w0[r] = _basic_kaiser_poly_p12_fp32(d_x, r)
+                w1[r] = _basic_kaiser_poly_p12_fp32(d_y, r)
+                w2[r] = _basic_kaiser_poly_p12_fp32(d_z, r)
             elif window_P == 10:
-                w0[r] = _basic_kaiser_poly_p10(d_x, r)
-                w1[r] = _basic_kaiser_poly_p10(d_y, r)
-                w2[r] = _basic_kaiser_poly_p10(d_z, r)
+                w0[r] = _basic_kaiser_poly_p10_fp32(d_x, r)
+                w1[r] = _basic_kaiser_poly_p10_fp32(d_y, r)
+                w2[r] = _basic_kaiser_poly_p10_fp32(d_z, r)
             if window_P == 8:
-                w0[r] = _basic_kaiser_poly_p8(d_x, r)
-                w1[r] = _basic_kaiser_poly_p8(d_y, r)
-                w2[r] = _basic_kaiser_poly_p8(d_z, r)
+                w0[r] = _basic_kaiser_poly_p8_fp32(d_x, r)
+                w1[r] = _basic_kaiser_poly_p8_fp32(d_y, r)
+                w2[r] = _basic_kaiser_poly_p8_fp32(d_z, r)
             elif window_P == 6:
-                w0[r] = _basic_kaiser_poly_p6(d_x, r)
-                w1[r] = _basic_kaiser_poly_p6(d_y, r)
-                w2[r] = _basic_kaiser_poly_p6(d_z, r)
+                w0[r] = _basic_kaiser_poly_p6_fp32(d_x, r)
+                w1[r] = _basic_kaiser_poly_p6_fp32(d_y, r)
+                w2[r] = _basic_kaiser_poly_p6_fp32(d_z, r)
             elif window_P == 4:
-                w0[r] = _basic_kaiser_poly_p4(d_x, r)
-                w1[r] = _basic_kaiser_poly_p4(d_y, r)
-                w2[r] = _basic_kaiser_poly_p4(d_z, r)
+                w0[r] = _basic_kaiser_poly_p4_fp32(d_x, r)
+                w1[r] = _basic_kaiser_poly_p4_fp32(d_y, r)
+                w2[r] = _basic_kaiser_poly_p4_fp32(d_z, r)
             elif window_P == 2:
-                w0[r] = _basic_kaiser_poly_p2(d_x, r)
-                w1[r] = _basic_kaiser_poly_p2(d_y, r)
-                w2[r] = _basic_kaiser_poly_p2(d_z, r)
+                w0[r] = _basic_kaiser_poly_p2_fp32(d_x, r)
+                w1[r] = _basic_kaiser_poly_p2_fp32(d_y, r)
+                w2[r] = _basic_kaiser_poly_p2_fp32(d_z, r)
         # loop over window cell
         wx: pk.float = 0.0
         wx_wy: pk.float = 0.0
@@ -155,7 +155,36 @@ def p2g_base_fp32(
 
 
 @pk.workunit
-def p2g_source(team_member: pk.TeamMember):
+def p2g_source_fp32(
+    team_member: pk.TeamMember,
+    yj,
+    qj,
+    nj,
+    H,
+    H_shape,
+    ny,
+    window_P,
+    periodicity,
+    cell_size,
+    cell_teams,
+    threads,
+):
+    """
+    args:
+        yj: (3, ny) list of source particles
+            scaled to the Fourier grid
+        qj: (dx, ny) list of source densities
+        nj: (3, ny) list of source normal vectors
+        H: (gx, gy, gz, dh) Fourier grid
+        H_shape: shape of the Fourier grid
+        ny: int, number of source particles
+        window_P: int, window function support in grid points
+        periodicity: int, periodicity of the problem
+        cell_size: int, number of source particles in a cell
+        cell_teams: int, number of teams assigned to a cell
+        threads: int, threads per team
+    """
+    po2: int = window_P / 2
     nz_cell: int = team_member.league_rank() // cell_teams
     cell_team: int = team_member.league_rank() % cell_teams
     cell_off: int = cell_team * threads
@@ -182,83 +211,38 @@ def p2g_source(team_member: pk.TeamMember):
         a_y: int = g_y - (po2 - 1)
         a_z: int = g_z - (po2 - 1)
         # allocate registers for window function
-        w0: List[pk.float] = [
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-        ]  # NOTE: placeholder for max windowP of 14, would like to be [0] * window_P
-        w1: List[pk.float] = [
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-        ]  # NOTE: placeholder for max windowP of 14, would like to be [0] * window_P
-        w2: List[pk.float] = [
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-        ]  # NOTE: placeholder for max windowP of 14, would like to be [0] * window_P
+        w0: List[pk.float] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        w1: List[pk.float] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        w2: List[pk.float] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         for r in range(window_P):
             if window_P == 14:
-                w0[r] = _basic_kaiser_poly_p14(d_x, r)
-                w1[r] = _basic_kaiser_poly_p14(d_y, r)
-                w2[r] = _basic_kaiser_poly_p14(d_z, r)
+                w0[r] = _basic_kaiser_poly_p14_fp32(d_x, r)
+                w1[r] = _basic_kaiser_poly_p14_fp32(d_y, r)
+                w2[r] = _basic_kaiser_poly_p14_fp32(d_z, r)
             elif window_P == 12:
-                w0[r] = _basic_kaiser_poly_p12(d_x, r)
-                w1[r] = _basic_kaiser_poly_p12(d_y, r)
-                w2[r] = _basic_kaiser_poly_p12(d_z, r)
+                w0[r] = _basic_kaiser_poly_p12_fp32(d_x, r)
+                w1[r] = _basic_kaiser_poly_p12_fp32(d_y, r)
+                w2[r] = _basic_kaiser_poly_p12_fp32(d_z, r)
             elif window_P == 10:
-                w0[r] = _basic_kaiser_poly_p10(d_x, r)
-                w1[r] = _basic_kaiser_poly_p10(d_y, r)
-                w2[r] = _basic_kaiser_poly_p10(d_z, r)
+                w0[r] = _basic_kaiser_poly_p10_fp32(d_x, r)
+                w1[r] = _basic_kaiser_poly_p10_fp32(d_y, r)
+                w2[r] = _basic_kaiser_poly_p10_fp32(d_z, r)
             if window_P == 8:
-                w0[r] = _basic_kaiser_poly_p8(d_x, r)
-                w1[r] = _basic_kaiser_poly_p8(d_y, r)
-                w2[r] = _basic_kaiser_poly_p8(d_z, r)
+                w0[r] = _basic_kaiser_poly_p8_fp32(d_x, r)
+                w1[r] = _basic_kaiser_poly_p8_fp32(d_y, r)
+                w2[r] = _basic_kaiser_poly_p8_fp32(d_z, r)
             elif window_P == 6:
-                w0[r] = _basic_kaiser_poly_p6(d_x, r)
-                w1[r] = _basic_kaiser_poly_p6(d_y, r)
-                w2[r] = _basic_kaiser_poly_p6(d_z, r)
+                w0[r] = _basic_kaiser_poly_p6_fp32(d_x, r)
+                w1[r] = _basic_kaiser_poly_p6_fp32(d_y, r)
+                w2[r] = _basic_kaiser_poly_p6_fp32(d_z, r)
             elif window_P == 4:
-                w0[r] = _basic_kaiser_poly_p4(d_x, r)
-                w1[r] = _basic_kaiser_poly_p4(d_y, r)
-                w2[r] = _basic_kaiser_poly_p4(d_z, r)
+                w0[r] = _basic_kaiser_poly_p4_fp32(d_x, r)
+                w1[r] = _basic_kaiser_poly_p4_fp32(d_y, r)
+                w2[r] = _basic_kaiser_poly_p4_fp32(d_z, r)
             elif window_P == 2:
-                w0[r] = _basic_kaiser_poly_p2(d_x, r)
-                w1[r] = _basic_kaiser_poly_p2(d_y, r)
-                w2[r] = _basic_kaiser_poly_p2(d_z, r)
+                w0[r] = _basic_kaiser_poly_p2_fp32(d_x, r)
+                w1[r] = _basic_kaiser_poly_p2_fp32(d_y, r)
+                w2[r] = _basic_kaiser_poly_p2_fp32(d_z, r)
         # loop over window cell
         wx: pk.float = 0.0
         wx_wy: pk.float = 0.0
@@ -421,33 +405,33 @@ def p2g_hybrid(team_member: pk.TeamMember):
             shmem_f[ii][iii + dim_f] = nj[iii][s]
         for r in range(window_P):
             if window_P == 14:
-                shmem_w[ii][r][0] = _basic_kaiser_poly_p14(d_x, r)
-                shmem_w[ii][r][1] = _basic_kaiser_poly_p14(d_y, r)
-                shmem_w[ii][r][2] = _basic_kaiser_poly_p14(d_z, r)
+                shmem_w[ii][r][0] = _basic_kaiser_poly_p14_fp32(d_x, r)
+                shmem_w[ii][r][1] = _basic_kaiser_poly_p14_fp32(d_y, r)
+                shmem_w[ii][r][2] = _basic_kaiser_poly_p14_fp32(d_z, r)
             elif window_P == 12:
-                shmem_w[ii][r][0] = _basic_kaiser_poly_p12(d_x, r)
-                shmem_w[ii][r][1] = _basic_kaiser_poly_p12(d_y, r)
-                shmem_w[ii][r][2] = _basic_kaiser_poly_p12(d_z, r)
+                shmem_w[ii][r][0] = _basic_kaiser_poly_p12_fp32(d_x, r)
+                shmem_w[ii][r][1] = _basic_kaiser_poly_p12_fp32(d_y, r)
+                shmem_w[ii][r][2] = _basic_kaiser_poly_p12_fp32(d_z, r)
             elif window_P == 10:
-                shmem_w[ii][r][0] = _basic_kaiser_poly_p10(d_x, r)
-                shmem_w[ii][r][1] = _basic_kaiser_poly_p10(d_y, r)
-                shmem_w[ii][r][2] = _basic_kaiser_poly_p10(d_z, r)
+                shmem_w[ii][r][0] = _basic_kaiser_poly_p10_fp32(d_x, r)
+                shmem_w[ii][r][1] = _basic_kaiser_poly_p10_fp32(d_y, r)
+                shmem_w[ii][r][2] = _basic_kaiser_poly_p10_fp32(d_z, r)
             if window_P == 8:
-                shmem_w[ii][r][0] = _basic_kaiser_poly_p8(d_x, r)
-                shmem_w[ii][r][1] = _basic_kaiser_poly_p8(d_y, r)
-                shmem_w[ii][r][2] = _basic_kaiser_poly_p8(d_z, r)
+                shmem_w[ii][r][0] = _basic_kaiser_poly_p8_fp32(d_x, r)
+                shmem_w[ii][r][1] = _basic_kaiser_poly_p8_fp32(d_y, r)
+                shmem_w[ii][r][2] = _basic_kaiser_poly_p8_fp32(d_z, r)
             elif window_P == 6:
-                shmem_w[ii][r][0] = _basic_kaiser_poly_p6(d_x, r)
-                shmem_w[ii][r][1] = _basic_kaiser_poly_p6(d_y, r)
-                shmem_w[ii][r][2] = _basic_kaiser_poly_p6(d_z, r)
+                shmem_w[ii][r][0] = _basic_kaiser_poly_p6_fp32(d_x, r)
+                shmem_w[ii][r][1] = _basic_kaiser_poly_p6_fp32(d_y, r)
+                shmem_w[ii][r][2] = _basic_kaiser_poly_p6_fp32(d_z, r)
             elif window_P == 4:
-                shmem_w[ii][r][0] = _basic_kaiser_poly_p4(d_x, r)
-                shmem_w[ii][r][1] = _basic_kaiser_poly_p4(d_y, r)
-                shmem_w[ii][r][2] = _basic_kaiser_poly_p4(d_z, r)
+                shmem_w[ii][r][0] = _basic_kaiser_poly_p4_fp32(d_x, r)
+                shmem_w[ii][r][1] = _basic_kaiser_poly_p4_fp32(d_y, r)
+                shmem_w[ii][r][2] = _basic_kaiser_poly_p4_fp32(d_z, r)
             elif window_P == 2:
-                shmem_w[ii][r][0] = _basic_kaiser_poly_p2(d_x, r)
-                shmem_w[ii][r][1] = _basic_kaiser_poly_p2(d_y, r)
-                shmem_w[ii][r][2] = _basic_kaiser_poly_p2(d_z, r)
+                shmem_w[ii][r][0] = _basic_kaiser_poly_p2_fp32(d_x, r)
+                shmem_w[ii][r][1] = _basic_kaiser_poly_p2_fp32(d_y, r)
+                shmem_w[ii][r][2] = _basic_kaiser_poly_p2_fp32(d_z, r)
 
     pk.parallel_for(pk.TeamThreadRange(team_member, cell_chunk_size), source_loop)
     team_member.team_barrier()
@@ -634,33 +618,33 @@ def p2g_hybrid_wo_normals(team_member: pk.TeamMember):
             shmem_f[ii][iii + dim_f] = nj[iii][s]
         for r in range(window_P):
             if window_P == 14:
-                shmem_w[ii][r][0] = _basic_kaiser_poly_p14(d_x, r)
-                shmem_w[ii][r][1] = _basic_kaiser_poly_p14(d_y, r)
-                shmem_w[ii][r][2] = _basic_kaiser_poly_p14(d_z, r)
+                shmem_w[ii][r][0] = _basic_kaiser_poly_p14_fp32(d_x, r)
+                shmem_w[ii][r][1] = _basic_kaiser_poly_p14_fp32(d_y, r)
+                shmem_w[ii][r][2] = _basic_kaiser_poly_p14_fp32(d_z, r)
             elif window_P == 12:
-                shmem_w[ii][r][0] = _basic_kaiser_poly_p12(d_x, r)
-                shmem_w[ii][r][1] = _basic_kaiser_poly_p12(d_y, r)
-                shmem_w[ii][r][2] = _basic_kaiser_poly_p12(d_z, r)
+                shmem_w[ii][r][0] = _basic_kaiser_poly_p12_fp32(d_x, r)
+                shmem_w[ii][r][1] = _basic_kaiser_poly_p12_fp32(d_y, r)
+                shmem_w[ii][r][2] = _basic_kaiser_poly_p12_fp32(d_z, r)
             elif window_P == 10:
-                shmem_w[ii][r][0] = _basic_kaiser_poly_p10(d_x, r)
-                shmem_w[ii][r][1] = _basic_kaiser_poly_p10(d_y, r)
-                shmem_w[ii][r][2] = _basic_kaiser_poly_p10(d_z, r)
+                shmem_w[ii][r][0] = _basic_kaiser_poly_p10_fp32(d_x, r)
+                shmem_w[ii][r][1] = _basic_kaiser_poly_p10_fp32(d_y, r)
+                shmem_w[ii][r][2] = _basic_kaiser_poly_p10_fp32(d_z, r)
             if window_P == 8:
-                shmem_w[ii][r][0] = _basic_kaiser_poly_p8(d_x, r)
-                shmem_w[ii][r][1] = _basic_kaiser_poly_p8(d_y, r)
-                shmem_w[ii][r][2] = _basic_kaiser_poly_p8(d_z, r)
+                shmem_w[ii][r][0] = _basic_kaiser_poly_p8_fp32(d_x, r)
+                shmem_w[ii][r][1] = _basic_kaiser_poly_p8_fp32(d_y, r)
+                shmem_w[ii][r][2] = _basic_kaiser_poly_p8_fp32(d_z, r)
             elif window_P == 6:
-                shmem_w[ii][r][0] = _basic_kaiser_poly_p6(d_x, r)
-                shmem_w[ii][r][1] = _basic_kaiser_poly_p6(d_y, r)
-                shmem_w[ii][r][2] = _basic_kaiser_poly_p6(d_z, r)
+                shmem_w[ii][r][0] = _basic_kaiser_poly_p6_fp32(d_x, r)
+                shmem_w[ii][r][1] = _basic_kaiser_poly_p6_fp32(d_y, r)
+                shmem_w[ii][r][2] = _basic_kaiser_poly_p6_fp32(d_z, r)
             elif window_P == 4:
-                shmem_w[ii][r][0] = _basic_kaiser_poly_p4(d_x, r)
-                shmem_w[ii][r][1] = _basic_kaiser_poly_p4(d_y, r)
-                shmem_w[ii][r][2] = _basic_kaiser_poly_p4(d_z, r)
+                shmem_w[ii][r][0] = _basic_kaiser_poly_p4_fp32(d_x, r)
+                shmem_w[ii][r][1] = _basic_kaiser_poly_p4_fp32(d_y, r)
+                shmem_w[ii][r][2] = _basic_kaiser_poly_p4_fp32(d_z, r)
             elif window_P == 2:
-                shmem_w[ii][r][0] = _basic_kaiser_poly_p2(d_x, r)
-                shmem_w[ii][r][1] = _basic_kaiser_poly_p2(d_y, r)
-                shmem_w[ii][r][2] = _basic_kaiser_poly_p2(d_z, r)
+                shmem_w[ii][r][0] = _basic_kaiser_poly_p2_fp32(d_x, r)
+                shmem_w[ii][r][1] = _basic_kaiser_poly_p2_fp32(d_y, r)
+                shmem_w[ii][r][2] = _basic_kaiser_poly_p2_fp32(d_z, r)
 
     pk.parallel_for(pk.TeamThreadRange(team_member, cell_chunk_size), source_loop)
     team_member.team_barrier()
@@ -806,33 +790,33 @@ def naive_window_kernel_fp32(
     wy: pk.float = 0
     wz: pk.float = 0
     if window_P == 14:
-        wx = _basic_kaiser_poly_p14(d_x, bin_x)
-        wy = _basic_kaiser_poly_p14(d_y, bin_y)
-        wz = _basic_kaiser_poly_p14(d_z, bin_z)
+        wx = _basic_kaiser_poly_p14_fp32(d_x, bin_x)
+        wy = _basic_kaiser_poly_p14_fp32(d_y, bin_y)
+        wz = _basic_kaiser_poly_p14_fp32(d_z, bin_z)
     elif window_P == 12:
-        wx = _basic_kaiser_poly_p12(d_x, bin_x)
-        wy = _basic_kaiser_poly_p12(d_y, bin_y)
-        wz = _basic_kaiser_poly_p12(d_z, bin_z)
+        wx = _basic_kaiser_poly_p12_fp32(d_x, bin_x)
+        wy = _basic_kaiser_poly_p12_fp32(d_y, bin_y)
+        wz = _basic_kaiser_poly_p12_fp32(d_z, bin_z)
     elif window_P == 10:
-        wx = _basic_kaiser_poly_p10(d_x, bin_x)
-        wy = _basic_kaiser_poly_p10(d_y, bin_y)
-        wz = _basic_kaiser_poly_p10(d_z, bin_z)
+        wx = _basic_kaiser_poly_p10_fp32(d_x, bin_x)
+        wy = _basic_kaiser_poly_p10_fp32(d_y, bin_y)
+        wz = _basic_kaiser_poly_p10_fp32(d_z, bin_z)
     if window_P == 8:
-        wx = _basic_kaiser_poly_p8(d_x, bin_x)
-        wy = _basic_kaiser_poly_p8(d_y, bin_y)
-        wz = _basic_kaiser_poly_p8(d_z, bin_z)
+        wx = _basic_kaiser_poly_p8_fp32(d_x, bin_x)
+        wy = _basic_kaiser_poly_p8_fp32(d_y, bin_y)
+        wz = _basic_kaiser_poly_p8_fp32(d_z, bin_z)
     elif window_P == 6:
-        wx = _basic_kaiser_poly_p6(d_x, bin_x)
-        wy = _basic_kaiser_poly_p6(d_y, bin_y)
-        wz = _basic_kaiser_poly_p6(d_z, bin_z)
+        wx = _basic_kaiser_poly_p6_fp32(d_x, bin_x)
+        wy = _basic_kaiser_poly_p6_fp32(d_y, bin_y)
+        wz = _basic_kaiser_poly_p6_fp32(d_z, bin_z)
     elif window_P == 4:
-        wx = _basic_kaiser_poly_p4(d_x, bin_x)
-        wy = _basic_kaiser_poly_p4(d_y, bin_y)
-        wz = _basic_kaiser_poly_p4(d_z, bin_z)
+        wx = _basic_kaiser_poly_p4_fp32(d_x, bin_x)
+        wy = _basic_kaiser_poly_p4_fp32(d_y, bin_y)
+        wz = _basic_kaiser_poly_p4_fp32(d_z, bin_z)
     elif window_P == 2:
-        wx = _basic_kaiser_poly_p2(d_x, bin_x)
-        wy = _basic_kaiser_poly_p2(d_y, bin_y)
-        wz = _basic_kaiser_poly_p2(d_z, bin_z)
+        wx = _basic_kaiser_poly_p2_fp32(d_x, bin_x)
+        wy = _basic_kaiser_poly_p2_fp32(d_y, bin_y)
+        wz = _basic_kaiser_poly_p2_fp32(d_z, bin_z)
     w: pk.float = wx * wy * wz
     return w
 
@@ -893,7 +877,7 @@ def _grid2bin(
 # NOTE: These functions are generated by ``generate_basic_kaiser_poly_functions.py``.
 # They should not be modified by hand.
 @pk.function
-def _basic_kaiser_poly_p2(x: pk.float, i: int) -> float:
+def _basic_kaiser_poly_p2_fp32(x: pk.float, i: int) -> float:
     """
     Evaluate the basic kaiser polynomial of support 2 and degree 2.
 
@@ -931,7 +915,7 @@ def _basic_kaiser_poly_p2(x: pk.float, i: int) -> float:
 
 
 @pk.function
-def _basic_kaiser_poly_p4(x: pk.float, i: int) -> float:
+def _basic_kaiser_poly_p4_fp32(x: pk.float, i: int) -> float:
     """
     Evaluate the basic kaiser polynomial of support 4 and degree 3.
 
@@ -982,7 +966,7 @@ def _basic_kaiser_poly_p4(x: pk.float, i: int) -> float:
 
 
 @pk.function
-def _basic_kaiser_poly_p6(x: pk.float, i: int) -> float:
+def _basic_kaiser_poly_p6_fp32(x: pk.float, i: int) -> float:
     """
     Evaluate the basic kaiser polynomial of support 6 and degree 4.
 
@@ -1050,7 +1034,7 @@ def _basic_kaiser_poly_p6(x: pk.float, i: int) -> float:
 
 
 @pk.function
-def _basic_kaiser_poly_p8(x: pk.float, i: int) -> float:
+def _basic_kaiser_poly_p8_fp32(x: pk.float, i: int) -> float:
     """
     Evaluate the basic kaiser polynomial of support 8 and degree 5.
 
@@ -1139,7 +1123,7 @@ def _basic_kaiser_poly_p8(x: pk.float, i: int) -> float:
 
 
 @pk.function
-def _basic_kaiser_poly_p10(x: pk.float, i: int) -> float:
+def _basic_kaiser_poly_p10_fp32(x: pk.float, i: int) -> float:
     """
     Evaluate the basic kaiser polynomial of support 10 and degree 6.
 
@@ -1253,7 +1237,7 @@ def _basic_kaiser_poly_p10(x: pk.float, i: int) -> float:
 
 
 @pk.function
-def _basic_kaiser_poly_p12(x: pk.float, i: int) -> float:
+def _basic_kaiser_poly_p12_fp32(x: pk.float, i: int) -> float:
     """
     Evaluate the basic kaiser polynomial of support 12 and degree 8.
 
@@ -1411,7 +1395,7 @@ def _basic_kaiser_poly_p12(x: pk.float, i: int) -> float:
 
 
 @pk.function
-def _basic_kaiser_poly_p14(x: pk.float, i: int) -> float:
+def _basic_kaiser_poly_p14_fp32(x: pk.float, i: int) -> float:
     """
     Evaluate the basic kaiser polynomial of support 14 and degree 9.
 
@@ -1632,7 +1616,7 @@ def p2g_base_fp64(
     H_shape,
     ny,
     window_P,
-    periodicity: int,
+    periodicity,
     threads,
 ):
     """
@@ -1678,33 +1662,33 @@ def p2g_base_fp64(
         w2: List[pk.double] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         for r in range(window_P):
             if window_P == 14:
-                w0[r] = _basic_kaiser_poly_p14(d_x, r)
-                w1[r] = _basic_kaiser_poly_p14(d_y, r)
-                w2[r] = _basic_kaiser_poly_p14(d_z, r)
+                w0[r] = _basic_kaiser_poly_p14_fp64(d_x, r)
+                w1[r] = _basic_kaiser_poly_p14_fp64(d_y, r)
+                w2[r] = _basic_kaiser_poly_p14_fp64(d_z, r)
             elif window_P == 12:
-                w0[r] = _basic_kaiser_poly_p12(d_x, r)
-                w1[r] = _basic_kaiser_poly_p12(d_y, r)
-                w2[r] = _basic_kaiser_poly_p12(d_z, r)
+                w0[r] = _basic_kaiser_poly_p12_fp64(d_x, r)
+                w1[r] = _basic_kaiser_poly_p12_fp64(d_y, r)
+                w2[r] = _basic_kaiser_poly_p12_fp64(d_z, r)
             elif window_P == 10:
-                w0[r] = _basic_kaiser_poly_p10(d_x, r)
-                w1[r] = _basic_kaiser_poly_p10(d_y, r)
-                w2[r] = _basic_kaiser_poly_p10(d_z, r)
+                w0[r] = _basic_kaiser_poly_p10_fp64(d_x, r)
+                w1[r] = _basic_kaiser_poly_p10_fp64(d_y, r)
+                w2[r] = _basic_kaiser_poly_p10_fp64(d_z, r)
             if window_P == 8:
-                w0[r] = _basic_kaiser_poly_p8(d_x, r)
-                w1[r] = _basic_kaiser_poly_p8(d_y, r)
-                w2[r] = _basic_kaiser_poly_p8(d_z, r)
+                w0[r] = _basic_kaiser_poly_p8_fp64(d_x, r)
+                w1[r] = _basic_kaiser_poly_p8_fp64(d_y, r)
+                w2[r] = _basic_kaiser_poly_p8_fp64(d_z, r)
             elif window_P == 6:
-                w0[r] = _basic_kaiser_poly_p6(d_x, r)
-                w1[r] = _basic_kaiser_poly_p6(d_y, r)
-                w2[r] = _basic_kaiser_poly_p6(d_z, r)
+                w0[r] = _basic_kaiser_poly_p6_fp64(d_x, r)
+                w1[r] = _basic_kaiser_poly_p6_fp64(d_y, r)
+                w2[r] = _basic_kaiser_poly_p6_fp64(d_z, r)
             elif window_P == 4:
-                w0[r] = _basic_kaiser_poly_p4(d_x, r)
-                w1[r] = _basic_kaiser_poly_p4(d_y, r)
-                w2[r] = _basic_kaiser_poly_p4(d_z, r)
+                w0[r] = _basic_kaiser_poly_p4_fp64(d_x, r)
+                w1[r] = _basic_kaiser_poly_p4_fp64(d_y, r)
+                w2[r] = _basic_kaiser_poly_p4_fp64(d_z, r)
             elif window_P == 2:
-                w0[r] = _basic_kaiser_poly_p2(d_x, r)
-                w1[r] = _basic_kaiser_poly_p2(d_y, r)
-                w2[r] = _basic_kaiser_poly_p2(d_z, r)
+                w0[r] = _basic_kaiser_poly_p2_fp64(d_x, r)
+                w1[r] = _basic_kaiser_poly_p2_fp64(d_y, r)
+                w2[r] = _basic_kaiser_poly_p2_fp64(d_z, r)
         # loop over window cell
         wx: pk.double = 0.0
         wx_wy: pk.double = 0.0
@@ -1758,7 +1742,36 @@ def p2g_base_fp64(
 
 
 @pk.workunit
-def p2g_source(team_member: pk.TeamMember):
+def p2g_source_fp64(
+    team_member: pk.TeamMember,
+    yj,
+    qj,
+    nj,
+    H,
+    H_shape,
+    ny,
+    window_P,
+    periodicity,
+    cell_size,
+    cell_teams,
+    threads,
+):
+    """
+    args:
+        yj: (3, ny) list of source particles
+            scaled to the Fourier grid
+        qj: (dx, ny) list of source densities
+        nj: (3, ny) list of source normal vectors
+        H: (gx, gy, gz, dh) Fourier grid
+        H_shape: shape of the Fourier grid
+        ny: int, number of source particles
+        window_P: int, window function support in grid points
+        periodicity: int, periodicity of the problem
+        cell_size: int, number of source particles in a cell
+        cell_teams: int, number of teams assigned to a cell
+        threads: int, threads per team
+    """
+    po2: int = window_P / 2
     nz_cell: int = team_member.league_rank() // cell_teams
     cell_team: int = team_member.league_rank() % cell_teams
     cell_off: int = cell_team * threads
@@ -1785,83 +1798,38 @@ def p2g_source(team_member: pk.TeamMember):
         a_y: int = g_y - (po2 - 1)
         a_z: int = g_z - (po2 - 1)
         # allocate registers for window function
-        w0: List[pk.double] = [
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-        ]  # NOTE: placeholder for max windowP of 14, would like to be [0] * window_P
-        w1: List[pk.double] = [
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-        ]  # NOTE: placeholder for max windowP of 14, would like to be [0] * window_P
-        w2: List[pk.double] = [
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-        ]  # NOTE: placeholder for max windowP of 14, would like to be [0] * window_P
+        w0: List[pk.double] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        w1: List[pk.double] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        w2: List[pk.double] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         for r in range(window_P):
             if window_P == 14:
-                w0[r] = _basic_kaiser_poly_p14(d_x, r)
-                w1[r] = _basic_kaiser_poly_p14(d_y, r)
-                w2[r] = _basic_kaiser_poly_p14(d_z, r)
+                w0[r] = _basic_kaiser_poly_p14_fp64(d_x, r)
+                w1[r] = _basic_kaiser_poly_p14_fp64(d_y, r)
+                w2[r] = _basic_kaiser_poly_p14_fp64(d_z, r)
             elif window_P == 12:
-                w0[r] = _basic_kaiser_poly_p12(d_x, r)
-                w1[r] = _basic_kaiser_poly_p12(d_y, r)
-                w2[r] = _basic_kaiser_poly_p12(d_z, r)
+                w0[r] = _basic_kaiser_poly_p12_fp64(d_x, r)
+                w1[r] = _basic_kaiser_poly_p12_fp64(d_y, r)
+                w2[r] = _basic_kaiser_poly_p12_fp64(d_z, r)
             elif window_P == 10:
-                w0[r] = _basic_kaiser_poly_p10(d_x, r)
-                w1[r] = _basic_kaiser_poly_p10(d_y, r)
-                w2[r] = _basic_kaiser_poly_p10(d_z, r)
+                w0[r] = _basic_kaiser_poly_p10_fp64(d_x, r)
+                w1[r] = _basic_kaiser_poly_p10_fp64(d_y, r)
+                w2[r] = _basic_kaiser_poly_p10_fp64(d_z, r)
             if window_P == 8:
-                w0[r] = _basic_kaiser_poly_p8(d_x, r)
-                w1[r] = _basic_kaiser_poly_p8(d_y, r)
-                w2[r] = _basic_kaiser_poly_p8(d_z, r)
+                w0[r] = _basic_kaiser_poly_p8_fp64(d_x, r)
+                w1[r] = _basic_kaiser_poly_p8_fp64(d_y, r)
+                w2[r] = _basic_kaiser_poly_p8_fp64(d_z, r)
             elif window_P == 6:
-                w0[r] = _basic_kaiser_poly_p6(d_x, r)
-                w1[r] = _basic_kaiser_poly_p6(d_y, r)
-                w2[r] = _basic_kaiser_poly_p6(d_z, r)
+                w0[r] = _basic_kaiser_poly_p6_fp64(d_x, r)
+                w1[r] = _basic_kaiser_poly_p6_fp64(d_y, r)
+                w2[r] = _basic_kaiser_poly_p6_fp64(d_z, r)
             elif window_P == 4:
-                w0[r] = _basic_kaiser_poly_p4(d_x, r)
-                w1[r] = _basic_kaiser_poly_p4(d_y, r)
-                w2[r] = _basic_kaiser_poly_p4(d_z, r)
+                w0[r] = _basic_kaiser_poly_p4_fp64(d_x, r)
+                w1[r] = _basic_kaiser_poly_p4_fp64(d_y, r)
+                w2[r] = _basic_kaiser_poly_p4_fp64(d_z, r)
             elif window_P == 2:
-                w0[r] = _basic_kaiser_poly_p2(d_x, r)
-                w1[r] = _basic_kaiser_poly_p2(d_y, r)
-                w2[r] = _basic_kaiser_poly_p2(d_z, r)
+                w0[r] = _basic_kaiser_poly_p2_fp64(d_x, r)
+                w1[r] = _basic_kaiser_poly_p2_fp64(d_y, r)
+                w2[r] = _basic_kaiser_poly_p2_fp64(d_z, r)
         # loop over window cell
         wx: pk.double = 0.0
         wx_wy: pk.double = 0.0
@@ -2024,33 +1992,33 @@ def p2g_hybrid(team_member: pk.TeamMember):
             shmem_f[ii][iii + dim_f] = nj[iii][s]
         for r in range(window_P):
             if window_P == 14:
-                shmem_w[ii][r][0] = _basic_kaiser_poly_p14(d_x, r)
-                shmem_w[ii][r][1] = _basic_kaiser_poly_p14(d_y, r)
-                shmem_w[ii][r][2] = _basic_kaiser_poly_p14(d_z, r)
+                shmem_w[ii][r][0] = _basic_kaiser_poly_p14_fp64(d_x, r)
+                shmem_w[ii][r][1] = _basic_kaiser_poly_p14_fp64(d_y, r)
+                shmem_w[ii][r][2] = _basic_kaiser_poly_p14_fp64(d_z, r)
             elif window_P == 12:
-                shmem_w[ii][r][0] = _basic_kaiser_poly_p12(d_x, r)
-                shmem_w[ii][r][1] = _basic_kaiser_poly_p12(d_y, r)
-                shmem_w[ii][r][2] = _basic_kaiser_poly_p12(d_z, r)
+                shmem_w[ii][r][0] = _basic_kaiser_poly_p12_fp64(d_x, r)
+                shmem_w[ii][r][1] = _basic_kaiser_poly_p12_fp64(d_y, r)
+                shmem_w[ii][r][2] = _basic_kaiser_poly_p12_fp64(d_z, r)
             elif window_P == 10:
-                shmem_w[ii][r][0] = _basic_kaiser_poly_p10(d_x, r)
-                shmem_w[ii][r][1] = _basic_kaiser_poly_p10(d_y, r)
-                shmem_w[ii][r][2] = _basic_kaiser_poly_p10(d_z, r)
+                shmem_w[ii][r][0] = _basic_kaiser_poly_p10_fp64(d_x, r)
+                shmem_w[ii][r][1] = _basic_kaiser_poly_p10_fp64(d_y, r)
+                shmem_w[ii][r][2] = _basic_kaiser_poly_p10_fp64(d_z, r)
             if window_P == 8:
-                shmem_w[ii][r][0] = _basic_kaiser_poly_p8(d_x, r)
-                shmem_w[ii][r][1] = _basic_kaiser_poly_p8(d_y, r)
-                shmem_w[ii][r][2] = _basic_kaiser_poly_p8(d_z, r)
+                shmem_w[ii][r][0] = _basic_kaiser_poly_p8_fp64(d_x, r)
+                shmem_w[ii][r][1] = _basic_kaiser_poly_p8_fp64(d_y, r)
+                shmem_w[ii][r][2] = _basic_kaiser_poly_p8_fp64(d_z, r)
             elif window_P == 6:
-                shmem_w[ii][r][0] = _basic_kaiser_poly_p6(d_x, r)
-                shmem_w[ii][r][1] = _basic_kaiser_poly_p6(d_y, r)
-                shmem_w[ii][r][2] = _basic_kaiser_poly_p6(d_z, r)
+                shmem_w[ii][r][0] = _basic_kaiser_poly_p6_fp64(d_x, r)
+                shmem_w[ii][r][1] = _basic_kaiser_poly_p6_fp64(d_y, r)
+                shmem_w[ii][r][2] = _basic_kaiser_poly_p6_fp64(d_z, r)
             elif window_P == 4:
-                shmem_w[ii][r][0] = _basic_kaiser_poly_p4(d_x, r)
-                shmem_w[ii][r][1] = _basic_kaiser_poly_p4(d_y, r)
-                shmem_w[ii][r][2] = _basic_kaiser_poly_p4(d_z, r)
+                shmem_w[ii][r][0] = _basic_kaiser_poly_p4_fp64(d_x, r)
+                shmem_w[ii][r][1] = _basic_kaiser_poly_p4_fp64(d_y, r)
+                shmem_w[ii][r][2] = _basic_kaiser_poly_p4_fp64(d_z, r)
             elif window_P == 2:
-                shmem_w[ii][r][0] = _basic_kaiser_poly_p2(d_x, r)
-                shmem_w[ii][r][1] = _basic_kaiser_poly_p2(d_y, r)
-                shmem_w[ii][r][2] = _basic_kaiser_poly_p2(d_z, r)
+                shmem_w[ii][r][0] = _basic_kaiser_poly_p2_fp64(d_x, r)
+                shmem_w[ii][r][1] = _basic_kaiser_poly_p2_fp64(d_y, r)
+                shmem_w[ii][r][2] = _basic_kaiser_poly_p2_fp64(d_z, r)
 
     pk.parallel_for(pk.TeamThreadRange(team_member, cell_chunk_size), source_loop)
     team_member.team_barrier()
@@ -2237,33 +2205,33 @@ def p2g_hybrid_wo_normals(team_member: pk.TeamMember):
             shmem_f[ii][iii + dim_f] = nj[iii][s]
         for r in range(window_P):
             if window_P == 14:
-                shmem_w[ii][r][0] = _basic_kaiser_poly_p14(d_x, r)
-                shmem_w[ii][r][1] = _basic_kaiser_poly_p14(d_y, r)
-                shmem_w[ii][r][2] = _basic_kaiser_poly_p14(d_z, r)
+                shmem_w[ii][r][0] = _basic_kaiser_poly_p14_fp64(d_x, r)
+                shmem_w[ii][r][1] = _basic_kaiser_poly_p14_fp64(d_y, r)
+                shmem_w[ii][r][2] = _basic_kaiser_poly_p14_fp64(d_z, r)
             elif window_P == 12:
-                shmem_w[ii][r][0] = _basic_kaiser_poly_p12(d_x, r)
-                shmem_w[ii][r][1] = _basic_kaiser_poly_p12(d_y, r)
-                shmem_w[ii][r][2] = _basic_kaiser_poly_p12(d_z, r)
+                shmem_w[ii][r][0] = _basic_kaiser_poly_p12_fp64(d_x, r)
+                shmem_w[ii][r][1] = _basic_kaiser_poly_p12_fp64(d_y, r)
+                shmem_w[ii][r][2] = _basic_kaiser_poly_p12_fp64(d_z, r)
             elif window_P == 10:
-                shmem_w[ii][r][0] = _basic_kaiser_poly_p10(d_x, r)
-                shmem_w[ii][r][1] = _basic_kaiser_poly_p10(d_y, r)
-                shmem_w[ii][r][2] = _basic_kaiser_poly_p10(d_z, r)
+                shmem_w[ii][r][0] = _basic_kaiser_poly_p10_fp64(d_x, r)
+                shmem_w[ii][r][1] = _basic_kaiser_poly_p10_fp64(d_y, r)
+                shmem_w[ii][r][2] = _basic_kaiser_poly_p10_fp64(d_z, r)
             if window_P == 8:
-                shmem_w[ii][r][0] = _basic_kaiser_poly_p8(d_x, r)
-                shmem_w[ii][r][1] = _basic_kaiser_poly_p8(d_y, r)
-                shmem_w[ii][r][2] = _basic_kaiser_poly_p8(d_z, r)
+                shmem_w[ii][r][0] = _basic_kaiser_poly_p8_fp64(d_x, r)
+                shmem_w[ii][r][1] = _basic_kaiser_poly_p8_fp64(d_y, r)
+                shmem_w[ii][r][2] = _basic_kaiser_poly_p8_fp64(d_z, r)
             elif window_P == 6:
-                shmem_w[ii][r][0] = _basic_kaiser_poly_p6(d_x, r)
-                shmem_w[ii][r][1] = _basic_kaiser_poly_p6(d_y, r)
-                shmem_w[ii][r][2] = _basic_kaiser_poly_p6(d_z, r)
+                shmem_w[ii][r][0] = _basic_kaiser_poly_p6_fp64(d_x, r)
+                shmem_w[ii][r][1] = _basic_kaiser_poly_p6_fp64(d_y, r)
+                shmem_w[ii][r][2] = _basic_kaiser_poly_p6_fp64(d_z, r)
             elif window_P == 4:
-                shmem_w[ii][r][0] = _basic_kaiser_poly_p4(d_x, r)
-                shmem_w[ii][r][1] = _basic_kaiser_poly_p4(d_y, r)
-                shmem_w[ii][r][2] = _basic_kaiser_poly_p4(d_z, r)
+                shmem_w[ii][r][0] = _basic_kaiser_poly_p4_fp64(d_x, r)
+                shmem_w[ii][r][1] = _basic_kaiser_poly_p4_fp64(d_y, r)
+                shmem_w[ii][r][2] = _basic_kaiser_poly_p4_fp64(d_z, r)
             elif window_P == 2:
-                shmem_w[ii][r][0] = _basic_kaiser_poly_p2(d_x, r)
-                shmem_w[ii][r][1] = _basic_kaiser_poly_p2(d_y, r)
-                shmem_w[ii][r][2] = _basic_kaiser_poly_p2(d_z, r)
+                shmem_w[ii][r][0] = _basic_kaiser_poly_p2_fp64(d_x, r)
+                shmem_w[ii][r][1] = _basic_kaiser_poly_p2_fp64(d_y, r)
+                shmem_w[ii][r][2] = _basic_kaiser_poly_p2_fp64(d_z, r)
 
     pk.parallel_for(pk.TeamThreadRange(team_member, cell_chunk_size), source_loop)
     team_member.team_barrier()
@@ -2409,33 +2377,33 @@ def naive_window_kernel_fp64(
     wy: pk.double = 0
     wz: pk.double = 0
     if window_P == 14:
-        wx = _basic_kaiser_poly_p14(d_x, bin_x)
-        wy = _basic_kaiser_poly_p14(d_y, bin_y)
-        wz = _basic_kaiser_poly_p14(d_z, bin_z)
+        wx = _basic_kaiser_poly_p14_fp64(d_x, bin_x)
+        wy = _basic_kaiser_poly_p14_fp64(d_y, bin_y)
+        wz = _basic_kaiser_poly_p14_fp64(d_z, bin_z)
     elif window_P == 12:
-        wx = _basic_kaiser_poly_p12(d_x, bin_x)
-        wy = _basic_kaiser_poly_p12(d_y, bin_y)
-        wz = _basic_kaiser_poly_p12(d_z, bin_z)
+        wx = _basic_kaiser_poly_p12_fp64(d_x, bin_x)
+        wy = _basic_kaiser_poly_p12_fp64(d_y, bin_y)
+        wz = _basic_kaiser_poly_p12_fp64(d_z, bin_z)
     elif window_P == 10:
-        wx = _basic_kaiser_poly_p10(d_x, bin_x)
-        wy = _basic_kaiser_poly_p10(d_y, bin_y)
-        wz = _basic_kaiser_poly_p10(d_z, bin_z)
+        wx = _basic_kaiser_poly_p10_fp64(d_x, bin_x)
+        wy = _basic_kaiser_poly_p10_fp64(d_y, bin_y)
+        wz = _basic_kaiser_poly_p10_fp64(d_z, bin_z)
     if window_P == 8:
-        wx = _basic_kaiser_poly_p8(d_x, bin_x)
-        wy = _basic_kaiser_poly_p8(d_y, bin_y)
-        wz = _basic_kaiser_poly_p8(d_z, bin_z)
+        wx = _basic_kaiser_poly_p8_fp64(d_x, bin_x)
+        wy = _basic_kaiser_poly_p8_fp64(d_y, bin_y)
+        wz = _basic_kaiser_poly_p8_fp64(d_z, bin_z)
     elif window_P == 6:
-        wx = _basic_kaiser_poly_p6(d_x, bin_x)
-        wy = _basic_kaiser_poly_p6(d_y, bin_y)
-        wz = _basic_kaiser_poly_p6(d_z, bin_z)
+        wx = _basic_kaiser_poly_p6_fp64(d_x, bin_x)
+        wy = _basic_kaiser_poly_p6_fp64(d_y, bin_y)
+        wz = _basic_kaiser_poly_p6_fp64(d_z, bin_z)
     elif window_P == 4:
-        wx = _basic_kaiser_poly_p4(d_x, bin_x)
-        wy = _basic_kaiser_poly_p4(d_y, bin_y)
-        wz = _basic_kaiser_poly_p4(d_z, bin_z)
+        wx = _basic_kaiser_poly_p4_fp64(d_x, bin_x)
+        wy = _basic_kaiser_poly_p4_fp64(d_y, bin_y)
+        wz = _basic_kaiser_poly_p4_fp64(d_z, bin_z)
     elif window_P == 2:
-        wx = _basic_kaiser_poly_p2(d_x, bin_x)
-        wy = _basic_kaiser_poly_p2(d_y, bin_y)
-        wz = _basic_kaiser_poly_p2(d_z, bin_z)
+        wx = _basic_kaiser_poly_p2_fp64(d_x, bin_x)
+        wy = _basic_kaiser_poly_p2_fp64(d_y, bin_y)
+        wz = _basic_kaiser_poly_p2_fp64(d_z, bin_z)
     w: pk.double = wx * wy * wz
     return w
 
@@ -2496,7 +2464,7 @@ def _grid2bin(
 # NOTE: These functions are generated by ``generate_basic_kaiser_poly_functions.py``.
 # They should not be modified by hand.
 @pk.function
-def _basic_kaiser_poly_p2(x: pk.double, i: int) -> float:
+def _basic_kaiser_poly_p2_fp64(x: pk.double, i: int) -> float:
     """
     Evaluate the basic kaiser polynomial of support 2 and degree 2.
 
@@ -2534,7 +2502,7 @@ def _basic_kaiser_poly_p2(x: pk.double, i: int) -> float:
 
 
 @pk.function
-def _basic_kaiser_poly_p4(x: pk.double, i: int) -> float:
+def _basic_kaiser_poly_p4_fp64(x: pk.double, i: int) -> float:
     """
     Evaluate the basic kaiser polynomial of support 4 and degree 3.
 
@@ -2585,7 +2553,7 @@ def _basic_kaiser_poly_p4(x: pk.double, i: int) -> float:
 
 
 @pk.function
-def _basic_kaiser_poly_p6(x: pk.double, i: int) -> float:
+def _basic_kaiser_poly_p6_fp64(x: pk.double, i: int) -> float:
     """
     Evaluate the basic kaiser polynomial of support 6 and degree 4.
 
@@ -2653,7 +2621,7 @@ def _basic_kaiser_poly_p6(x: pk.double, i: int) -> float:
 
 
 @pk.function
-def _basic_kaiser_poly_p8(x: pk.double, i: int) -> float:
+def _basic_kaiser_poly_p8_fp64(x: pk.double, i: int) -> float:
     """
     Evaluate the basic kaiser polynomial of support 8 and degree 5.
 
@@ -2742,7 +2710,7 @@ def _basic_kaiser_poly_p8(x: pk.double, i: int) -> float:
 
 
 @pk.function
-def _basic_kaiser_poly_p10(x: pk.double, i: int) -> float:
+def _basic_kaiser_poly_p10_fp64(x: pk.double, i: int) -> float:
     """
     Evaluate the basic kaiser polynomial of support 10 and degree 6.
 
@@ -2856,7 +2824,7 @@ def _basic_kaiser_poly_p10(x: pk.double, i: int) -> float:
 
 
 @pk.function
-def _basic_kaiser_poly_p12(x: pk.double, i: int) -> float:
+def _basic_kaiser_poly_p12_fp64(x: pk.double, i: int) -> float:
     """
     Evaluate the basic kaiser polynomial of support 12 and degree 8.
 
@@ -3014,7 +2982,7 @@ def _basic_kaiser_poly_p12(x: pk.double, i: int) -> float:
 
 
 @pk.function
-def _basic_kaiser_poly_p14(x: pk.double, i: int) -> float:
+def _basic_kaiser_poly_p14_fp64(x: pk.double, i: int) -> float:
     """
     Evaluate the basic kaiser polynomial of support 14 and degree 9.
 

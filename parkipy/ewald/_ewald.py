@@ -346,6 +346,8 @@ def p2g(
         case "BASE":
             method_flag = 0
             H_view = device_pre.data.ghost_H.transpose(1, 2, 3, 0).copy()
+
+            # set up kernel call
             teams = math.ceil(device_pre.Ns / threads)
             policy = pk.TeamPolicy(device_pre.execution_space, teams, threads)
             kwargs = {
@@ -368,6 +370,53 @@ def p2g(
         case "SOURCE":
             method_flag = 1
             H_view = device_pre.data.ghost_H
+
+            # sort sources
+            walltime["sort"] = time.time()
+            if device_pre.data.normals is not None:
+                forces = (device_pre.data.forces, device_pre.data.normals)
+            else:
+                forces = device_pre.data.forces
+            source_list = CellList(
+                scaled_sources,
+                (device_pre.data.opt.window_P / 2),
+                device_pre.am.array(device_pre.data.opt.ghost_grid_shape_ext).astype(
+                    device_pre.data.dtype
+                ),
+                execution_space=device_pre.execution_space,
+                forces=forces,
+            )
+            cell_chunk_size: int = min(
+                source_list.cell_size, device_pre.p2g_max_cell_size
+            )
+            walltime["sort"] = time.time() - walltime["sort"]
+
+            # set up kernel call
+            teams_per_cell = math.ceil(source_list.cell_size / threads)
+            policy = pk.TeamPolicy(
+                device_pre.execution_space,
+                source_list.num_nonempty_cells * teams_per_cell,
+                threads,
+            )
+            kwargs = {
+                "yj": source_list.particle_list,
+                "qj": source_list.force_list[0],
+                "nj": source_list.force_list[1],
+                "H": H_view,
+                "H_shape": device_pre.am.asarray(
+                    device_pre.data.opt.ghost_grid_shape_ext
+                ),
+                "ny": device_pre.Ns,
+                "window_P": device_pre.data.opt.window_P,
+                "periodicity": (
+                    device_pre.data.opt.periodicity
+                    if not device_pre.data.opt.distributed
+                    else 0
+                ),
+                "cell_size": source_list.cell_size,
+                "cell_teams": teams_per_cell,
+                "threads": threads,
+            }
         case "GRID":
             method_flag = 3
             H_view = device_pre.data.ghost_H.transpose(1, 2, 3, 0).copy()
@@ -380,13 +429,12 @@ def p2g(
                 f" got {method.upper()}."
             )
 
-    sort_start = args_end = time.time()
     if device_pre.data.normals is not None:
         forces = (device_pre.data.forces, device_pre.data.normals)
     else:
         forces = device_pre.data.forces
     # To sort or not to sort, that is the question
-    if method.upper() != "BASE":
+    if method.upper() not in ["BASE", "SOURCE"]:
         # get source list
         source_list = CellList(
             scaled_sources,

@@ -33,6 +33,8 @@ from ._pk_kernels._p2g_workload import (
 from ._pk_kernels._p2g_workunits import (
     p2g_base_fp32,
     p2g_base_fp64,
+    p2g_source_fp32,
+    p2g_source_fp64,
 )
 from ._pk_kernels._g2p_workunits import (
     g2p_base_fp32,
@@ -767,7 +769,7 @@ class DevicePre:
             case self.am.double:
                 self.p2p_workload = p2p_workload_fp64
                 self.p2g_workload = p2g_workload_fp64
-                self.p2g_workunit = {"BASE": p2g_base_fp64}
+                self.p2g_workunit = {"BASE": p2g_base_fp64, "SOURCE": p2g_source_fp64}
                 self.g2p_workunit = {"BASE": g2p_base_fp64, "TARGET": g2p_target_fp64}
                 self.laplace_convolution_kernel = laplace_convolution_kernel_fp64
                 self.stokeslet_convolution_kernel = stokeslet_convolution_kernel_fp64
@@ -781,7 +783,7 @@ class DevicePre:
             case self.am.single:
                 self.p2p_workload = p2p_workload_fp32
                 self.p2g_workload = p2g_workload_fp32
-                self.p2g_workunit = {"BASE": p2g_base_fp32}
+                self.p2g_workunit = {"BASE": p2g_base_fp32, "SOURCE": p2g_source_fp32}
                 self.g2p_workunit = {"BASE": g2p_base_fp32, "TARGET": g2p_target_fp32}
                 self.laplace_convolution_kernel = laplace_convolution_kernel_fp32
                 self.stokeslet_convolution_kernel = stokeslet_convolution_kernel_fp32
