@@ -71,4 +71,10 @@ The Parki repository contains 6 subdirectories:
 * **tests**: python unit tests; run with `pytest tests`.
 
 # Reproducing/Generating Performance Results
+## Tables
+* **Table 1**: follow steps in `analysis/cycle_counts/README.md`
+
+## Figures
+* **Figure 4**: follow steps in `analysis/cycle_counts/README.md`
+* **Figure 5**: 
 ...
