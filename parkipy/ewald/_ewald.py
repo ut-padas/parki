@@ -34,7 +34,6 @@ import math
 import pykokkos as pk
 import numpy as np
 import warnings
-from types import SimpleNamespace
 
 from ._utils import get_fftn, get_ifftn
 from parkipy.utils import get_execution_space, get_array_module
@@ -310,13 +309,36 @@ def p2g(
     - The kernel supports both single- and double-layer spreading with optional shared memory acceleration.
     - Grid shape and cell sizes are inferred from `device_pre` and depend on the execution space.
     """
-    args_start = time.time()
+    walltime = {}
+    walltime["tot"] = time.time()
     if device_pre.execution_space == pk.ExecutionSpace.OpenMP and threads != 1:
         warnings.warn(
             "'threads' argument is overridden to 1 in OpenMP execution space.",
             RuntimeWarning,
         )
         threads = 1
+
+    if device_pre.data.opt.window_P > 14:
+        raise ValueError(
+            f"p2g only supported for window_P <= 14, "
+            f"got window_P={device_pre.data.opt.window_P}. "
+            f"Please adjust tolerance and cell size to decrease window_P."
+        )
+
+    # scale particles to Fourier grid
+    offsets = device_pre.am.array(
+        [
+            (
+                0.0
+                if device_pre.data.opt.box_off[i] == 0
+                else device_pre.data.opt.box_off[i] + 0.5 * device_pre.data.opt.h
+            )
+            for i in range(3)
+        ],
+        dtype=device_pre.data.dtype,
+    ).reshape(3, 1)
+    scaled_sources = (device_pre.data.sources - offsets) * device_pre.data.opt.grid_res
+
     # get method information
     method_flag = -1
     var_arr = method.strip().upper().split("-")
@@ -324,6 +346,25 @@ def p2g(
         case "BASE":
             method_flag = 0
             H_view = device_pre.data.ghost_H.transpose(1, 2, 3, 0).copy()
+            teams = math.ceil(device_pre.Ns / threads)
+            policy = pk.TeamPolicy(device_pre.execution_space, teams, threads)
+            kwargs = {
+                "yj": scaled_sources,
+                "qj": device_pre.data.forces,
+                "nj": device_pre.data.normals,
+                "H": H_view,
+                "H_shape": device_pre.am.asarray(
+                    device_pre.data.opt.ghost_grid_shape_ext
+                ),
+                "ny": device_pre.Ns,
+                "window_P": device_pre.data.opt.window_P,
+                "periodicity": (
+                    device_pre.data.opt.periodicity
+                    if not device_pre.data.opt.distributed
+                    else 0
+                ),
+                "threads": threads,
+            }
         case "SOURCE":
             method_flag = 1
             H_view = device_pre.data.ghost_H
@@ -339,27 +380,7 @@ def p2g(
                 f" got {method.upper()}."
             )
 
-    if device_pre.data.opt.window_P > 14:
-        raise ValueError(
-            f"p2g only supported for window_P <= 14, "
-            f"got window_P={device_pre.data.opt.window_P}. "
-            f"Please adjust tolerance and cell size to decrease window_P."
-        )
-
     sort_start = args_end = time.time()
-    # scale particles to Fourier grid
-    offsets = device_pre.am.array(
-        [
-            (
-                0.0
-                if device_pre.data.opt.box_off[i] == 0
-                else device_pre.data.opt.box_off[i] + 0.5 * device_pre.data.opt.h
-            )
-            for i in range(3)
-        ],
-        dtype=device_pre.data.dtype,
-    ).reshape(3, 1)
-    scaled_sources = (device_pre.data.sources - offsets) * device_pre.data.opt.grid_res
     if device_pre.data.normals is not None:
         forces = (device_pre.data.forces, device_pre.data.normals)
     else:
@@ -376,57 +397,58 @@ def p2g(
             execution_space=device_pre.execution_space,
             forces=forces,
         )
-    else:  # create a dummy source list
-        source_list = SimpleNamespace(
-            counter=device_pre.am.empty(1, dtype=device_pre.am.int32),
-            particle_list=scaled_sources,
-            force_list=forces,
-            nonempty_cells=device_pre.am.empty(1, dtype=device_pre.am.int32),
-            nonempty_cell_index=device_pre.am.empty(1, dtype=device_pre.am.int32),
-            num_nonempty_cells=1,
-            cell_size=1,
-            cell_grid_shape=[1, 1, 1],
-        )
-    cell_chunk_size: int = min(source_list.cell_size, device_pre.p2g_max_cell_size)
+        cell_chunk_size: int = min(source_list.cell_size, device_pre.p2g_max_cell_size)
 
-    # pykokkos kernel
-    kernel_start = sort_end = time.time()
-    RangePush("P2G-kernel")
-    pk.execute(
-        device_pre.execution_space,
-        device_pre.p2g_workload(
-            threads,
-            device_pre.Ns,
-            method_flag,
-            device_pre.data.opt.window_P,
-            source_list.num_nonempty_cells,
-            source_list.cell_size,
-            cell_chunk_size,
-            source_list.cell_grid_shape,
-            (
-                device_pre.data.opt.periodicity
-                if not device_pre.data.opt.distributed
-                else 0
+        # pykokkos kernel
+        kernel_start = sort_end = time.time()
+        RangePush("P2G-kernel")
+        pk.execute(
+            device_pre.execution_space,
+            device_pre.p2g_workload(
+                threads,
+                device_pre.Ns,
+                method_flag,
+                device_pre.data.opt.window_P,
+                source_list.num_nonempty_cells,
+                source_list.cell_size,
+                cell_chunk_size,
+                source_list.cell_grid_shape,
+                (
+                    device_pre.data.opt.periodicity
+                    if not device_pre.data.opt.distributed
+                    else 0
+                ),
+                device_pre.has_normals,
+                device_pre.data.dim_H,
+                device_pre.data.opt.ghost_grid_shape_ext,
+                pk.array(source_list.particle_list),
+                pk.array(
+                    source_list.force_list[0]
+                    if isinstance(source_list.force_list, tuple)
+                    else source_list.force_list
+                ),
+                pk.array(
+                    source_list.force_list[1]
+                    if isinstance(source_list.force_list, tuple)
+                    else source_list.force_list
+                ),  # dummy variable if normals are none
+                pk.array(source_list.nonempty_cell_index),
+                pk.array(source_list.nonempty_cells),
+                pk.array(H_view),
             ),
-            device_pre.has_normals,
-            device_pre.data.dim_H,
-            device_pre.data.opt.ghost_grid_shape_ext,
-            pk.array(source_list.particle_list),
-            pk.array(
-                source_list.force_list[0]
-                if isinstance(source_list.force_list, tuple)
-                else source_list.force_list
-            ),
-            pk.array(
-                source_list.force_list[1]
-                if isinstance(source_list.force_list, tuple)
-                else source_list.force_list
-            ),  # dummy variable if normals are none
-            pk.array(source_list.nonempty_cell_index),
-            pk.array(source_list.nonempty_cells),
-            pk.array(H_view),
-        ),
-    )
+        )
+    else:
+        # method == BASE
+        walltime["kernel"] = time.time()
+        RangePush("P2G-kernel")
+        pk.parallel_for(
+            f"P2G-{method.upper()}",
+            policy,
+            device_pre.p2g_workunit[method.upper()],
+            **kwargs,
+        )
+        RangePop()
+        walltime["kernel"] = time.time() - walltime["kernel"]
     match method.upper():
         case "BASE":
             H_view = H_view.transpose(3, 0, 1, 2)
@@ -452,12 +474,7 @@ def p2g(
         device_pre.data.H[...] = H_view
     RangePop()
     kernel_end = time.time()
-    walltime = {
-        "args": args_end - args_start,
-        "sort": sort_end - sort_start,
-        "kernel": kernel_end - kernel_start,
-        "tot": kernel_end - args_start,
-    }
+    walltime["tot"] = time.time() - walltime["tot"]
     return walltime
 
 
@@ -1090,8 +1107,6 @@ def g2p(device_pre, method="TARGET", threads=128):
             walltime["sort"] = time.time() - walltime["sort"]
 
             # setup Kokkos workunit call
-            walltime["kernel"] = time.time()
-
             teams_per_cell = math.ceil(target_list.cell_size / threads)
             policy = pk.TeamPolicy(
                 device_pre.execution_space,
@@ -1123,6 +1138,7 @@ def g2p(device_pre, method="TARGET", threads=128):
                 f"g2p method expected to be one of 'BASE', 'TARGET', got '{method.upper()}'."
             )
 
+    walltime["kernel"] = time.time()
     RangePush("G2P-kernel")
     pk.parallel_for(
         f"G2P-{method.upper()}",
@@ -1131,6 +1147,7 @@ def g2p(device_pre, method="TARGET", threads=128):
         **kwargs,
     )
     RangePop()
+    walltime["kernel"] = time.time() - walltime["kernel"]
 
     # Compute adjustment
     walltime["adj"] = time.time()
