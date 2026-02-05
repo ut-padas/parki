@@ -14,6 +14,7 @@ def main(args):
     file. `args.nt` will be a list of integers, and we run `run()` with each of
     these integers as the number of targets.
     """
+    execution_space = parkipy.utils.get_execution_space(args.device)
     nt_list = [250000, 1000000, 4000000]
     _tols_s_ = [
         (1e-4, 224),
@@ -61,9 +62,13 @@ def main(args):
                             print(
                                 f"method {args.method} cell size {args.cell_size} tol {args.tolerance} nthreads {nthreads} nt {nt}"
                             )
-                            cp.get_default_memory_pool().free_all_blocks()  # free gpu memory
+                            if not pk.is_host_execution_space(execution_space):
+                                import cupy
+                                cupy.get_default_memory_pool().free_all_blocks()  # free gpu memory
                             _, times, params = run(args, verbosity=0)
-                            cp.get_default_memory_pool().free_all_blocks()  # free gpu memory
+                            if not pk.is_host_execution_space(execution_space):
+                                import cupy
+                                cupy.get_default_memory_pool().free_all_blocks()  # free gpu memory
                             # init alltimes
                             for key in times:
                                 if key not in all_times:
@@ -139,6 +144,7 @@ def bytes_to_gb(bytes_value):
 
 
 def run(args, time_every_step=False, verbosity=0) -> None:
+    am = parkipy.utils.get_array_module(args.device)
     # input arguments
     nt = args.nt
     box = np.array([1.0, 1.0, 1.0])
@@ -146,29 +152,32 @@ def run(args, time_every_step=False, verbosity=0) -> None:
     # deterministic arguments
     ns = nt * args.up
 
-    cp.random.seed(123)  # seed random numbers
-    trg = cp.random.rand(3, nt) * cp.array(box).reshape(3, 1)
-    src = cp.random.rand(3, ns) * cp.array(box).reshape(3, 1)
-    dens_sl = cp.random.randn(3, ns)
-    dens_dl = cp.random.randn(3, ns)
-    dens = cp.vstack((dens_sl, dens_dl))
-    norms = cp.random.randn(3, ns)
+    am.random.seed(123)  # seed random numbers
+    trg = am.random.rand(3, nt) * am.array(box).reshape(3, 1)
+    src = am.random.rand(3, ns) * am.array(box).reshape(3, 1)
+    dens_sl = am.random.randn(3, ns)
+    dens_dl = am.random.randn(3, ns)
+    dens = am.vstack((dens_sl, dens_dl))
+    norms = am.random.randn(3, ns)
 
+    options = parkipy.ewald.EwaldOptions(
+            periodicity=1,
+            box=box,
+            tolerance=args.tolerance,
+            execution_space=args.device,
+            cell_size=args.cell_size,
+            return_walltime=True,
+            return_params=True,
+            p2p_method=args.method,
+            p2p_threads_x=args.threads_x,
+            p2p_threads_y=args.threads_y
+    )
     pot, walltime, params = parkipy.ewald.stokes_comb(
         trg,
         src,
         dens,
         norms,
-        1,
-        box,
-        args.tolerance,
-        args.device,
-        cell_size=args.cell_size,
-        return_walltime=True,
-        return_params=True,
-        p2p_method=args.method,
-        p2p_threads_x=args.threads_x,
-        p2p_threads_y=args.threads_y,
+        options
     )
     runtimes = {"p2p": walltime["p2p"]["kernel"]}
 
@@ -177,7 +186,9 @@ def run(args, time_every_step=False, verbosity=0) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Scaling test for the Spectral Ewald code on a GPU."
+        description="Generate timings for different P2P algorithmic variants. "
+        "Results are saved to `{args.output_dir}/p2p_timing_result_up{args.up}"
+        "_dev{args.device.upper()}_arch{arch}_v{format_version}_{now_str}.pkl`"
     )
     default_nt = [int(1e4), int(1e5), int(5e5), int(1e6), int(5e6)]
     default_nt_str = " ".join([str(x) for x in default_nt])
