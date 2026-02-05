@@ -214,3 +214,6 @@ external/
 
 # PyKokkos
 pk_cpp/
+
+# vim
+*.swp
