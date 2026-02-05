@@ -1,3 +1,4 @@
+import pprint
 import warnings
 import numpy as np
 from pykokkos.interface import is_host_execution_space
@@ -43,6 +44,12 @@ class PerfModel:
 
     def __init__(
         self,
+        p2p_time,
+        p2g_time,
+        fft_time,
+        cnv_time,
+        ifft_time,
+        g2p_time,
         kernel,
         N_out,
         N_in,
@@ -72,6 +79,22 @@ class PerfModel:
                 UserWarning,
             )
             device_name = None
+
+        # store time
+        self._time_p2p = p2p_time
+        self._time_p2g = p2g_time
+        self._time_fft = fft_time
+        self._time_cnv = cnv_time
+        self._time_ifft = ifft_time
+        self._time_g2p = g2p_time
+        self._time_ewald = (
+            self.time_p2p["tot"]
+            + self.time_p2g["tot"]
+            + self.time_fft["tot"]
+            + self.time_cnv["tot"]
+            + self.time_ifft["tot"]
+            + self.time_g2p["tot"]
+        )
 
         # count flop
         self._flop_p2p = self._count_flop_p2p(kernel, N_out, cell_size, device_name)
@@ -107,6 +130,126 @@ class PerfModel:
             + self.mop_ifft
             + self.mop_g2p
         )
+
+    def __repr__(self):
+        """pretty representation of the class"""
+        BOLD = "\033[1m"
+        RESET = "\033[0m"
+        lines = []
+
+        # Walltimes
+        lines.append("\n\n")
+        lines.append(f"{BOLD}Ewald Walltimes (seconds){RESET}")
+        lines.append("-" * 60)
+        lines.append(f"  P2P : ")
+        lines.append(
+            "\n".join("    " + l for l in pprint.pformat(self.time_p2p).splitlines())
+        )
+        lines.append(f"  P2G : ")
+        lines.append(
+            "\n".join("    " + l for l in pprint.pformat(self.time_p2g).splitlines())
+        )
+        lines.append(f"  FFT : ")
+        lines.append(
+            "\n".join("    " + l for l in pprint.pformat(self.time_fft).splitlines())
+        )
+        lines.append(f"  CNV : ")
+        lines.append(
+            "\n".join("    " + l for l in pprint.pformat(self.time_cnv).splitlines())
+        )
+        lines.append(f"  IFFT: ")
+        lines.append(
+            "\n".join("    " + l for l in pprint.pformat(self.time_ifft).splitlines())
+        )
+        lines.append(f"  G2P : ")
+        lines.append(
+            "\n".join("    " + l for l in pprint.pformat(self.time_g2p).splitlines())
+        )
+        lines.append(f"  TOTAL: {self.time_ewald}")
+
+        lines.append("\n\n")
+        lines.append(f"{BOLD}Ewald Cost Model{RESET}")
+        lines.append("-" * 60)
+
+        # FLOPs
+        lines.append("FLOPs:")
+        lines.append(f"  P2P : {self.flop_p2p:12.3e}")
+        lines.append(f"  P2G : {self.flop_p2g:12.3e}")
+        lines.append(f"  FFT : {self.flop_fft:12.3e}")
+        lines.append(f"  CNV : {self.flop_cnv:12.3e}")
+        lines.append(f"  IFFT: {self.flop_ifft:12.3e}")
+        lines.append(f"  G2P : {self.flop_g2p:12.3e}")
+        lines.append(f"  TOTAL: {self.flop_ewald:11.3e}")
+
+        lines.append("")
+
+        # Memory ops (bytes moved)
+        lines.append("Memory traffic (bytes):")
+        lines.append(f"  P2P : {self.mop_p2p:12.3e}")
+        lines.append(f"  P2G : {self.mop_p2g:12.3e}")
+        lines.append(f"  FFT : {self.mop_fft:12.3e}")
+        lines.append(f"  CNV : {self.mop_cnv:12.3e}")
+        lines.append(f"  IFFT: {self.mop_ifft:12.3e}")
+        lines.append(f"  G2P : {self.mop_g2p:12.3e}")
+        lines.append(f"  TOTAL: {self.mop_ewald:11.3e}")
+
+        return "\n".join(lines)
+
+    @property
+    def time_p2p(self):
+        """
+        Execution time for the P2P algorithm.
+        Read-only
+        """
+        return self._time_p2p
+
+    @property
+    def time_p2g(self):
+        """
+        Execution time for the P2G algorithm.
+        Read-only
+        """
+        return self._time_p2g
+
+    @property
+    def time_fft(self):
+        """
+        Execution time for the FFT.
+        Read-only
+        """
+        return self._time_fft
+
+    @property
+    def time_cnv(self):
+        """
+        Execution time for the CNV algorithm.
+        Read-only
+        """
+        return self._time_cnv
+
+    @property
+    def time_ifft(self):
+        """
+        Execution time for the IFFT.
+        Read-only
+        """
+        return self._time_ifft
+
+    @property
+    def time_g2p(self):
+        """
+        Execution time for the G2P algorithm.
+        Read-only
+        """
+        return self._time_g2p
+
+    @property
+    def time_ewald(self):
+        """
+        Execution time for the Ewald sum.
+        Read-only
+        """
+        return self._time_ewald
 
     @property
     def flop_p2p(self):
@@ -244,6 +387,14 @@ class PerfModel:
                 C_p2p = C_stokes_ewald + C_dl
             case "stokes_comb":
                 C_p2p = C_stokes_ewald + C_sl + C_dl
+            case "laplace":
+                C_p2p = (
+                    12 * OPERATION_CONSTANTS[device_name]["fadd"]
+                    + 9 * OPERATION_CONSTANTS[device_name]["fmul"]
+                    + 1 * OPERATION_CONSTANTS[device_name]["fsqrt"]
+                    + 1 * OPERATION_CONSTANTS[device_name]["fdiv"]
+                    + 1 * OPERATION_CONSTANTS[device_name]["ferf"]
+                )
             case _:
                 raise NotImplementedError(
                     f"P2P flop model not implemented for {kernel} kernel"
@@ -255,12 +406,17 @@ class PerfModel:
             case "stokes_sl":
                 C_p2g = (
                     5 * OPERATION_CONSTANTS[device_name]["fmul"]
-                    + 6 * OPERATION_CONSTANTS[device_name]["fadd"]
+                    + 3 * OPERATION_CONSTANTS[device_name]["fadd"]
                 )
             case "stokes_comb":
                 C_p2g = (
                     17 * OPERATION_CONSTANTS[device_name]["fmul"]
                     + 15 * OPERATION_CONSTANTS[device_name]["fadd"]
+                )
+            case "laplace":
+                C_p2g = (
+                    3 * OPERATION_CONSTANTS[device_name]["fmul"]
+                    + 1 * OPERATION_CONSTANTS[device_name]["fadd"]
                 )
             case _:
                 raise NotImplementedError(
@@ -304,6 +460,14 @@ class PerfModel:
                 C_cnv = C_sl
             case "stokes_comb":
                 C_cnv = C_sl + C_dl
+            case "laplace":
+                C_cnv = (
+                    19 * OPERATION_CONSTANTS[device_name]["fmul"]
+                    + 2 * OPERATION_CONSTANTS[device_name]["fadd"]
+                    + 5 * OPERATION_CONSTANTS[device_name]["fdiv"]
+                    + 1 * OPERATION_CONSTANTS[device_name]["fexpn"]
+                    + 3 * C_kb
+                )
             case _:
                 raise NotImplementedError(
                     f"CNV flop model not implemented for {kernel} kernel"

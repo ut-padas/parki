@@ -254,6 +254,12 @@ class EwaldKernel:
         out = [val]
         if return_walltime:
             perf = PerfModel(
+                p2p_time=walltime["p2p"],
+                p2g_time=walltime["p2g"],
+                fft_time=walltime["fft"],
+                cnv_time=walltime["cnv"],
+                ifft_time=walltime["ifft"],
+                g2p_time=walltime["g2p"],
                 kernel=self.kernel,
                 N_out=N_out,
                 N_in=N_in,
