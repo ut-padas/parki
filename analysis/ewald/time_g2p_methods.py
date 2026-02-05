@@ -2,7 +2,6 @@ import os
 import time
 import argparse
 import numpy as np
-import cupy as cp
 import pykokkos as pk
 import pickle
 
