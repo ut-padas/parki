@@ -423,6 +423,7 @@ class EwaldOptions:
         if not isinstance(self.tolerance, float) or self.tolerance <= 0:
             raise ValueError("tolerance must be a positive float.")
 
+        self.execution_space = get_execution_space(self.execution_space)
         if not isinstance(self.execution_space, pk.ExecutionSpace):
             valid_execution_spaces = ["CUDA", "HIP", "OPENMP"]
             if self.execution_space.upper() not in valid_execution_spaces:
