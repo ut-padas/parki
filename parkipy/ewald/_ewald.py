@@ -420,6 +420,48 @@ def p2g(
         case "GRID":
             method_flag = 3
             H_view = device_pre.data.ghost_H.transpose(1, 2, 3, 0).copy()
+            # sort sources
+            walltime["sort"] = time.time()
+            if device_pre.data.normals is not None:
+                forces = (device_pre.data.forces, device_pre.data.normals)
+            else:
+                forces = device_pre.data.forces
+            source_list = CellList(
+                scaled_sources,
+                (device_pre.data.opt.window_P / 2),
+                device_pre.am.array(device_pre.data.opt.ghost_grid_shape_ext).astype(
+                    device_pre.data.dtype
+                ),
+                execution_space=device_pre.execution_space,
+                forces=forces,
+            )
+            cell_chunk_size: int = min(
+                source_list.cell_size, device_pre.p2g_max_cell_size
+            )
+            walltime["sort"] = time.time() - walltime["sort"]
+
+            # setup kernel call
+            teams = math.ceil(device_pre.Ng / threads)
+            policy = pk.TeamPolicy(device_pre.execution_space, teams, threads)
+            kwargs = {
+                "yj": source_list.particle_list,
+                "qj": source_list.force_list[0],
+                "nj": source_list.force_list[1],
+                "H": H_view,
+                "H_shape": device_pre.am.asarray(
+                    device_pre.data.opt.ghost_grid_shape_ext
+                ),
+                "window_P": device_pre.data.opt.window_P,
+                "periodicity": (
+                    device_pre.data.opt.periodicity
+                    if not device_pre.data.opt.distributed
+                    else 0
+                ),
+                "cell_size": source_list.cell_size,
+                "num_cells": source_list.cell_grid_shape,
+                "nonempty_cell_index": source_list.nonempty_cell_index,
+                "threads": threads,
+            }
         case "HYBRID":
             method_flag = 4
             H_view = device_pre.data.ghost_H
@@ -434,7 +476,7 @@ def p2g(
     else:
         forces = device_pre.data.forces
     # To sort or not to sort, that is the question
-    if method.upper() not in ["BASE", "SOURCE"]:
+    if method.upper() not in ["BASE", "SOURCE", "GRID"]:
         # get source list
         source_list = CellList(
             scaled_sources,

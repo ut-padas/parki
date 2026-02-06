@@ -293,38 +293,73 @@ def p2g_source_P2G(
 
 
 @pk.workunit
-def p2g_grid(team_member: pk.TeamMember):
+def p2g_grid_P2G(
+    team_member: pk.TeamMember,
+    yj,
+    qj,
+    nj,
+    H,
+    H_shape,
+    window_P,
+    periodicity,
+    cell_size,
+    num_cells,
+    nonempty_cell_index,
+    threads,
+):
+    """
+    args:
+        yj: (3, ny) list of source particles
+            scaled to the Fourier grid
+        qj: (dx, ny) list of source densities
+        nj: (3, ny) list of source normal vectors
+        H: (gx, gy, gz, dh) Fourier grid
+        H_shape: shape of the Fourier grid
+        window_P: int, window function support in grid points
+        periodicity: int, periodicity of the problem
+        cell_size: int, number of source particles in a cell
+        num_cells: (3), number of cells in each spatial direction
+        nonempty_cell_index: cell index -> nonempty cell index map
+        threads: int, threads per team
+    """
+    pp: int = window_P * window_P
+    po2: int = window_P / 2
+    num_cells12: int = num_cells[1] * num_cells[2]
+    H_shape12: int = H_shape[1] * H_shape[2]
+    ng: int = H_shape[0] * H_shape12
     t_off: int = team_member.league_rank() * threads
 
     def thread_loop(tid: int):
         t: int = t_off + tid
         if t >= ng:
             return
-        t_x: int = t // H_area
-        t_y: int = t % H_area // H_shape[2]
-        t_z: int = t % H_area % H_shape[2]
+        t_x: int = t // H_shape12
+        t_y: int = t % H_shape12 // H_shape[2]
+        t_z: int = t % H_shape12 % H_shape[2]
         # get target cell
         t_cell_x: int = t_x // po2
         t_cell_y: int = t_y // po2
         t_cell_z: int = t_z // po2
-        t_cell: int = t_cell_x * cell_grid_area + t_cell_y * num_cells_z + t_cell_z
+        t_cell: int = t_cell_x * num_cells12 + t_cell_y * num_cells[2] + t_cell_z
         pot: List[pk.double] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         # loop over sources
         for k in range(27):
-            source_cell: Cell_fp64 = get_source_cell(k, t_cell_x, t_cell_y, t_cell_z)
+            source_cell: Cell_fp64 = get_source_cell_fp64(
+                k, t_cell_x, t_cell_y, t_cell_z, periodicity
+            )
             if source_cell.inbounds == False:
                 continue
             s_cell: int = (
-                source_cell.x * cell_grid_area
-                + source_cell.y * num_cells_z
+                source_cell.x * num_cells12
+                + source_cell.y * num_cells[2]
                 + source_cell.z
             )
-            nz_cell: int = s2nz_cell_map[s_cell]
+            nz_cell: int = nonempty_cell_index[s_cell]
             if nz_cell < 0:
                 continue
             s_off: int = nz_cell * cell_size
             for s in range(s_off, s_off + cell_size):
-                w: pk.double = naive_window_kernel(
+                w: pk.double = naive_window_kernel_fp64(
                     s, t_x, t_y, t_z, periodicity, pp, po2, yj, H_shape
                 )
                 # interpolate densities with windows
@@ -349,9 +384,9 @@ def p2g_hybrid(team_member: pk.TeamMember):
     nz_cell: int = team_member.league_rank() // chunks_per_cell
     cell_chunk: int = team_member.league_rank() % chunks_per_cell
     s_cell: int = nz2s_cell_map[nz_cell]
-    s_cell_x: int = s_cell // cell_grid_area
-    s_cell_y: int = (s_cell % cell_grid_area) // num_cells_z
-    s_cell_z: int = (s_cell % cell_grid_area) % num_cells_z
+    s_cell_x: int = s_cell // num_cells12
+    s_cell_y: int = (s_cell % num_cells12) // num_cells[2]
+    s_cell_z: int = (s_cell % num_cells12) % num_cells[2]
     cell_off: int = cell_chunk * cell_chunk_size
     s_off: int = nz_cell * cell_size + cell_off
     # declare shared memory array
@@ -443,19 +478,19 @@ def p2g_hybrid(team_member: pk.TeamMember):
         # periodic corrections
         if periodicity >= 1:
             if t_x >= H_shape[0]:
-                if s_cell_x == num_cells_x - 2:
+                if s_cell_x == num_cells[0] - 2:
                     t_x -= H_shape[0]
                 elif s_cell_x == 0:
                     t_x -= po2
         if periodicity >= 2:
             if t_y >= H_shape[1]:
-                if s_cell_y == num_cells_y - 2:
+                if s_cell_y == num_cells[1] - 2:
                     t_y -= H_shape[1]
                 elif s_cell_y == 0:
                     t_y -= po2
         if periodicity >= 3:
             if t_z >= H_shape[2]:
-                if s_cell_z == num_cells_z - 2:
+                if s_cell_z == num_cells[2] - 2:
                     t_z -= H_shape[2]
                 elif s_cell_z == 0:
                     t_z -= po2
@@ -528,30 +563,30 @@ def p2g_hybrid(team_member: pk.TeamMember):
         t_cell_x: int = s_cell_x + dx
         if periodicity >= 1:
             if t_cell_x < 0:
-                t_cell_x += num_cells_x
-            elif t_cell_x >= num_cells_x:
-                t_cell_x -= num_cells_x
-        if t_cell_x < 0 or t_cell_x >= num_cells_x:
+                t_cell_x += num_cells[0]
+            elif t_cell_x >= num_cells[0]:
+                t_cell_x -= num_cells[0]
+        if t_cell_x < 0 or t_cell_x >= num_cells[0]:
             continue
         t_off_x: int = t_cell_x * po2
         for dy in range(-1, 2):
             t_cell_y: int = s_cell_y + dy
             if periodicity >= 2:
                 if t_cell_y < 0:
-                    t_cell_y += num_cells_y
-                elif t_cell_y >= num_cells_y:
-                    t_cell_y -= num_cells_y
-            if t_cell_y < 0 or t_cell_y >= num_cells_y:
+                    t_cell_y += num_cells[1]
+                elif t_cell_y >= num_cells[1]:
+                    t_cell_y -= num_cells[1]
+            if t_cell_y < 0 or t_cell_y >= num_cells[1]:
                 continue
             t_off_y: int = t_cell_y * po2
             for dz in range(-1, 2):
                 t_cell_z: int = s_cell_z + dz
                 if periodicity >= 3:
                     if t_cell_z < 0:
-                        t_cell_z += num_cells_z
-                    elif t_cell_z >= num_cells_z:
-                        t_cell_z -= num_cells_z
-                if t_cell_z < 0 or t_cell_z >= num_cells_z:
+                        t_cell_z += num_cells[2]
+                    elif t_cell_z >= num_cells[2]:
+                        t_cell_z -= num_cells[2]
+                if t_cell_z < 0 or t_cell_z >= num_cells[2]:
                     continue
                 t_off_z: int = t_cell_z * po2
                 pk.parallel_for(pk.TeamThreadRange(team_member, po2_cubed), target_loop)
@@ -562,9 +597,9 @@ def p2g_hybrid_wo_normals(team_member: pk.TeamMember):
     nz_cell: int = team_member.league_rank() // chunks_per_cell
     cell_chunk: int = team_member.league_rank() % chunks_per_cell
     s_cell: int = nz2s_cell_map[nz_cell]
-    s_cell_x: int = s_cell // cell_grid_area
-    s_cell_y: int = (s_cell % cell_grid_area) // num_cells_z
-    s_cell_z: int = (s_cell % cell_grid_area) % num_cells_z
+    s_cell_x: int = s_cell // num_cells12
+    s_cell_y: int = (s_cell % num_cells12) // num_cells[2]
+    s_cell_z: int = (s_cell % num_cells12) % num_cells[2]
     cell_off: int = cell_chunk * cell_chunk_size
     s_off: int = nz_cell * cell_size + cell_off
     # declare shared memory array
@@ -656,19 +691,19 @@ def p2g_hybrid_wo_normals(team_member: pk.TeamMember):
         # periodic corrections
         if periodicity >= 1:
             if t_x >= H_shape[0]:
-                if s_cell_x == num_cells_x - 2:
+                if s_cell_x == num_cells[0] - 2:
                     t_x -= H_shape[0]
                 elif s_cell_x == 0:
                     t_x -= po2
         if periodicity >= 2:
             if t_y >= H_shape[1]:
-                if s_cell_y == num_cells_y - 2:
+                if s_cell_y == num_cells[1] - 2:
                     t_y -= H_shape[1]
                 elif s_cell_y == 0:
                     t_y -= po2
         if periodicity >= 3:
             if t_z >= H_shape[2]:
-                if s_cell_z == num_cells_z - 2:
+                if s_cell_z == num_cells[2] - 2:
                     t_z -= H_shape[2]
                 elif s_cell_z == 0:
                     t_z -= po2
@@ -718,33 +753,183 @@ def p2g_hybrid_wo_normals(team_member: pk.TeamMember):
         t_cell_x: int = s_cell_x + dx
         if periodicity >= 1:
             if t_cell_x < 0:
-                t_cell_x += num_cells_x
-            elif t_cell_x >= num_cells_x:
-                t_cell_x -= num_cells_x
-        if t_cell_x < 0 or t_cell_x >= num_cells_x:
+                t_cell_x += num_cells[0]
+            elif t_cell_x >= num_cells[0]:
+                t_cell_x -= num_cells[0]
+        if t_cell_x < 0 or t_cell_x >= num_cells[0]:
             continue
         t_off_x: int = t_cell_x * po2
         for dy in range(-1, 2):
             t_cell_y: int = s_cell_y + dy
             if periodicity >= 2:
                 if t_cell_y < 0:
-                    t_cell_y += num_cells_y
-                elif t_cell_y >= num_cells_y:
-                    t_cell_y -= num_cells_y
-            if t_cell_y < 0 or t_cell_y >= num_cells_y:
+                    t_cell_y += num_cells[1]
+                elif t_cell_y >= num_cells[1]:
+                    t_cell_y -= num_cells[1]
+            if t_cell_y < 0 or t_cell_y >= num_cells[1]:
                 continue
             t_off_y: int = t_cell_y * po2
             for dz in range(-1, 2):
                 t_cell_z: int = s_cell_z + dz
                 if periodicity >= 3:
                     if t_cell_z < 0:
-                        t_cell_z += num_cells_z
-                    elif t_cell_z >= num_cells_z:
-                        t_cell_z -= num_cells_z
-                if t_cell_z < 0 or t_cell_z >= num_cells_z:
+                        t_cell_z += num_cells[2]
+                    elif t_cell_z >= num_cells[2]:
+                        t_cell_z -= num_cells[2]
+                if t_cell_z < 0 or t_cell_z >= num_cells[2]:
                     continue
                 t_off_z: int = t_cell_z * po2
                 pk.parallel_for(pk.TeamThreadRange(team_member, po2_cubed), target_loop)
+
+
+# helpers
+
+
+@pk.function
+def get_source_cell_P2G(
+    self,
+    k: int,
+    t_cell_x: int,
+    t_cell_y: int,
+    t_cell_z: int,
+    periodicity: int,
+) -> Cell_fp64:
+    # NOTE: black formats it like this, ARGH!
+    offsets: List[int] = [
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        0,
+        -1,
+        -1,
+        1,
+        -1,
+        0,
+        -1,
+        -1,
+        0,
+        0,
+        -1,
+        0,
+        1,
+        -1,
+        1,
+        -1,
+        -1,
+        1,
+        0,
+        -1,
+        1,
+        1,
+        0,
+        -1,
+        -1,
+        0,
+        -1,
+        0,
+        0,
+        -1,
+        1,
+        0,
+        0,
+        -1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        1,
+        -1,
+        0,
+        1,
+        0,
+        0,
+        1,
+        1,
+        1,
+        -1,
+        -1,
+        1,
+        -1,
+        0,
+        1,
+        -1,
+        1,
+        1,
+        0,
+        -1,
+        1,
+        0,
+        0,
+        1,
+        0,
+        1,
+        1,
+        1,
+        -1,
+        1,
+        1,
+        0,
+        1,
+        1,
+        1,
+    ]
+    dx: pk.double = offsets[k * 3]
+    dy: pk.double = offsets[k * 3 + 1]
+    dz: pk.double = offsets[k * 3 + 2]
+
+    source_cell: Cell_fp64 = Cell_fp64()
+
+    # x coord
+    source_cell.x = t_cell_x + dx
+    if source_cell.x < 0:
+        if periodicity >= 1:
+            source_cell.x += num_cells[0]
+            source_cell.x_shift = -H_shape[0]
+        else:
+            source_cell.inbounds = False
+    if source_cell.x >= num_cells[0]:
+        if periodicity >= 1:
+            source_cell.x -= num_cells[0]
+            source_cell.x_shift = H_shape[0]
+        else:
+            source_cell.inbounds = False
+
+    # y coord
+    source_cell.y = t_cell_y + dy
+    if source_cell.y < 0:
+        if periodicity >= 2:
+            source_cell.y += num_cells[1]
+            source_cell.y_shift = -H_shape[1]
+        else:
+            source_cell.inbounds = False
+    if source_cell.y >= num_cells[1]:
+        if periodicity >= 2:
+            source_cell.y -= num_cells[1]
+            source_cell.y_shift = H_shape[1]
+        else:
+            source_cell.inbounds = False
+
+    # z coord
+    source_cell.z = t_cell_z + dz
+    if source_cell.z < 0:
+        if periodicity >= 3:
+            source_cell.z += num_cells[2]
+            source_cell.z_shift = -H_shape[2]
+        else:
+            source_cell.inbounds = False
+    if source_cell.z >= num_cells[2]:
+        if periodicity >= 3:
+            source_cell.z -= num_cells[2]
+            source_cell.z_shift = H_shape[2]
+        else:
+            source_cell.inbounds = False
+
+    return source_cell
 
 
 @pk.function
