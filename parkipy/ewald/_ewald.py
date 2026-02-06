@@ -458,7 +458,7 @@ def p2g(
                     else 0
                 ),
                 "cell_size": source_list.cell_size,
-                "num_cells": source_list.cell_grid_shape,
+                "num_cells": device_pre.am.asarray(source_list.cell_grid_shape),
                 "nonempty_cell_index": source_list.nonempty_cell_index,
                 "threads": threads,
             }

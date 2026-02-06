@@ -345,7 +345,13 @@ def p2g_grid_P2G(
         # loop over sources
         for k in range(27):
             source_cell: Cell_fp64 = get_source_cell_fp64(
-                k, t_cell_x, t_cell_y, t_cell_z, periodicity
+                k,
+                t_cell_x,
+                t_cell_y,
+                t_cell_z,
+                periodicity,
+                num_cells,
+                H_shape,
             )
             if source_cell.inbounds == False:
                 continue
@@ -793,6 +799,8 @@ def get_source_cell_P2G(
     t_cell_y: int,
     t_cell_z: int,
     periodicity: int,
+    num_cells: pk.View1D[int],
+    H_shape: pk.View1D[int],
 ) -> Cell_fp64:
     # NOTE: black formats it like this, ARGH!
     offsets: List[int] = [
