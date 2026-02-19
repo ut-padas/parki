@@ -729,13 +729,13 @@ if __name__ == "__main__":
         "-o",
         "--output-dir",
         default="analysis/ewald/plots",
-        help="output directory for timing results (default: analysis/ewald/plots)",
+        help="output directory for plots (default: analysis/ewald/plots)",
     )
     parser.add_argument(
         "-i",
         "--input-dir",
         default="analysis/ewald/data",
-        help="output directory for timing results (default: analysis/ewald/data)",
+        help="input directory for timing results (default: analysis/ewald/data)",
     )
     args = parser.parse_args()
     if args.device.upper() in ["CUDA", "HIP"] and args.arch is None:
