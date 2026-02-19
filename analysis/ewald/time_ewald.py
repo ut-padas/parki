@@ -25,7 +25,7 @@ def main(args):
     these integers as the number of targets.
     """
     nt_list = [250000, 1000000, 4000000]
-    repeats = 5
+    repeats = 3
     all_times = dict()
     all_memory = dict()
     if args.device.upper() == "OPENMP":
@@ -127,39 +127,59 @@ def run(args, time_every_step=False, verbosity=0) -> None:
     )
     pot, walltimes = parkipy.ewald.stokes_comb(trg, src, dens, norms, options)
 
+    times = {
+        "p2p": walltimes.time_p2p,
+        "p2g": walltimes.time_p2g,
+        "fft": walltimes.time_fft,
+        "cnv": walltimes.time_cnv,
+        "ifft": walltimes.time_ifft,
+        "g2p": walltimes.time_g2p,
+    }
+
     # Compute and store runtimes in dict
-    return pot, walltimes
+    return pot, times
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Scaling test for the Spectral Ewald code on a GPU."
+        description="Generate timings for the full Ewald sum. "
+        "Results are saved to `{args.output_dir}/ewald_timing_result_up{args.up}"
+        "_clsz{args.cell_size}_tol{args.tolerance}"
+        "_dev{args.device.upper()}_arch{arch}_v{format_version}"
+    )
+    parser.add_argument(
+        "--up",
+        dest="up",
+        type=int,
+        default=1,
+        help="Set the upsampeling parameter (default: 1)",
     )
     parser.add_argument(
         "--cell_size",
         dest="cell_size",
         type=int,
         default=224,
-        help="Set the max src per cell (default: 1024)",
+        help="Set the max src per cell (default: 224)",
     )
     parser.add_argument(
         "--device",
         dest="device",
-        type=str,
         required=True,
+        choices=("cuda", "hip", "host"),
+        type=str,
         help="Device to run code on",
     )
     parser.add_argument(
         "-o",
         "--output-dir",
         default="analysis/ewald/data",
-        help="output directory for timing results (default: .)",
+        help="output directory for timing results (default: analysis/ewald/data)",
     )
     parser.add_argument(
         "--tolerance",
         type=float,
         default=1e-4,
-        help="Spectral Ewald tolerance",
+        help="Spectral Ewald tolerance (default: 1e-4)",
     )
 
     args = parser.parse_args()

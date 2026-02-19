@@ -247,7 +247,7 @@ if __name__ == "__main__":
         "--cell_size",
         type=int,
         default=224,
-        help="Set the max src per cell (default: 1024)",
+        help="Set the max src per cell (default:224)",
     )
     parser.add_argument(
         "--tolerance",

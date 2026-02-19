@@ -29,7 +29,7 @@ def rc_from_cell_size(box, num_sources, cell_size):
         raise TypeError("Cannot compute rc due to missing information")
     num_cells = num_sources / cell_size
     rc = (np.prod(box) / num_cells) ** (1 / 3)
-    return rc
+    return float(rc)
 
 
 def se_params_laplace(

@@ -1,7 +1,6 @@
 import os
 import argparse
 import numpy as np
-import pandas as pd
 import pickle
 
 
@@ -58,15 +57,23 @@ def load_times_from_disk(args, timestamp="latest", version=1):
         f"_dev{args.device.upper()}_arch{args.arch}_v{version}_{timestamp}.pkl"
     )
     print(f"Loading from {fname}")
-    fpath = os.path.join(args.output_dir, fname)
-    with open(fpath, "rb") as f:
-        data_dict = pickle.load(f)
+    fpath = os.path.join(args.input_dir, fname)
+    try:
+        with open(fpath, "rb") as f:
+            data_dict = pickle.load(f)
+    except FileNotFoundError as e:
+        raise FileNotFoundError(
+            str(e)
+            + f"\n please run 'analysis/ewald/time_dtypes.py' "
+            + "with proper flags to generate the file"
+        )
     return data_dict
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Analyize particle distribution timing script."
+        description="Analyize Ewald timings for different floating point precisions. "
+        "Run the 'analysis/ewald/time_dtypes.py' to generate that data for this script."
     )
     parser.add_argument(
         "--up",
@@ -76,28 +83,31 @@ if __name__ == "__main__":
         help="Set the upsampeling parameter (default: 1)",
     )
     parser.add_argument(
+        "-i",
+        "--input-dir",
+        default="analysis/ewald/data",
+        help="input directory for timing results (default: analysis/ewald/data)",
+    )
+    parser.add_argument(
         "--device",
         dest="device",
+        required=True,
+        choices=("cuda", "hip", "host"),
         type=str,
         help="Device to run code on",
     )
     parser.add_argument(
         "--arch",
         dest="arch",
-        type=int,
-        help="Device compute architecture",
+        choices=("80", "90", "94", None),
+        type=str,
+        help="Device compute architecture. `None` corresponds to the NVIDIA grace CPU, `80` the NVIDIA A100 GPU, `94` the NVIDIA GH200 GPU, and `94` the AMD MI300x GPU.",
     )
     parser.add_argument(
         "-t",
         "--timestamp",
         default="latest",
         help="timestamp of result file to load (default: latest)",
-    )
-    parser.add_argument(
-        "-o",
-        "--output-dir",
-        default="analysis/ewald/data",
-        help="output directory for timing results (default: .)",
     )
     parser.add_argument(
         "--format", default="latex", help="output format, either 'latex' or 'cl'"
@@ -112,8 +122,12 @@ if __name__ == "__main__":
         "--tolerance",
         type=float,
         default=1e-1,
-        help="Spectral Ewald tolerance",
+        help="Spectral Ewald tolerance (default: 1e-1)",
     )
     args = parser.parse_args()
+    if args.device.upper() in ["CUDA", "HIP"] and args.arch is None:
+        raise ValueError(
+            "arch must be passed for GPU devices, see `--help` for details"
+        )
     main(args)
     exit()
