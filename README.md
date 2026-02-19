@@ -73,10 +73,11 @@ The Parki repository contains 6 subdirectories:
 # Reproducing/Generating Performance Results
 ## Tables
 * **Table 1** (millicycles): follow steps in `analysis/cycle_counts/README.md`
-* **Table 3** (P2P models): run `python3 analysis/ewald/analyze_p2p_performance_models.py` 
+* **Table 3** (P2P models): run `analysis/ewald/analyze_p2p_performance_models.py` 
 * **Table 5** (P2P/G2P models): run `analysis/ewald/analyze_p2g_performance_models.py` and `analysis/ewald/analyze_g2p_performance_models.py` 
+* **Table 6** (P2P variants): run `analysis/ewald/analyze_p2p_methods.py` 
 
 ## Figures
 * **Figure 4** (erf(x)/x): follow steps in `analysis/cycle_counts/README.md`
-* **Figure 5** (roofline): run `python3 analysis/ewald/analyze_roofline_model.py` 
+* **Figure 5** (roofline): run `analysis/ewald/analyze_roofline_model.py` 
 ...
