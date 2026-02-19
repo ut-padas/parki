@@ -158,6 +158,7 @@ def run(args, time_every_step=False, verbosity=0) -> None:
         cell_size=args.cell_size,
         periodicity=1,
         execution_space=args.device,
+        kill_fourier_grid=True,
     )
     walltime = parkipy.ewald._ewald.p2g(
         device_pre, method=args.method, threads=args.threads

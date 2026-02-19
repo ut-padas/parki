@@ -850,9 +850,15 @@ class DevicePre:
         execution_space=None,
         fft_type="R2C",
         distributed=False,
+        kill_fourier_grid=False,
     ):
         """
         Construct a `DevicePre` object from minimal input.
+
+        If `kill_fourier_grid` is `True`, set params.actual_upsampling = [0,0].
+        This is needed to test `p2g` independently, as we are
+        interested in problem sizes that may require a Fourier grid
+        too large for a single GPU.
         """
         box_dict = {"box": box}
         ns = ns_max = sources.shape[-1]
@@ -913,6 +919,13 @@ class DevicePre:
             **params_kwargs,
         )
         # setup options and parameters
+        if kill_fourier_grid:
+            warnings.warn(
+                "Fourier grid dimensions set to [0,0,0], only use to isolate kernel timings.",
+                category=RuntimeWarning,
+            )
+            am = get_array_module(execution_space)
+            params.actual_upsampling = am.array([0, 0, 0])
         opt = Options.from_params(params, execution_space)
         opt_sc = SEPre.from_params(params, execution_space)
         data = DeviceData(
