@@ -487,7 +487,7 @@ if __name__ == "__main__":
         dest="up",
         type=int,
         default=1,
-        help="Set the upsampeling parameter (default: 16)",
+        help="Set the upsampeling parameter (default: 1)",
     )
     args = parser.parse_args()
     main(args)
