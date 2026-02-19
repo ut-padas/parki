@@ -78,6 +78,9 @@ The Parki repository contains 6 subdirectories:
 * **Table 6** (P2P methods): run `analysis/ewald/analyze_p2p_methods.py` 
 * **Table 7** (P2G methods): run `analysis/ewald/analyze_p2g_methods.py`
 * **Table 8** (G2P methods): run `analysis/ewald/analyze_g2p_methods.py`
+* **Table 9** (non-uniformoty): run `analysis/ewald/analyze_particle_distributions.py`
+* **Table 10** (float precision): ...
+* **Table 11** (mult-gpu Ewald): ...
 
 ## Figures
 * **Figure 4** (erf(x)/x): follow steps in `analysis/cycle_counts/README.md`
@@ -85,3 +88,4 @@ The Parki repository contains 6 subdirectories:
 * **Figure 6** (P2P workloads): run `analysis/ewald/analyze_p2p_workloads.py`
 * **Figure 7** (P2P portability): run `analysis/ewald/analyze_p2p_portability.py`
 * **Figure 8** (P2G portability): run `analysis/ewald/analyze_p2g_portability.py`
+* **Figure 9** (Ewald portability): ...
