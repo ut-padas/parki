@@ -490,7 +490,7 @@ def p2g(
         cell_chunk_size: int = min(source_list.cell_size, device_pre.p2g_max_cell_size)
 
         # pykokkos kernel
-        kernel_start = sort_end = time.time()
+        walltime["kernel"] = time.time()
         RangePush("P2G-kernel")
         pk.execute(
             device_pre.execution_space,
@@ -527,8 +527,9 @@ def p2g(
                 pk.array(H_view),
             ),
         )
+        walltime["kernel"] = time.time() - walltime["kernel"]
     else:
-        # method == BASE
+        # method == BASE | SOURCE | GRID
         walltime["kernel"] = time.time()
         RangePush("P2G-kernel")
         pk.parallel_for(

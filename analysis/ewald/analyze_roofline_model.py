@@ -6,9 +6,12 @@ import matplotlib.pyplot as plt
 import pickle
 
 
-# Configure matplotlib to use LaTeX for text rendering and save plots as SVG
-plt.rc("text", usetex=True)
 plt.rc("font", family="serif")
+
+import shutil
+
+if shutil.which("latex") is not None:
+    plt.rc("text", usetex=True)
 
 
 def format_sig3(x):
@@ -126,14 +129,14 @@ def p2p_model_time(dev, arch, method, time, nt, ns, s, bt, bs, dp=True, both=Fal
 
     dev_name = ""
     if dev.upper() == "CUDA":
-        if arch == 80:
+        if int(arch) == 80:
             dev_name = "a100"
-        elif arch == 90:
+        elif int(arch) == 90:
             dev_name = "h200"
         else:
             raise ValueError(f"Unknown architecture {arch}")
     elif dev.upper() == "HIP":
-        if arch == 94:
+        if int(arch) == 94:
             dev_name = "mi300a"
         else:
             raise ValueError(f"Unknown architecture {arch}")
@@ -362,9 +365,9 @@ def main(args):
 
     dev_name = ""
     if args.device.upper() == "CUDA":
-        if args.arch == 80:
+        if int(args.arch) == 80:
             dev_name = "a100"
-        elif args.arch == 90:
+        elif int(args.arch) == 90:
             dev_name = "h200"
 
     kernels = ["p2p"]
@@ -661,6 +664,7 @@ def plot_roofline(
 
     ax.grid(True, which="both", linestyle="--", linewidth=0.5)
     ax.legend(loc="lower right")
+
     plt.tight_layout()
     fname = f"intensity_plot_cell{cell_size}_n{N}_p2pM{p2p_model}_pgM{pg_model}_dev{dev_name.upper()}.pdf"
     fpath = os.path.join(args.output_dir, fname)
@@ -673,8 +677,15 @@ def load_times_from_disk(kernel, args, timestamp="latest", version=1):
         f"_dev{args.device.upper()}_arch{args.arch}_v{version}_{timestamp}.pkl"
     )
     fpath = os.path.join(args.input_dir, fname)
-    with open(fpath, "rb") as f:
-        data_dict = pickle.load(f)
+    try:
+        with open(fpath, "rb") as f:
+            data_dict = pickle.load(f)
+    except FileNotFoundError as e:
+        raise FileNotFoundError(
+            str(e)
+            + f"\n please run 'analysis/ewald/time_{kernel}_methods.py' "
+            + "with proper flags to generate the file"
+        )
     return data_dict
 
 
@@ -705,7 +716,7 @@ if __name__ == "__main__":
         "--arch",
         dest="arch",
         choices=("80", "90", "94", None),
-        type=int,
+        type=str,
         help="Device compute architecture. `None` corresponds to the NVIDIA grace CPU, `80` the NVIDIA A100 GPU, `94` the NVIDIA GH200 GPU, and `94` the AMD MI300x GPU.",
     )
     parser.add_argument(
@@ -717,14 +728,18 @@ if __name__ == "__main__":
     parser.add_argument(
         "-o",
         "--output-dir",
-        default="analysis/stokes1p/plots",
-        help="output directory for timing results (default: .)",
+        default="analysis/ewald/plots",
+        help="output directory for timing results (default: analysis/ewald/plots)",
     )
     parser.add_argument(
         "-i",
         "--input-dir",
-        default="analysis/stokes1p/data",
-        help="output directory for timing results (default: .)",
+        default="analysis/ewald/data",
+        help="output directory for timing results (default: analysis/ewald/data)",
     )
     args = parser.parse_args()
+    if args.device.upper() in ["CUDA", "HIP"] and args.arch is None:
+        raise ValueError(
+            "arch must be passed for GPU devices, see `--help` for details"
+        )
     main(args)

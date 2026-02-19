@@ -14,11 +14,12 @@ def main(args):
     file. `args.nt` will be a list of integers, and we run `run()` with each of
     these integers as the number of targets.
     """
+    execution_space = parkipy.utils.get_execution_space(args.device)
     nt_list = [250000, 1000000, 4000000]
     _tols_s_ = [(1e-1, 160), (1e-4, 224), (1e-12, 1008)]
     threads = [32, 64, 128, 256, 512]
     methods = ["BASE", "SOURCE", "GRID", "HYBRID"]
-    repeats = 5
+    repeats = 3
     all_times = dict()
     all_params = dict()
     for i, nt in enumerate(nt_list):
@@ -43,9 +44,15 @@ def main(args):
                         print(
                             f"method {args.method} cell size {args.cell_size} tol {args.tolerance} nthreads {args.threads} nt {nt}"
                         )
-                        cp.get_default_memory_pool().free_all_blocks()  # free gpu memory
+                        if not pk.is_host_execution_space(execution_space):
+                            import cupy as cp
+
+                            cp.get_default_memory_pool().free_all_blocks()  # free gpu memory
                         _, times, params = run(args, verbosity=0)
-                        cp.get_default_memory_pool().free_all_blocks()  # free gpu memory
+                        if not pk.is_host_execution_space(execution_space):
+                            import cupy as cp
+
+                            cp.get_default_memory_pool().free_all_blocks()  # free gpu memory
                         # init alltimes
                         for key in times:
                             if key not in all_times:
@@ -83,7 +90,15 @@ def main(args):
 def save_times_to_disk(nt, repeats, times, params, args):
     now_str = time.strftime("%y%m%dT%H%M%S%Z")
     format_version = 1
-    arch = cp.cuda.Device(0).compute_capability
+
+    execution_space = parkipy.utils.get_execution_space(args.device)
+    if not pk.is_host_execution_space(execution_space):
+        import cupy as cp
+
+        arch = cp.cuda.Device(0).compute_capability
+    else:
+        arch = None
+
     fname_base = (
         f"p2g_timing_result_up{args.up}"
         f"_dev{args.device.upper()}_arch{arch}_v{format_version}"
@@ -123,13 +138,14 @@ def run(args, time_every_step=False, verbosity=0) -> None:
     # deterministic arguments
     ns = nt * args.up
 
-    cp.random.seed(123)  # seed random numbers
-    trg = cp.random.rand(3, nt) * cp.array(box).reshape(3, 1)
-    src = cp.random.rand(3, ns) * cp.array(box).reshape(3, 1)
-    dens_sl = cp.random.randn(3, ns)
-    dens_dl = cp.random.randn(3, ns)
-    dens = cp.vstack((dens_sl, dens_dl))
-    norms = cp.random.randn(3, ns)
+    am = parkipy.utils.get_array_module(args.device)
+    am.random.seed(123)  # seed random numbers
+    trg = am.random.rand(3, nt) * am.array(box).reshape(3, 1)
+    src = am.random.rand(3, ns) * am.array(box).reshape(3, 1)
+    dens_sl = am.random.randn(3, ns)
+    dens_dl = am.random.randn(3, ns)
+    dens = am.vstack((dens_sl, dens_dl))
+    norms = am.random.randn(3, ns)
 
     device_pre, params = parkipy.ewald._prepare.DevicePre.from_particles(
         targets=trg,
@@ -142,7 +158,6 @@ def run(args, time_every_step=False, verbosity=0) -> None:
         cell_size=args.cell_size,
         periodicity=1,
         execution_space=args.device,
-        fourier_upsampling_factor_global=0,
     )
     walltime = parkipy.ewald._ewald.p2g(
         device_pre, method=args.method, threads=args.threads
@@ -154,31 +169,22 @@ def run(args, time_every_step=False, verbosity=0) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Scaling test for the Spectral Ewald code on a GPU."
-    )
-    default_nt = [int(1e4), int(1e5), int(5e5), int(1e6), int(5e6)]
-    default_nt_str = " ".join([str(x) for x in default_nt])
-    parser.add_argument(
-        "--nt",
-        dest="nt",
-        type=int,
-        nargs="+",
-        default=default_nt,
-        help=(
-            "Set the number of target points, multiple values accepted"
-            f" (default: {default_nt_str})"
-        ),
+        description="Generate timings for different P2G algorithmic variants. "
+        "Results are saved to `{args.output_dir}/p2g_timing_result_up{args.up}"
+        "_dev{args.device.upper()}_arch{arch}_v{format_version}_{now_str}.pkl`"
     )
     parser.add_argument(
         "--up",
         dest="up",
         type=int,
         default=1,
-        help="Set the upsampeling parameter (default: 16)",
+        help="Set the upsampeling parameter (default: 1)",
     )
     parser.add_argument(
         "--device",
         dest="device",
+        required=True,
+        choices=("cuda", "hip", "host"),
         type=str,
         help="Device to run code on",
     )
@@ -186,7 +192,7 @@ if __name__ == "__main__":
         "-o",
         "--output-dir",
         default="analysis/ewald/data",
-        help="output directory for timing results (default: .)",
+        help="output directory for timing results (default: analysis/ewald/data)",
     )
     args = parser.parse_args()
     main(args)

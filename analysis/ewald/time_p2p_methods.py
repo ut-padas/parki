@@ -22,7 +22,7 @@ def main(args):
         (1e-4, 512),
     ]  # tol is irrelevant for p2p, we only care about cell size
     methods = ["GM-1D", "GM-2D", "SM-1D", "SM-2D"]
-    repeats = 5
+    repeats = 3
     all_times = dict()
     all_params = dict()
     for i, nt in enumerate(nt_list):
@@ -113,7 +113,15 @@ def main(args):
 def save_times_to_disk(nt, repeats, times, params, args):
     now_str = time.strftime("%y%m%dT%H%M%S%Z")
     format_version = 1
-    arch = cp.cuda.Device(0).compute_capability
+
+    execution_space = parkipy.utils.get_execution_space(args.device)
+    if not pk.is_host_execution_space(execution_space):
+        import cupy as cp
+
+        arch = cp.cuda.Device(0).compute_capability
+    else:
+        arch = None
+
     fname_base = (
         f"p2p_timing_result_up{args.up}"
         f"_dev{args.device.upper()}_arch{arch}_v{format_version}"
@@ -186,29 +194,18 @@ if __name__ == "__main__":
         "Results are saved to `{args.output_dir}/p2p_timing_result_up{args.up}"
         "_dev{args.device.upper()}_arch{arch}_v{format_version}_{now_str}.pkl`"
     )
-    default_nt = [int(1e4), int(1e5), int(5e5), int(1e6), int(5e6)]
-    default_nt_str = " ".join([str(x) for x in default_nt])
-    parser.add_argument(
-        "--nt",
-        dest="nt",
-        type=int,
-        nargs="+",
-        default=default_nt,
-        help=(
-            "Set the number of target points, multiple values accepted"
-            f" (default: {default_nt_str})"
-        ),
-    )
     parser.add_argument(
         "--up",
         dest="up",
         type=int,
         default=1,
-        help="Set the upsampeling parameter (default: 16)",
+        help="Set the upsampeling parameter (default: 1)",
     )
     parser.add_argument(
         "--device",
         dest="device",
+        required=True,
+        choices=("cuda", "hip", "host"),
         type=str,
         help="Device to run code on",
     )
@@ -216,7 +213,7 @@ if __name__ == "__main__":
         "-o",
         "--output-dir",
         default="analysis/ewald/data",
-        help="output directory for timing results (default: .)",
+        help="output directory for timing results (default: analysis/ewald/data)",
     )
     args = parser.parse_args()
     main(args)
