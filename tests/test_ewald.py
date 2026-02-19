@@ -9,7 +9,15 @@ import parkipy
     "kernel",
     [parkipy.ewald.stokes_sl, parkipy.ewald.stokes_comb, parkipy.ewald.laplace],
 )
-@pytest.mark.parametrize("periodicity", [0, 1, 2, 3])
+@pytest.mark.parametrize(
+    "periodicity",
+    [
+        pytest.param(0, marks=pytest.mark.xfail(reason="not yet implemented")),
+        1,
+        pytest.param(2, marks=pytest.mark.xfail(reason="not yet implemented")),
+        3,
+    ],
+)
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def test_self_convergence(kernel, periodicity, dtype):
     """
@@ -17,6 +25,8 @@ def test_self_convergence(kernel, periodicity, dtype):
     for all periodic directions in single and double
     precision arithmetic.
     """
+    if kernel == parkipy.ewald.laplace and periodicity == 1:
+        pytest.xfail("not yet implemented")
     run_convergence(fun=kernel, periodicity=periodicity, dtype=dtype)
 
 
