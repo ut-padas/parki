@@ -76,7 +76,7 @@ The Parki repository contains 6 subdirectories:
 * **Table 3** (P2P models): run `analysis/ewald/analyze_p2p_performance_models.py` 
 * **Table 5** (P2P/G2P models): run `analysis/ewald/analyze_p2g_performance_models.py` and `analysis/ewald/analyze_g2p_performance_models.py` 
 * **Table 6** (P2P methods): run `analysis/ewald/analyze_p2p_methods.py` 
-* **Table 7** (P2G methods): run ...
+* **Table 7** (P2G methods): run `analysis/ewald/analyze_p2g_methods.py`
 * **Table 8** (G2P methods): run `analysis/ewald/analyze_g2p_methods.py`
 
 ## Figures
@@ -84,4 +84,4 @@ The Parki repository contains 6 subdirectories:
 * **Figure 5** (roofline): run `analysis/ewald/analyze_roofline_model.py` 
 * **Figure 6** (P2P workloads): run `analysis/ewald/analyze_p2p_workloads.py`
 * **Figure 7** (P2P portability): run `analysis/ewald/analyze_p2p_portability.py`
-* **Figure 8** (P2G portability): run ...
+* **Figure 8** (P2G portability): run `analysis/ewald/analyze_p2g_portability.py`
