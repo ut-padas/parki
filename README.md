@@ -81,3 +81,4 @@ The Parki repository contains 6 subdirectories:
 * **Figure 4** (erf(x)/x): follow steps in `analysis/cycle_counts/README.md`
 * **Figure 5** (roofline): run `analysis/ewald/analyze_roofline_model.py` 
 * **Figure 6** (P2P workloads): run `analysis/ewald/analyze_p2p_workloads.py`
+* **Figure 7** (P2P portability): run `analysis/ewald/analyze_p2p_portability.py`

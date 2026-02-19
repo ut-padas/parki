@@ -485,7 +485,7 @@ if __name__ == "__main__":
         "-o",
         "--output-dir",
         default="analysis/ewald/plots",
-        help="output directory for timing results (default: .)",
+        help="output directory for timing results (default: analysis/ewald/data)",
     )
     parser.add_argument(
         "--p2p_methods",
