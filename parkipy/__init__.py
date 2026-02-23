@@ -4,9 +4,19 @@ Python package for performance portable Ewald summation.
 
 __version__ = "0.0.1"
 
+try:
+    import kokkos
+except ModuleNotFoundError as e:
+    msg = (
+        "parkipy requires pykokkos for parallel execution, "
+        "see 'https://kokkos.org/pykokkos/installation.html' for install instructions."
+    )
+    raise ModuleNotFoundError(msg) from e
+
 from ._celllist import CellList
 
 __parkipy_submodules__ = {"ewald", "distributed"}
+
 
 def __getattr__(attr):
     match attr:

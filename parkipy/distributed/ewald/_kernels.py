@@ -228,6 +228,8 @@ class EwaldKernel:
             device_pre,
             method=p2g_method,
         )
+        # TODO: allow for plan to be passed in if needed
+        #   This will allow for speedups for repeated calls
         fft_buffers = FFTMPBuffers(
             fft_shape=device_pre.data.fft_shape,
             ifft_shape=device_pre.data.Hg.shape[1:-1],
@@ -242,7 +244,9 @@ class EwaldKernel:
             device_pre,
             method=g2p_method,
         )
-        walltime.update(device_pre.data.walltime) # update walltimes with device_data comms
+        walltime.update(
+            device_pre.data.walltime
+        )  # update walltimes with device_data comms
         val = device_pre.near_potential + device_pre.far_potential
         val = val.squeeze()
         shape = self.get_shape_out(device_pre.data.targets.shape[-1])
@@ -290,6 +294,7 @@ class DistributedEwaldOptions(EwaldOptions):
 
 
 ## Implementations of specific kernels ##
+
 
 def stokes_comb(*args, **kwargs):
     r"""

@@ -5,8 +5,8 @@ Distributed APIs
 .. currentmodule:: parkipy.distributed
 
 ParkiPy modules for high-performance distributed computing.
-Distributed APIs are called from the host code and are executed on 
-multi-node systems. 
+Distributed APIs are called from the host code and are executed on
+multi-node systems.
 
 Overview
 ---------
@@ -27,7 +27,6 @@ Contents
 .. warning:: Currently, the distributed package only supports the `'Cuda'` execution space for device calls.
 
 """
-
 
 try:
     import mpi4py

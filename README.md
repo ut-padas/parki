@@ -26,6 +26,18 @@ variables, listed below:
 
 Once the environment variables are set, install with `bash install.sh` 
 
+## Multi-GPU instillation
+Our tests use `hpcx` and `nvhpc-hpcx-cuda12/25.5`
+for CUDA and MPI libraries.
+
+Parkipy replies on `mpi4py` for internode communication
+and `nvmath-python v8.0` for distributed FFTs.
+
+We the packages with pip:
+```
+CC=gcc CXX=g++ CFLAGS="" CXXFLAGS="" pip install mpi4py --no-cache-dir --no-binary :all:`
+pip install nvmath-python
+```
 
 # Repository Structure
 ```bash
@@ -80,7 +92,7 @@ The Parki repository contains 6 subdirectories:
 * **Table 8** (G2P methods): run `analysis/ewald/analyze_g2p_methods.py`
 * **Table 9** (non-uniformoty): run `analysis/ewald/analyze_particle_distributions.py`
 * **Table 10** (float precision): run `analysis/ewald/analyze_dtypes.py`
-* **Table 11** (mult-gpu Ewald): ...
+* **Table 11** (mult-gpu Ewald): run `analysis/distributed/analyze_ewald_mpi.py`
 
 ## Figures
 * **Figure 4** (erf(x)/x): follow steps in `analysis/cycle_counts/README.md`

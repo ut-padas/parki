@@ -610,24 +610,27 @@ def fft(device_pre, fftmp_buffers=None):
             import cupy as cp
 
             with cp.cuda.Device(fftmp_buffers.device_id):
-                # 0) loop over H dimensions
-                for d in range(device_pre.data.dim_H):
-                    # 0) copy to fft buffers
-                    fftmp_buffers.fft_buff[
-                        :, : device_pre.data.H.shape[2], : device_pre.data.H.shape[3]
-                    ] = device_pre.data.H[d].astype(
-                        np.complex128
-                        if device_pre.data.fft_type.upper() == "C2C"
-                        else np.float64
-                    )
-                    # 1) forward fft
-                    device_pre.data.Hg[d] = (
-                        fftmp_buffers.fft()
-                        .view(device_pre.data.dtype)
-                        .reshape(device_pre.data.Hg.shape[1:])
-                    )
-                    # 2) zero out buffers and repeat
-                    fftmp_buffers.fft_buff[:] = 0
+                # Use stateful pre-planed FFT object 'f'.
+                with fftmp_buffers.fft as f:
+
+                    # loop over H dimensions
+                    for d in range(device_pre.data.dim_H):
+                        # copy to fft buffers
+                        fftmp_buffers.fft_buff[
+                            :,
+                            : device_pre.data.H.shape[2],
+                            : device_pre.data.H.shape[3],
+                        ] = device_pre.data.H[d].astype(
+                            np.complex128
+                            if device_pre.data.fft_type.upper() == "C2C"
+                            else np.float64
+                        )
+                        # Execute the FFT.
+                        device_pre.data.Hg[d] = (
+                            f.execute()
+                            .view(device_pre.data.dtype)
+                            .reshape(device_pre.data.Hg.shape[1:])
+                        )
 
         else:
             raise NotImplementedError(
@@ -1034,18 +1037,24 @@ def ifft(device_pre, fftmp_buffers=None):
             import cupy as cp
 
             with cp.cuda.Device(fftmp_buffers.device_id):
-                # 0) loop over H dimensions
-                for d in range(device_pre.dim_out):
-                    # 0) copy to ifft buffers
-                    fftmp_buffers.ifft_buff[:] = (
-                        device_pre.data.Hg[d].view(np.complex128).squeeze(-1)
-                    )
-                    # 1) inverse fft
-                    device_pre.data.H[d] = fftmp_buffers.ifft()[
-                        : device_pre.data.opt.grid_shape_ext[0],
-                        : device_pre.data.opt.grid_shape_ext[1],
-                        : device_pre.data.opt.grid_shape_ext[2],
-                    ].real
+                # Use stateful pre-planed ifft object 'f'
+                with fftmp_buffers.ifft as f:
+
+                    # loop over H dimensions
+                    for d in range(device_pre.dim_out):
+                        # copy to ifft buffers
+                        fftmp_buffers.ifft_buff[:] = (
+                            device_pre.data.Hg[d].view(np.complex128).squeeze(-1)
+                        )
+                        # Execute the IFFT.
+                        device_pre.data.H[d] = (
+                            f.execute()[
+                                : device_pre.data.opt.grid_shape_ext[0],
+                                : device_pre.data.opt.grid_shape_ext[1],
+                                : device_pre.data.opt.grid_shape_ext[2],
+                            ].real
+                            / fftmp_buffers.fft_size
+                        )
         else:
             raise NotImplementedError(
                 "distributed fft only implemented for Cuda execution space,"

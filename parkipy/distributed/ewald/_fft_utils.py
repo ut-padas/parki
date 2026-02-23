@@ -38,7 +38,9 @@ class FFTMPBuffers:
         self.nranks = comm.Get_size()
         self.device_id = self.rank % cp.cuda.runtime.getDeviceCount()
         try:
-            nvmath.distributed.initialize(self.device_id, comm)
+            nvmath.distributed.initialize(
+                self.device_id, comm, backends=["nvshmem", "nccl"]
+            )
         except RuntimeError:
             pass
 
@@ -48,38 +50,44 @@ class FFTMPBuffers:
         self.fft_buff = nvmath.distributed.fft.allocate_operand(
             self.fft_shape,
             cp,
-            input_dtype=(cp.complex128 if self.fft_type.upper() == "C2C" else cp.float64), # TODO: change to device_pre data type
+            input_dtype=(
+                cp.complex128 if self.fft_type.upper() == "C2C" else cp.float64
+            ),  # TODO: change to device_pre data type
             distribution=nvmath.distributed.fft.Slab.X,
             memory_space="cuda",
-            fft_type=self.fft_type, # TODO: change for single precision
+            fft_type=self.fft_type,  # TODO: change for single precision
         )
         self.fft_buff[:] = 0  # pad with zeros
         self.ifft_buff = nvmath.distributed.fft.allocate_operand(
             self.ifft_shape,
             cp,
-            input_dtype=cp.complex128, # TODO: change to device_pre data type
+            input_dtype=cp.complex128,  # TODO: change to device_pre data type
             distribution=nvmath.distributed.fft.Slab.Y,
             memory_space="cuda",
-            fft_type="Z2D", # TODO: change for single precision
+            fft_type="C2R",  # TODO: change for single precision
         )
         self.fft_size = np.prod([self.fft_shape[0] * self.nranks, *self.fft_shape[1:]])
 
-    def fft(self):
-        out = self.fft_op(
+        # Create and plan FFT and IFFT objects
+        self.fft = nvmath.distributed.fft.FFT(
             self.fft_buff,
             distribution=nvmath.distributed.fft.Slab.X,
-            options={"reshape": False, "last_axis_parity": "even"},
+            options={
+                "reshape": False,
+                "last_axis_parity": "even",
+            },
         )
-        return out
+        self.fft.plan()
 
-    def ifft(self):
-        out = self.ifft_op(
+        self.ifft = nvmath.distributed.fft.FFT(
             self.ifft_buff,
             distribution=nvmath.distributed.fft.Slab.Y,
-            options={"reshape": False, "last_axis_parity": "even"},
+            options={
+                "reshape": False,
+                "last_axis_parity": "even",
+            },
         )
-        out /= self.fft_size
-        return out
+        self.ifft.plan()
 
     def __del__(self):
         nvmath.distributed.free_symmetric_memory(self.fft_buff)
