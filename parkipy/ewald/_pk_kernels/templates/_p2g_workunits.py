@@ -386,10 +386,155 @@ def p2g_grid_P2G(
 
 
 @pk.workunit
-def p2g_hybrid(team_member: pk.TeamMember):
+def p2g_grid_sans_normals_P2G(
+    team_member: pk.TeamMember,
+    yj,
+    qj,
+    H,
+    H_shape,
+    window_P,
+    periodicity,
+    cell_size,
+    num_cells,
+    nonempty_cell_index,
+    threads,
+    dim_f,
+    dim_H,
+):
+    """
+    args:
+        yj: (3, ny) list of source particles
+            scaled to the Fourier grid
+        qj: (dx, ny) list of source densities
+        H: (gx, gy, gz, dh) Fourier grid
+        H_shape: shape of the Fourier grid
+        window_P: int, window function support in grid points
+        periodicity: int, periodicity of the problem
+        cell_size: int, number of source particles in a cell
+        num_cells: (3), number of cells in each spatial direction
+        nonempty_cell_index: cell index -> nonempty cell index map
+        threads: int, threads per team
+        dim_f: dimension of the force f
+        dim_H: dimension of the uniform Fourier grid H
+    """
+    pp: int = window_P * window_P
+    po2: int = window_P / 2
+    num_cells12: int = num_cells[1] * num_cells[2]
+    H_shape12: int = H_shape[1] * H_shape[2]
+    ng: int = H_shape[0] * H_shape12
+    t_off: int = team_member.league_rank() * threads
+
+    def thread_loop(tid: int):
+        t: int = t_off + tid
+        if t >= ng:
+            return
+        t_x: int = t // H_shape12
+        t_y: int = t % H_shape12 // H_shape[2]
+        t_z: int = t % H_shape12 % H_shape[2]
+        # get target cell
+        t_cell_x: int = t_x // po2
+        t_cell_y: int = t_y // po2
+        t_cell_z: int = t_z // po2
+        t_cell: int = t_cell_x * num_cells12 + t_cell_y * num_cells[2] + t_cell_z
+        pot: List[pk.double] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        # loop over sources
+        for k in range(27):
+            source_cell: Cell_fp64 = get_source_cell_fp64(
+                k,
+                t_cell_x,
+                t_cell_y,
+                t_cell_z,
+                periodicity,
+                num_cells,
+                H_shape,
+            )
+            if source_cell.inbounds == False:
+                continue
+            s_cell: int = (
+                source_cell.x * num_cells12
+                + source_cell.y * num_cells[2]
+                + source_cell.z
+            )
+            nz_cell: int = nonempty_cell_index[s_cell]
+            if nz_cell < 0:
+                continue
+            s_off: int = nz_cell * cell_size
+            for s in range(s_off, s_off + cell_size):
+                w: pk.double = naive_window_kernel_fp64(
+                    s, t_x, t_y, t_z, periodicity, pp, po2, yj, H_shape
+                )
+                # interpolate densities with windows
+                for d in range(dim_f):
+                    pot[d] += w * qj[d][s]
+
+        # write interpolated densities to grid
+        for d in range(dim_H):
+            H[t_x][t_y][t_z][d] += pot[d]
+
+    pk.parallel_for(pk.TeamThreadRange(team_member, threads), thread_loop)
+
+
+@pk.workunit(
+    scratch=[
+        (
+            pk.double,
+            lambda p: (p.cell_chunk_size * p.window_P * 3)
+            + (p.cell_chunk_size * (p.dim_f + 3)),
+        ),
+        (int, lambda p: p.cell_chunk_size * 3),
+    ]
+)
+def p2g_hybrid_P2G(
+    team_member: pk.TeamMember,
+    yj,
+    qj,
+    nj,
+    H,
+    H_shape,
+    window_P,
+    periodicity,
+    cell_size,
+    num_cells,
+    nonempty_cell_index,
+    cell_index,
+    threads,
+    dim_f,
+    dim_H,
+    cell_chunk_size,
+    chunks_per_cell,
+):
+    """
+    args:
+        yj: (3, ny) list of source particles
+            scaled to the Fourier grid
+        qj: (dx, ny) list of source densities
+        nj: (3, ny) list of source normal vectors
+        H: (gx, gy, gz, dh) Fourier grid
+        H_shape: shape of the Fourier grid
+        window_P: int, window function support in grid points
+        periodicity: int, periodicity of the problem
+        cell_size: int, number of source particles in a cell
+        num_cells: (3), number of cells in each spatial direction
+        nonempty_cell_index: cell index -> nonempty cell index map
+        cell_index: nonempty cell index -> cell index map
+        threads: int, threads per team
+        dim_f: dimension of the force f
+        dim_H: dimension of the uniform Fourier grid H
+        cell_chunk_size: the number of particles in
+            each chunk of each cell
+        chunks_per_cell: the number of chunks per cell
+    """
+    dim_n: int = 3  # NOTE: fixed for 3d Ewald
+
+    # set up kernel constants
+    po2: int = window_P / 2
+    po2_sqr: int = po2 * po2
+    po2_cubed: int = po2_sqr * po2
+    num_cells12: int = num_cells[1] * num_cells[2]
+
     nz_cell: int = team_member.league_rank() // chunks_per_cell
     cell_chunk: int = team_member.league_rank() % chunks_per_cell
-    s_cell: int = nz2s_cell_map[nz_cell]
+    s_cell: int = cell_index[nz_cell]
     s_cell_x: int = s_cell // num_cells12
     s_cell_y: int = (s_cell % num_cells12) // num_cells[2]
     s_cell_z: int = (s_cell % num_cells12) % num_cells[2]
@@ -403,7 +548,7 @@ def p2g_hybrid(team_member: pk.TeamMember):
         team_member.team_scratch(0), cell_chunk_size, 3
     )
     shmem_f: pk.ScratchView2D[pk.double] = pk.ScratchView2D(
-        team_member.team_scratch(0), cell_chunk_size, (dim_f + has_normals * dim_n)
+        team_member.team_scratch(0), cell_chunk_size, (dim_f + dim_n)
     )
 
     def source_loop(ii: int):
@@ -598,11 +743,64 @@ def p2g_hybrid(team_member: pk.TeamMember):
                 pk.parallel_for(pk.TeamThreadRange(team_member, po2_cubed), target_loop)
 
 
-@pk.workunit
-def p2g_hybrid_wo_normals(team_member: pk.TeamMember):
+@pk.workunit(
+    scratch=[
+        (
+            pk.double,
+            lambda p: (p.cell_chunk_size * p.window_P * 3)
+            + (p.cell_chunk_size * p.dim_f),
+        ),
+        (int, lambda p: p.cell_chunk_size * 3),
+    ]
+)
+def p2g_hybrid_sans_normals_P2G(
+    team_member: pk.TeamMember,
+    yj,
+    qj,
+    H,
+    H_shape,
+    window_P,
+    periodicity,
+    cell_size,
+    num_cells,
+    nonempty_cell_index,
+    cell_index,
+    threads,
+    dim_f,
+    dim_H,
+    cell_chunk_size,
+    chunks_per_cell,
+):
+    """
+    args:
+        yj: (3, ny) list of source particles
+            scaled to the Fourier grid
+        qj: (dx, ny) list of source densities
+        nj: (3, ny) list of source normal vectors
+        H: (gx, gy, gz, dh) Fourier grid
+        H_shape: shape of the Fourier grid
+        window_P: int, window function support in grid points
+        periodicity: int, periodicity of the problem
+        cell_size: int, number of source particles in a cell
+        num_cells: (3), number of cells in each spatial direction
+        nonempty_cell_index: cell index -> nonempty cell index map
+        cell_index: nonempty cell index -> cell index map
+        threads: int, threads per team
+        dim_f: dimension of the force f
+        dim_H: dimension of the uniform Fourier grid H
+        cell_chunk_size: the number of particles in
+            each chunk of each cell
+        chunks_per_cell: the number of chunks per cell
+    """
+    # set up kernel constants
+    po2: int = window_P / 2
+    po2_sqr: int = po2 * po2
+    po2_cubed: int = po2_sqr * po2
+    num_cells12: int = num_cells[1] * num_cells[2]
+
     nz_cell: int = team_member.league_rank() // chunks_per_cell
     cell_chunk: int = team_member.league_rank() % chunks_per_cell
-    s_cell: int = nz2s_cell_map[nz_cell]
+    s_cell: int = cell_index[nz_cell]
     s_cell_x: int = s_cell // num_cells12
     s_cell_y: int = (s_cell % num_cells12) // num_cells[2]
     s_cell_z: int = (s_cell % num_cells12) % num_cells[2]
@@ -616,7 +814,7 @@ def p2g_hybrid_wo_normals(team_member: pk.TeamMember):
         team_member.team_scratch(0), cell_chunk_size, 3
     )
     shmem_f: pk.ScratchView2D[pk.double] = pk.ScratchView2D(
-        team_member.team_scratch(0), cell_chunk_size, (dim_f + has_normals * dim_n)
+        team_member.team_scratch(0), cell_chunk_size, dim_f
     )
 
     def source_loop(ii: int):
@@ -652,8 +850,6 @@ def p2g_hybrid_wo_normals(team_member: pk.TeamMember):
         # load densities and normals into shared memory
         for iii in range(dim_f):
             shmem_f[ii][iii] = qj[iii][s]
-        for iii in range(dim_n):
-            shmem_f[ii][iii + dim_f] = nj[iii][s]
         for r in range(window_P):
             if window_P == 14:
                 shmem_w[ii][r][0] = _basic_kaiser_poly_p14_fp64(d_x, r)
@@ -749,7 +945,7 @@ def p2g_hybrid_wo_normals(team_member: pk.TeamMember):
             wz: pk.double = shmem_w[ii][bin_z][2]
             w: pk.double = wx * wy * wz
             # interpolate densities with windows
-            for d in range(dim_f1):
+            for d in range(dim_f):
                 pot[d] += w * shmem_f[ii][d]
         for d in range(dim_H):
             pk.atomic_add(H, [d, t_x, t_y, t_z], pot[d])
@@ -793,7 +989,6 @@ def p2g_hybrid_wo_normals(team_member: pk.TeamMember):
 
 @pk.function
 def get_source_cell_P2G(
-    self,
     k: int,
     t_cell_x: int,
     t_cell_y: int,

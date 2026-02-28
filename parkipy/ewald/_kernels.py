@@ -731,7 +731,7 @@ def laplace(trg, src, charge, options):
             f"laplace only supports p2p methods {valid_p2p_methods}, got {options.p2p_method.upper()}."
         )
 
-    valid_p2g_methods = ["HYBRID"]
+    valid_p2g_methods = ["GRID", "HYBRID"]
     if options.p2g_method.upper() not in valid_p2g_methods:
         raise NotImplementedError(
             f"laplace only supports p2g methods {valid_p2g_methods}, got {options.p2g_method.upper()}."

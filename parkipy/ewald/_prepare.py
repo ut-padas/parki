@@ -15,21 +15,6 @@ from dataclasses import dataclass, field
 
 from parkipy.utils import get_array_module, get_execution_space
 
-# TODO: delete me
-from ._pk_kernels._p2g_workload import (
-    p2g_workload_single_force_cuda_fp64,
-    p2g_workload_single_force_hip_fp64,
-    p2g_workload_single_force_host_fp64,
-    p2g_workload_single_force_cuda_fp32,
-    p2g_workload_single_force_hip_fp32,
-    p2g_workload_single_force_host_fp32,
-    p2g_workload_multi_forces_cuda_fp64,
-    p2g_workload_multi_forces_hip_fp64,
-    p2g_workload_multi_forces_host_fp64,
-    p2g_workload_multi_forces_cuda_fp32,
-    p2g_workload_multi_forces_hip_fp32,
-    p2g_workload_multi_forces_host_fp32,
-)
 from ._pk_kernels._p2g_workunits import (
     p2g_base_fp32,
     p2g_base_fp64,
@@ -37,6 +22,12 @@ from ._pk_kernels._p2g_workunits import (
     p2g_source_fp64,
     p2g_grid_fp32,
     p2g_grid_fp64,
+    p2g_hybrid_fp32,
+    p2g_hybrid_fp64,
+    p2g_grid_sans_normals_fp32,
+    p2g_grid_sans_normals_fp64,
+    p2g_hybrid_sans_normals_fp32,
+    p2g_hybrid_sans_normals_fp64,
 )
 from ._pk_kernels._g2p_workunits import (
     g2p_base_fp32,
@@ -57,21 +48,6 @@ from ._pk_kernels._cnv_workunits import (
     stresslet_convolution_kernel_fp32,
     stokeslet_convolution_zero_kernel_fp32,
     stresslet_convolution_zero_kernel_fp32,
-)
-
-from ._pk_kernels._p2p_workload import (
-    p2p_workload_single_force_cuda_fp64,
-    p2p_workload_single_force_hip_fp64,
-    p2p_workload_single_force_host_fp64,
-    p2p_workload_multi_forces_cuda_fp64,
-    p2p_workload_multi_forces_hip_fp64,
-    p2p_workload_multi_forces_host_fp64,
-    p2p_workload_single_force_cuda_fp32,
-    p2p_workload_single_force_hip_fp32,
-    p2p_workload_single_force_host_fp32,
-    p2p_workload_multi_forces_cuda_fp32,
-    p2p_workload_multi_forces_hip_fp32,
-    p2p_workload_multi_forces_host_fp32,
 )
 
 from ._params import se_params_stokes_comb, se_params_laplace, se_params_stokeslet
@@ -630,7 +606,7 @@ class DevicePre:
         Backend used for device execution (e.g. CUDA, HIP, or OpenMP).
     am : module
         Array module used (NumPy, CuPy, etc.).
-    p2p_workload, p2g_workload, g2p_workunits : Dict[str, callable]
+    p2g_workunit, g2p_workunits : Dict[str, callable]
         Device kernel functions for P2P, P2G, and G2P stages.
     laplace_convolution_kernel, stokeslet_convolution_kernel, stresslet_convolution_kernel : callable
         PyKokkos kernels for convolutions
@@ -656,8 +632,7 @@ class DevicePre:
 
     execution_space: Any = field(init=False)
     am: Any = field(init=False)
-    p2p_workload: Any = field(init=False)
-    p2g_workload: Any = field(init=False)
+    p2g_workunit: Any = field(init=False)
     g2p_workunit: Any = field(init=False)
     stokeslet_convolution_kernel: Any = field(init=False)
     stresslet_convolution_kernel: Any = field(init=False)
@@ -698,41 +673,10 @@ class DevicePre:
                 raise ValueError(
                     f"Kernel must be one of 'LAPLACE', 'STOKES_COMB', got '{self.kernel.upper()}'."
                 )
-        match self.dim_in:
-            case 1:
-                p2p_workload_cuda_fp64 = p2p_workload_single_force_cuda_fp64
-                p2p_workload_cuda_fp32 = p2p_workload_single_force_cuda_fp32
-                p2p_workload_hip_fp64 = p2p_workload_single_force_hip_fp64
-                p2p_workload_hip_fp32 = p2p_workload_single_force_hip_fp32
-                p2p_workload_host_fp64 = p2p_workload_single_force_host_fp64
-                p2p_workload_host_fp32 = p2p_workload_single_force_host_fp32
-                p2g_workload_cuda_fp64 = p2g_workload_single_force_cuda_fp64
-                p2g_workload_cuda_fp32 = p2g_workload_single_force_cuda_fp32
-                p2g_workload_hip_fp64 = p2g_workload_single_force_hip_fp64
-                p2g_workload_hip_fp32 = p2g_workload_single_force_hip_fp32
-                p2g_workload_host_fp64 = p2g_workload_single_force_host_fp64
-                p2g_workload_host_fp32 = p2g_workload_single_force_host_fp32
-            case _:
-                p2p_workload_cuda_fp64 = p2p_workload_multi_forces_cuda_fp64
-                p2p_workload_cuda_fp32 = p2p_workload_multi_forces_cuda_fp32
-                p2p_workload_hip_fp64 = p2p_workload_multi_forces_hip_fp64
-                p2p_workload_hip_fp32 = p2p_workload_multi_forces_hip_fp32
-                p2p_workload_host_fp64 = p2p_workload_multi_forces_host_fp64
-                p2p_workload_host_fp32 = p2p_workload_multi_forces_host_fp32
-                p2g_workload_cuda_fp64 = p2g_workload_multi_forces_cuda_fp64
-                p2g_workload_cuda_fp32 = p2g_workload_multi_forces_cuda_fp32
-                p2g_workload_hip_fp64 = p2g_workload_multi_forces_hip_fp64
-                p2g_workload_hip_fp32 = p2g_workload_multi_forces_hip_fp32
-                p2g_workload_host_fp64 = p2g_workload_multi_forces_host_fp64
-                p2g_workload_host_fp32 = p2g_workload_multi_forces_host_fp32
 
         # Kernel and memory settings per backend
         match self.execution_space:
             case pk.ExecutionSpace.Cuda:
-                p2p_workload_fp64 = p2p_workload_cuda_fp64
-                p2p_workload_fp32 = p2p_workload_cuda_fp32
-                p2g_workload_fp64 = p2g_workload_cuda_fp64
-                p2g_workload_fp32 = p2g_workload_cuda_fp32
                 max_shmem_block = (
                     self.am.cuda.Device(0).attributes["MaxSharedMemoryPerBlock"] - 1024
                 )
@@ -740,10 +684,6 @@ class DevicePre:
             case pk.ExecutionSpace.HIP:
                 print("WARNING: HIP shmem block size hardcoded to 64KB")
                 max_shmem_block = 64000
-                p2p_workload_fp64 = p2p_workload_hip_fp64
-                p2p_workload_fp32 = p2p_workload_hip_fp32
-                p2g_workload_fp64 = p2g_workload_hip_fp64
-                p2g_workload_fp32 = p2g_workload_hip_fp32
 
             case pk.ExecutionSpace.OpenMP:
                 omp_threads = int(os.environ.get("OMP_NUM_THREADS", "1"))
@@ -753,10 +693,6 @@ class DevicePre:
                         RuntimeWarning,
                     )
                 max_shmem_block = 4.5 * 1024**2
-                p2p_workload_fp64 = p2p_workload_host_fp64
-                p2p_workload_fp32 = p2p_workload_host_fp32
-                p2g_workload_fp64 = p2g_workload_host_fp64
-                p2g_workload_fp32 = p2g_workload_host_fp32
 
             case _:
                 raise ValueError(
@@ -769,12 +705,14 @@ class DevicePre:
         self.convolution_sum_sl = convolution_sum_sl
         match self.data.dtype:
             case self.am.double:
-                self.p2p_workload = p2p_workload_fp64
-                self.p2g_workload = p2g_workload_fp64
                 self.p2g_workunit = {
-                    "BASE": p2g_base_fp64,
-                    "SOURCE": p2g_source_fp64,
-                    "GRID": p2g_grid_fp64,
+                    "BASE WITH NORMALS": p2g_base_fp64,
+                    "SOURCE WITH NORMALS": p2g_source_fp64,
+                    "GRID WITH NORMALS": p2g_grid_fp64,
+                    "HYBRID WITH NORMALS": p2g_hybrid_fp64,
+                    # without normals
+                    "GRID WITHOUT NORMALS": p2g_grid_sans_normals_fp64,
+                    "HYBRID WITHOUT NORMALS": p2g_hybrid_sans_normals_fp64,
                 }
                 self.g2p_workunit = {"BASE": g2p_base_fp64, "TARGET": g2p_target_fp64}
                 self.laplace_convolution_kernel = laplace_convolution_kernel_fp64
@@ -787,12 +725,14 @@ class DevicePre:
                     stresslet_convolution_zero_kernel_fp64
                 )
             case self.am.single:
-                self.p2p_workload = p2p_workload_fp32
-                self.p2g_workload = p2g_workload_fp32
                 self.p2g_workunit = {
-                    "BASE": p2g_base_fp32,
-                    "SOURCE": p2g_source_fp32,
-                    "GRID": p2g_grid_fp32,
+                    "BASE WITH NORMALS": p2g_base_fp32,
+                    "SOURCE WITH NORMALS": p2g_source_fp32,
+                    "GRID WITH NORMALS": p2g_grid_fp32,
+                    "HYBRID WITH NORMALS": p2g_hybrid_fp32,
+                    # without normals
+                    "GRID WITHOUT NORMALS": p2g_grid_sans_normals_fp32,
+                    "HYBRID WITHOUT NORMALS": p2g_hybrid_sans_normals_fp32,
                 }
                 self.g2p_workunit = {"BASE": g2p_base_fp32, "TARGET": g2p_target_fp32}
                 self.laplace_convolution_kernel = laplace_convolution_kernel_fp32

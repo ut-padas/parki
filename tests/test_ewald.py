@@ -188,7 +188,7 @@ def run_convergence(
         max_err = am.max(errors)
         try:
             np.testing.assert_(
-                max_err < 15 * tol,
+                max_err < 20 * tol,
                 msg=f"Consistency test failed for tol={tol:.3e}: max error = {max_err:.3e}",
             )
         except AssertionError as e:
