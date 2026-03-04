@@ -578,7 +578,6 @@ def p2g(
             cell_chunk_size: int = min(
                 source_list.cell_size, device_pre.p2g_max_cell_size
             )
-            print(cell_chunk_size)
             walltime["sort"] = time.time() - walltime["sort"]
 
             # setup kernel call

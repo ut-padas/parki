@@ -91,6 +91,13 @@ class CellList:
                 f"cutoff expected to be a float between {(0, self.box.min())}, "
                 f"got {self.cutoff} of type {type(cutoff)}"
             )
+
+        if self.particles.min() <= 0:
+            raise ValueError(
+                "particle array expected to lie in positive quadrant; non-positive entries where found"
+            )
+        if self.am.any(self.particles.max(axis=1) >= self.box):
+            raise ValueError(f"particle coordinates exceed box lengths {self.box}")
         self._forces = forces
         self._skip_empty_cells = skip_empty_cells
 

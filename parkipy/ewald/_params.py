@@ -5,6 +5,7 @@ Spectral Ewald parameter selection.
 from dataclasses import dataclass, field
 from collections.abc import Callable
 from fractions import Fraction
+import warnings
 import numpy as np
 import scipy as sp
 import sys
@@ -662,10 +663,9 @@ class SEParams:
         # round grid res to be a multiple of self.window_P
         #   this ensures far-field cells form a full partition.
         if grid_res / self.grid_res > 2:
-            print(
-                "Warning: grid_res increased by more than a factor 2"
-                f" (from {self.grid_res} to {grid_res})",
-                file=sys.stderr,
+            warnings.warn(
+                "grid_res increased by more than a factor 2"
+                f" (from {self.grid_res} to {grid_res})"
             )
         self.grid_res = grid_res
         self.h = 1 / self.grid_res

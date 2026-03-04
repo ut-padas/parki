@@ -111,7 +111,7 @@ def get_execution_space(
                         )
                 case _:
                     raise ValueError(
-                        f"execution space must be one of {valid_spaces}, got {execution_space}."
+                        f"execution space must be one of {valid_spaces}, got '{execution_space}'."
                     )
             return pk.ExecutionSpace(execution_space)
         elif isinstance(execution_space, pk.ExecutionSpace):
