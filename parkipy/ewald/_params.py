@@ -665,7 +665,8 @@ class SEParams:
         if grid_res / self.grid_res > 2:
             warnings.warn(
                 "grid_res increased by more than a factor 2"
-                f" (from {self.grid_res} to {grid_res})"
+                f" (from {self.grid_res} to {grid_res})",
+                stacklevel=1,
             )
         self.grid_res = grid_res
         self.h = 1 / self.grid_res
