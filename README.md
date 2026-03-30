@@ -35,7 +35,7 @@ and `nvmath-python v8.0` for distributed FFTs.
 
 We the packages with pip:
 ```
-CC=gcc CXX=g++ CFLAGS="" CXXFLAGS="" pip install mpi4py --no-cache-dir --no-binary :all:`
+CC=gcc CXX=g++ CFLAGS="" CXXFLAGS="" pip install mpi4py --no-cache-dir --no-binary :all:
 pip install nvmath-python
 ```
 

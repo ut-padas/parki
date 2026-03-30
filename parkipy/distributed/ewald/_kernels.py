@@ -165,8 +165,9 @@ class EwaldKernel:
         # parse arguments
         if len(args) != 7 + self.takes_normals:
             raise TypeError(
-                f"Wrong number of positional arguments, expected"
-                f" {7 + self.takes_normals}"
+                f"Wrong number of positional arguments, "
+                f"got {len(args)}, "
+                f"expected {7 + self.takes_normals}"
             )
         x_out = args[0]
         if len(x_out.shape) == 1 and np.size(x_out) == 3:
@@ -235,9 +236,9 @@ class EwaldKernel:
             ifft_shape=device_pre.data.Hg.shape[1:-1],
             fft_type=device_pre.data.fft_type,
         )
-        walltime["fft"] = fft(device_pre, fft_buffers)
+        walltime["fft"] = fft(device_pre, None, fft_buffers)
         walltime["cnv"] = cnv(device_pre)
-        walltime["ifft"] = ifft(device_pre, fft_buffers)
+        walltime["ifft"] = ifft(device_pre, None, fft_buffers)
         del fft_buffers  # free symmetic heap if execution is distributed
         device_pre.data.communicate_ghost_grid_cells()
         walltime["g2p"] = g2p(
@@ -294,6 +295,37 @@ class DistributedEwaldOptions(EwaldOptions):
 
 
 ## Implementations of specific kernels ##
+
+
+def stokes_1p(*args, **kwargs):
+    r"""
+    Compute the Stokes single layer potential
+
+    .. math::
+
+        \boldsymbol{u}(\boldsymbol{x}_i) = \sum_{j=1}^{N} \sum_{p \in P}
+        \left(\left( \frac{\boldsymbol{q}_j}{\lVert \boldsymbol{r}_{ij} \rVert}
+        +
+        \frac{\boldsymbol{r}_{ij}}{\lVert \boldsymbol{r}_{ij} \rVert^3}
+        (\boldsymbol{r}_{ij} \cdot \boldsymbol{q}_j)
+        \right)
+        + \left( \epsilon_{jlm} \frac{\boldsymbol{r}_m}{\|\boldsymbol{r}_{ij}\|^3}
+        \boldsymbol{q}_l \boldsymbol{n}_m \right) \right),
+
+    where :math:`\boldsymbol{r}_{ij} = \boldsymbol{x}_i - \boldsymbol{y}_j`
+    and :math:`P` is the specified periodicity.
+
+    """
+
+    pot = EwaldKernel(
+        name="stokes_comb",
+        dim_in=3,
+        dim_out=3,
+        kernel="stokes_sl",
+        takes_normals=False,
+        description="Stokes single layer potential.",
+    )(*args, **kwargs)
+    return pot
 
 
 def stokes_comb(*args, **kwargs):

@@ -480,10 +480,6 @@ class DeviceData:
             )
 
             mpi_comm = MPI.COMM_WORLD
-            if self.normals is None:
-                raise NotImplementedError(
-                    "Distributed Ewald only implemented for kernels" "with normals."
-                )
             ns = self.sources.shape[-1]
             nt = self.targets.shape[-1]
             ng = self.ghost_H[0].size
@@ -508,7 +504,18 @@ class DeviceData:
             trg_buff = am.hstack((self.targets, extra_x), dtype=self.dtype)
             src_buff = am.hstack((self.sources, extra_x), dtype=self.dtype)
             frc_buff = am.hstack((self.forces, extra_q), dtype=self.dtype)
-            nrm_buff = am.hstack((self.normals, extra_x), dtype=self.dtype)
+
+            # set up bucket sort and ghost points kwargs
+            kwargs_bucket = {
+                "src": src_buff.T,
+                "ns": ns,
+                "dens": frc_buff.T,
+                "buffers": self.mpi_buffers,
+            }
+            if self.normals is not None:
+                nrm_buff = am.hstack((self.normals, extra_x), dtype=self.dtype)
+                kwargs_bucket["normal"] = nrm_buff.T
+
             #   bucket sort
             sort_start = time.time()
             nt_loc, ns_loc = bucket_sort(
@@ -517,19 +524,24 @@ class DeviceData:
                 self.box_dict["box"],
                 trg_buff.T,
                 nt,
-                src=src_buff.T,
-                ns=ns,
-                dens=frc_buff.T,
-                normal=nrm_buff.T,
-                buffers=self.mpi_buffers,
+                **kwargs_bucket,
             )
             sort_end = time.time()
             self.walltime["mpi_sort"] = sort_end - sort_start
             self.owned_ns = ns_loc
-            # 1) distributed ghost sources
+
             src_gst = am.empty_like(src_buff)
             frc_gst = am.empty_like(frc_buff)
-            nrm_gst = am.empty_like(nrm_buff)
+
+            out_ghost = [src_gst.T, frc_gst.T]
+            extra_arr_ghost = [frc_buff.T]
+
+            if self.normals is not None:
+                nrm_gst = am.empty_like(nrm_buff)
+                out_ghost.append(nrm_gst.T)
+                extra_arr_ghost.append(nrm_buff.T)
+
+            # 1) distributed ghost sources
             ghost_start = time.time()
             ns_loc = communicate_ghost_points(
                 mpi_comm,
@@ -539,9 +551,8 @@ class DeviceData:
                 self.box_dict["box"][0],
                 src_buff.T,
                 ns_loc,
-                frc_buff.T,
-                nrm_buff.T,
-                out=(src_gst.T, frc_gst.T, nrm_gst.T),
+                *extra_arr_ghost,
+                out=out_ghost,
                 buffers=self.mpi_buffers,
             )
             ghost_end = time.time()
@@ -556,11 +567,12 @@ class DeviceData:
             self.targets = am.empty((3, nt_loc))
             self.sources = am.empty((3, ns_loc))
             self.forces = am.empty((self.forces.shape[0], ns_loc))
-            self.normals = am.empty((3, ns_loc))
             self.targets[...] = trg_buff[:, :nt_loc]
             self.sources[...] = src_gst[:, :ns_loc]
             self.forces[...] = frc_gst[:, :ns_loc]
-            self.normals[...] = nrm_gst[:, :ns_loc]
+            if self.normals is not None:
+                self.normals = am.empty((3, ns_loc))
+                self.normals[...] = nrm_gst[:, :ns_loc]
 
     def communicate_ghost_grid_cells(self):
         if self.opt.distributed:
@@ -678,14 +690,16 @@ class DevicePre:
         match self.execution_space:
             case pk.ExecutionSpace.Cuda:
                 max_shmem_block = (
-                    self.am.cuda.Device(0).attributes["MaxSharedMemoryPerBlock"] - 1024
+                    self.am.cuda.Device(0).attributes["MaxSharedMemoryPerBlock"]
+                    - 1024
+                    - 3 * 1024
                 )
 
             case pk.ExecutionSpace.HIP:
                 print("WARNING: HIP shmem block size hardcoded to 64KB")
                 max_shmem_block = 64000
 
-            case pk.ExecutionSpace.OpenMP:
+            case pk.ExecutionSpace.OpenMP | pk.ExecutionSpace.DebugOpenMP:
                 omp_threads = int(os.environ.get("OMP_NUM_THREADS", "1"))
                 if omp_threads == 1:
                     warnings.warn(

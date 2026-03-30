@@ -154,14 +154,16 @@ def bucket_sort(
     )
     new_ns = None
     if src is not None:
+        extra_arr = [dens]
+        if normal is not None:
+            extra_arr.append(normal)
         new_ns = _bucket_sort_core(
             mpi_comm,
             execution_space,
             slabs,
             src,
             ns,
-            dens,
-            normal,
+            *extra_arr,
             buffers=buffers,
             base_tag=20,
         )

@@ -15,6 +15,7 @@ backend to prodive distributed APIs for the :class:`parkipy.ewald` kernels.
 """
 
 from ._kernels import (
+    stokes_1p,
     stokes_comb,
     DistributedEwaldOptions,
 )
