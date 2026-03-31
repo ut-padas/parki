@@ -22,6 +22,7 @@ It is easy to do so in `O(n^2)` time:
 Our algorithm below does so in O(n) time
 using the `parkipy.CellList` data structure
 """
+
 import parkipy
 
 

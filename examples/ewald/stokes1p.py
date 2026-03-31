@@ -4,6 +4,7 @@
 Ewald summation for the combined stokes single and double
 layer potential with one periodic direction.
 """
+
 import argparse
 import parkipy
 

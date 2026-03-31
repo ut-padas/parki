@@ -7,6 +7,7 @@ multiple processes.
 
 >>> mpiexec -n 2 python examples/ewald/stokes1p_mp.py
 """
+
 import sys
 import pprint
 import argparse
