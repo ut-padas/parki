@@ -113,7 +113,7 @@ def p2p(
     in Fourier space. Cell lists are constructed on-the-fly and passed to the
     compiled Kokkos kernels along with configuration flags and simulation parameters.
     """
-    if device_pre.execution_space == pk.ExecutionSpace.OpenMP and threads_x != 1:
+    if pk.is_host_execution_space(device_pre.execution_space) and threads_x != 1:
         warnings.warn(
             "'threads_x' argument is overridden to 1 in OpenMP execution space.",
             RuntimeWarning,
@@ -263,7 +263,7 @@ def p2p(
                 if not device_pre.data.opt.distributed
                 else 0
             ),
-            "box": device_pre.data.opt.ghost_box,
+            "box": device_pre.am.array(device_pre.data.opt.ghost_box),
             "xi": device_pre.data.opt.xi,
             "xi_squared": device_pre.data.opt.xi**2,
             "xi_two_inv_sqrt_pi": device_pre.data.opt.xi
@@ -400,7 +400,7 @@ def p2g(
     """
     walltime = {}
     walltime["tot"] = time.time()
-    if device_pre.execution_space == pk.ExecutionSpace.OpenMP and threads != 1:
+    if pk.is_host_execution_space(device_pre.execution_space) and threads != 1:
         warnings.warn(
             "'threads' argument is overridden to 1 in OpenMP execution space.",
             RuntimeWarning,
@@ -726,7 +726,7 @@ def p2g(
     return walltime
 
 
-def fft(device_pre, fftmp_buffers=None):
+def fft(device_pre, options, fftmp_buffers=None):
     """
     Perform a multidimensional FFT on the gridded source data stored in `device_pre`.
 
@@ -739,6 +739,8 @@ def fft(device_pre, fftmp_buffers=None):
         The precomputed configuration and data buffers used for the Spectral Ewald method.
         Must include attributes like `H`, `Hg`, `fft_shape`, `fft_up`, and `fft_real_shape`,
         as well as the `execution_space`.
+    options: EwaldOptions
+        Ewald options data class.
 
     Returns
     -------
@@ -796,22 +798,38 @@ def fft(device_pre, fftmp_buffers=None):
             )
 
     else:
-        extra_args = {}
-        if device_pre.execution_space == pk.ExecutionSpace.OpenMP:
-            extra_args["workers"] = int(os.environ.get("OMP_NUM_THREADS"))
         RangePush("FFT-kernel")
-        fftn = get_fftn(device_pre.execution_space, device_pre.data.fft_type)
-        device_pre.data.Hg[...] = (
-            fftn(
-                device_pre.data.H[...],
-                s=device_pre.data.fft_shape,
-                axes=(1, 2, 3),
-                overwrite_x=True,
-                **extra_args,
+        if options.torch_fft:
+            import torch
+
+            # get torch pointers for arrays
+            Hg_ten = torch.as_tensor(
+                device_pre.data.Hg.view(device_pre.data.complex_dtype).squeeze()
             )
-            .view(device_pre.data.dtype)
-            .reshape(device_pre.data.Hg.shape)
-        )
+            H_ten = torch.as_tensor(device_pre.data.H)
+
+            # compute fft
+            fftn = {"C2C": torch.fft.fftn, "R2C": torch.fft.rfftn}
+            fftn[device_pre.data.fft_type](
+                H_ten, s=device_pre.data.fft_shape, dim=(1, 2, 3), out=Hg_ten
+            )
+
+        else:
+            extra_args = {}
+            if pk.is_host_execution_space(device_pre.execution_space):
+                extra_args["workers"] = int(os.environ.get("OMP_NUM_THREADS"))
+            fftn = get_fftn(device_pre.execution_space, device_pre.data.fft_type)
+            device_pre.data.Hg[...] = (
+                fftn(
+                    device_pre.data.H[...],
+                    s=device_pre.data.fft_shape,
+                    axes=(1, 2, 3),
+                    overwrite_x=True,
+                    **extra_args,
+                )
+                .view(device_pre.data.dtype)
+                .reshape(device_pre.data.Hg.shape)
+            )
         RangePop()
     fft_end = time.time()
     walltime = {"tot": fft_end - fft_start}
@@ -871,7 +889,7 @@ def _cnv_GLB(device_pre, threads):
       spectral options.
     - The zero mode output is written into the first Fourier slice `Hg[:, 0]`.
     """
-    if device_pre.execution_space == pk.ExecutionSpace.OpenMP and threads != 1:
+    if pk.is_host_execution_space(device_pre.execution_space) and threads != 1:
         warnings.warn(
             "'threads' argument is overridden to 1 in OpenMP execution space.",
             RuntimeWarning,
@@ -993,7 +1011,7 @@ def _cnv_global(device_pre, threads):
     - Final output for mixed kernels (both SL and DL) is summed into the first three
       channels of `Hg`.
     """
-    if device_pre.execution_space == pk.ExecutionSpace.OpenMP and threads != 1:
+    if pk.is_host_execution_space(device_pre.execution_space) and threads != 1:
         warnings.warn(
             "'threads' argument is overridden to 1 in OpenMP execution space.",
             RuntimeWarning,
@@ -1154,7 +1172,7 @@ def _cnv_global(device_pre, threads):
             )
 
 
-def ifft(device_pre, fftmp_buffers=None):
+def ifft(device_pre, options, fftmp_buffers=None):
     """
     Perform the inverse FFT to transform scaled Fourier-space data back to physical space.
 
@@ -1166,6 +1184,8 @@ def ifft(device_pre, fftmp_buffers=None):
     ----------
     device_pre : DevicePre
         Object containing data buffers, FFT metadata, and execution space.
+    options: EwaldOptions
+        Ewald options data class.
 
     Returns
     -------
@@ -1221,8 +1241,9 @@ def ifft(device_pre, fftmp_buffers=None):
         if device_pre.data.Hl is not None:  # G0 is also not None
             raise NotImplementedError("Local upsampling fft not yet implemented.")
         else:
+            # TODO: torch IFFT
             extra_args = {}
-            if device_pre.execution_space == pk.ExecutionSpace.OpenMP:
+            if pk.is_host_execution_space(device_pre.execution_space):
                 extra_args["workers"] = int(os.environ.get("OMP_NUM_THREADS"))
             RangePush("IFFT-kernel")
             ifftn = get_ifftn(device_pre.execution_space, device_pre.data.fft_type)
@@ -1296,7 +1317,7 @@ def g2p(device_pre, method="TARGET", threads=128):
     """
     walltime = {}
     walltime["tot"] = time.time()
-    if device_pre.execution_space == pk.ExecutionSpace.OpenMP and threads != 1:
+    if pk.is_host_execution_space(device_pre.execution_space) and threads != 1:
         warnings.warn(
             "'threads' argument is overridden to 1 in OpenMP execution space.",
             RuntimeWarning,
