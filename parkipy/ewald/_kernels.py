@@ -114,6 +114,7 @@ class EwaldKernel:
     def __call__(
         self,
         *args,
+        options=None,
         cell_size=None,
         rc=None,
         p2p_method="GM-1D",
@@ -235,9 +236,9 @@ class EwaldKernel:
             method=p2g_method,
             threads=p2g_threads,
         )
-        walltime["fft"] = fft(device_pre)
+        walltime["fft"] = fft(device_pre, options)
         walltime["cnv"] = cnv(device_pre)
-        walltime["ifft"] = ifft(device_pre)
+        walltime["ifft"] = ifft(device_pre, options)
         device_pre.data.communicate_ghost_grid_cells()
         walltime["g2p"] = g2p(
             device_pre,
@@ -362,6 +363,9 @@ class EwaldOptions:
     fft_type: {'R2C', 'C2C'}, optional
         The type of fft to preform. Must be one of ``'R2C'`` or ``'C2C'``. The default is ``'R2C'``.
 
+    torch_fft: bool, optional
+        Use PyTroch for the fft and ifft stages. The default is ``False``.
+
     p2p_threads_x: int, optional
         Number of threads per block used to parallelize over the targets in the p2p algorithm.
         Resets to ``1`` for the OpenMP execution space.
@@ -404,6 +408,7 @@ class EwaldOptions:
     p2g_method: Literal["BASE", "SOURCE", "GRID", "HYBRID"] = "HYBRID"
     g2p_method: Literal["BASE", "TARGET"] = "TARGET"
     fft_type: Literal["R2C", "C2C"] = "R2C"
+    torch_fft: int = False
     p2p_threads_x: int = 128
     p2p_threads_y: int = 1
     p2g_threads: int = 128
@@ -467,6 +472,17 @@ class EwaldOptions:
                 f"the value specified for fft type must be one on {valid_fft_types}, got {self.fft_type.upper()}."
             )
 
+        if self.torch_fft:
+            try:
+                import torch
+
+            except ModuleNotFoundError as e:
+                raise ModuleNotFoundError(
+                    "'torch_fft' is True, but PyTorch is not installed. "
+                    "Please set 'torch_fft' to False or use the following guide "
+                    "to install pytorch: https://pytorch.org/get-started/locally/."
+                ) from e
+
         for threads in [
             self.p2p_threads_x,
             self.p2p_threads_y,
@@ -507,7 +523,7 @@ def stokes_sl(trg, src, dens, options):
         options.tolerance,
         options.execution_space,
     ]
-    exclude = {"box", "tolerance", "periodicity", "execution_space"}
+    exclude = {"box", "tolerance", "periodicity", "execution_space", "torch_fft"}
     kwargs = {k: v for k, v in options.__dict__.items() if k not in exclude}
     pot = EwaldKernel(
         name="stokes_sl",
@@ -516,7 +532,7 @@ def stokes_sl(trg, src, dens, options):
         kernel="stokes_sl",
         takes_normals=False,
         description="Stokes single layer potential.",
-    )(*args, **kwargs)
+    )(*args, options=options, **kwargs)
     return pot
 
 
@@ -625,7 +641,7 @@ def stokes_comb(trg, src, dens, normal, options):
         options.tolerance,
         options.execution_space,
     ]
-    exclude = {"box", "tolerance", "periodicity", "execution_space"}
+    exclude = {"box", "tolerance", "periodicity", "execution_space", "torch_fft"}
     kwargs = {k: v for k, v in options.__dict__.items() if k not in exclude}
     pot = EwaldKernel(
         name="stokes_comb",
@@ -634,7 +650,7 @@ def stokes_comb(trg, src, dens, normal, options):
         kernel="stokes_comb",
         takes_normals=True,
         description="Stokes single and double layer potential.",
-    )(*args, **kwargs)
+    )(*args, options=options, **kwargs)
     return pot
 
 
@@ -746,7 +762,7 @@ def laplace(trg, src, charge, options):
         options.tolerance,
         options.execution_space,
     ]
-    exclude = {"box", "tolerance", "periodicity", "execution_space"}
+    exclude = {"box", "tolerance", "periodicity", "execution_space", "torch_fft"}
     kwargs = {k: v for k, v in options.__dict__.items() if k not in exclude}
     pot = EwaldKernel(
         "laplace",
@@ -755,5 +771,5 @@ def laplace(trg, src, charge, options):
         "laplace",
         takes_normals=False,
         description="Laplace layer potential.",
-    )(*args, **kwargs)
+    )(*args, options=options, **kwargs)
     return pot
