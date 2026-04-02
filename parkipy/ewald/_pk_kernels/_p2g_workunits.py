@@ -817,7 +817,7 @@ def p2g_hybrid_sans_normals_fp32(
         team_member.team_scratch(0), cell_chunk_size, 3
     )
     shmem_f: pk.ScratchView2D[pk.float] = pk.ScratchView2D(
-        team_member.team_scratch(0), cell_chunk_size, (dim_f)
+        team_member.team_scratch(0), cell_chunk_size, dim_f
     )
 
     def source_loop(ii: int):
@@ -2792,7 +2792,7 @@ def p2g_hybrid_sans_normals_fp64(
         team_member.team_scratch(0), cell_chunk_size, 3
     )
     shmem_f: pk.ScratchView2D[pk.double] = pk.ScratchView2D(
-        team_member.team_scratch(0), cell_chunk_size, (dim_f)
+        team_member.team_scratch(0), cell_chunk_size, dim_f
     )
 
     def source_loop(ii: int):

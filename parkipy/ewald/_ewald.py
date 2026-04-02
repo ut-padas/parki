@@ -45,6 +45,8 @@ from ._pk_kernels._p2p_workunits import (
     p2p_stokes_sl_gm1d_fp64,
     p2p_stokes_comb_gm1d_fp32,
     p2p_stokes_comb_gm1d_fp64,
+    p2p_stokes_comb_gm2d_fp32,
+    p2p_stokes_comb_gm2d_fp64,
     p2p_laplace_gm1d_fp32,
     p2p_laplace_gm1d_fp64,
 )
@@ -193,7 +195,12 @@ def p2p(
                 p2p_stokes_comb_gm1d_fp64
                 if device_pre.data.dtype == np.float64
                 else p2p_stokes_comb_gm1d_fp32
-            )
+            ),
+            "GM-2D": (
+                p2p_stokes_comb_gm2d_fp64
+                if device_pre.data.dtype == np.float64
+                else p2p_stokes_comb_gm2d_fp32
+            ),
         },
         "STOKES_SL": {
             "GM-1D": (
@@ -276,6 +283,14 @@ def p2p(
             kwargs["normals_list"] = source_list.force_list[1]
         else:
             kwargs["forces_list"] = source_list.force_list
+
+        if method.upper() == "GM-2D":
+            kwargs["s_cell_threads"] = math.ceil(source_list.cell_size / vector_size)
+            kwargs["vector_size"] = vector_size
+            kwargs["t_counter"] = target_list.counter
+            kwargs["t_cell_chunks"] = math.ceil(
+                target_list.cell_size / kwargs["t_cell_chunk_size"]
+            )
 
         pk.parallel_for(
             f"P2G-{kernel.upper()}-{method.upper()}",

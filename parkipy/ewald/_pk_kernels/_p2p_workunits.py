@@ -233,7 +233,6 @@ def stokes_comb_ewald_fp32(
 
 @pk.function
 def stokes_sl_ewald_fp32(
-    self,
     u: Real3d_fp32,
     r: Real3d_fp32,
     f1: Real3d_fp32,
@@ -265,7 +264,6 @@ def stokes_sl_ewald_fp32(
 
 @pk.function
 def stokes_dl_ewald_fp32(
-    self,
     u: Real3d_fp32,
     r: Real3d_fp32,
     f2: Real3d_fp32,
@@ -685,12 +683,192 @@ def p2p_laplace_gm1d_fp32(
                 f1.y = forces_list[1][s]
                 f1.z = forces_list[2][s]
                 # update potential
-                u = self.laplace_ewald_fp32(u, r, f1, d2, xi)
+                u = laplace_ewald_fp32(u, r, f1, d2, xi)
         u_lst: List[pk.float] = [u.x, u.y, u.z]
         for k in range(dim_out):
             potentials[k][t_idx] = u_lst[k]
 
     pk.parallel_for(pk.TeamThreadRange(team_member, t_cell_chunk_size), thread_loop)
+
+
+@pk.workunit
+def p2p_stokes_comb_gm2d_fp32(
+    team_member: pk.TeamMember,
+    t_cell_chunk_size: int,
+    t_list2global: pk.View1D[int],
+    t_cell_size: int,
+    nz2t_cell_map: pk.View1D[int],
+    num_cells_shape: List[int],
+    dim_out: int,
+    nnz_t_cells: int,
+    targets_list: pk.View2D[pk.float],
+    s_counter: pk.View1D[int],
+    s2nz_cell_map: pk.View1D[int],
+    s_cell_size: int,
+    rc_squared: pk.float,
+    potentials: pk.View2D[pk.float],
+    forces_list: pk.View2D[pk.float],
+    normals_list: pk.View2D[pk.float],
+    sources_list: pk.View2D[pk.float],
+    periodicity: int,
+    box,  # View/List of int/double
+    xi: pk.float,
+    xi_squared: pk.float,
+    xi_two_inv_sqrt_pi: pk.float,
+    s_cell_threads: int,
+    vector_size: int,
+    t_counter: pk.View1D[int],
+    t_cell_chunks: int,
+):
+
+    # kernel constants
+    num_cells_x: int = num_cells_shape[0]
+    num_cells_y: int = num_cells_shape[1]
+    num_cells_z: int = num_cells_shape[2]
+    cell_grid_area: int = num_cells_y * num_cells_z
+
+    inv_sqrt_pi: pk.float = 0.564189583547756286948079  # = 1/sqrt(pi)
+    two_inv_sqrt_pi: pk.float = 2 * inv_sqrt_pi
+    C_term1: pk.float = xi_squared * xi * inv_sqrt_pi
+    c1: pk.float = 1.3333333333333333
+    c2: pk.float = 0.8
+    c3: pk.float = 0.2857142857142857
+    c4: pk.float = 0.07407407407407407
+    m_c1_C_term1: pk.float = c1 * C_term1
+    m_xi_squared_2: pk.float = xi_squared * 2
+
+    nz_t_cell: int = team_member.league_rank() // t_cell_chunks
+    t_cell_chunk: int = team_member.league_rank() % t_cell_chunks
+    t_off: int = nz_t_cell * t_cell_size + (t_cell_chunk * t_cell_chunk_size)
+    t_cell: int = nz2t_cell_map[nz_t_cell]
+    nt_cell: int = t_counter[t_cell]
+    t_cell_x: int = t_cell // (cell_grid_area)
+    t_cell_y: int = (t_cell % (cell_grid_area)) // num_cells_z
+    t_cell_z: int = (t_cell % (cell_grid_area)) % num_cells_z
+
+    def target_loop(ll: int):
+        t: int = t_off + ll
+        if ll + (t_cell_chunk * t_cell_chunk_size) >= nt_cell:
+            return
+        t_idx: int = t_list2global[t]
+        if t_idx < 0:
+            return
+
+        trg: Real3d_fp32 = Real3d_fp32()
+        trg.x = targets_list[0][t]
+        trg.y = targets_list[1][t]
+        trg.z = targets_list[2][t]
+
+        u: Real3d_fp32 = Real3d_fp32()
+
+        def vector_loop(kk: int):
+            for k in range(27):
+                source_cell: Cell_fp32 = get_source_cell_fp32(
+                    k,
+                    t_cell_x,
+                    t_cell_y,
+                    t_cell_z,
+                    num_cells_x,
+                    num_cells_y,
+                    num_cells_z,
+                    box[0],
+                    box[1],
+                    box[2],
+                )
+                if source_cell.inbounds == False:
+                    continue
+                s_cell: int = (
+                    source_cell.x * cell_grid_area
+                    + source_cell.y * num_cells_z
+                    + source_cell.z
+                )
+                ns_cell: int = s_counter[s_cell]
+                nz_s_cell: int = s2nz_cell_map[s_cell]
+                s_off: int = nz_s_cell * s_cell_size
+                for jj in range(s_cell_threads):
+                    ii: int = jj + kk * s_cell_threads
+                    if ii >= s_cell_size:
+                        break
+                    s: int = s_off + ii
+                    if s - (nz_s_cell * s_cell_size) >= ns_cell:
+                        break
+                    r: Real3d_fp32 = Real3d_fp32()
+                    r.x = trg.x - (sources_list[0][s]) - source_cell.x_shift
+                    r.y = trg.y - (sources_list[1][s]) - source_cell.y_shift
+                    r.z = trg.z - (sources_list[2][s]) - source_cell.z_shift
+                    d2: pk.float = dot_fp32(r, r)
+                    # Check if source is within rc of target
+                    if d2 > rc_squared:
+                        continue
+                    # kernel dispatch
+                    f1: Real3d_fp32 = Real3d_fp32()
+                    f2: Real3d_fp32 = Real3d_fp32()
+                    n: Real3d_fp32 = Real3d_fp32()
+                    # TODO: change to George's method
+                    od: pk.float = pk.rsqrt((d2 != 0) * (d2) + (d2 == 0))
+                    d: pk.float = (d2 != 0) * (1 / od)
+                    od = (d2 != 0) * od
+                    od2: pk.float = od * od
+                    f1.x = forces_list[0][s]
+                    f1.y = forces_list[1][s]
+                    f1.z = forces_list[2][s]
+                    f2.x = forces_list[3][s]
+                    f2.y = forces_list[4][s]
+                    f2.z = forces_list[5][s]
+                    n.x = normals_list[0][s]
+                    n.y = normals_list[1][s]
+                    n.z = normals_list[2][s]
+                    u = stokes_comb_ewald_fp32(
+                        u,
+                        r,
+                        f1,
+                        f2,
+                        n,
+                        d2,
+                        d,
+                        od,
+                        od2,
+                        xi,
+                        xi_squared,
+                        xi_two_inv_sqrt_pi,
+                        two_inv_sqrt_pi,
+                        C_term1,
+                        c2,
+                        c3,
+                        c4,
+                        m_c1_C_term1,
+                        m_xi_squared_2,
+                    )
+
+        pk.parallel_for(pk.ThreadVectorRange(team_member, vector_size), vector_loop)
+
+        def reduce_x(_: int, acc: pk.Acc[pk.float]):
+            acc += u.x
+
+        def reduce_y(_: int, acc: pk.Acc[pk.float]):
+            acc += u.y
+
+        def reduce_z(_: int, acc: pk.Acc[pk.float]):
+            acc += u.z
+
+        reduced_pot_x: pk.float = pk.parallel_reduce(
+            pk.ThreadVectorRange(team_member, vector_size), reduce_x
+        )
+        reduced_pot_y: pk.float = pk.parallel_reduce(
+            pk.ThreadVectorRange(team_member, vector_size), reduce_y
+        )
+        reduced_pot_z: pk.float = pk.parallel_reduce(
+            pk.ThreadVectorRange(team_member, vector_size), reduce_z
+        )
+
+        def write():
+            potentials[0][t_idx] = reduced_pot_x
+            potentials[1][t_idx] = reduced_pot_y
+            potentials[2][t_idx] = reduced_pot_z
+
+        pk.single(pk.PerThread(team_member), write)
+
+    pk.parallel_for(pk.TeamThreadRange(team_member, t_cell_chunk_size), target_loop)
 
 
 @pk.classtype
@@ -920,7 +1098,6 @@ def stokes_comb_ewald_fp64(
 
 @pk.function
 def stokes_sl_ewald_fp64(
-    self,
     u: Real3d_fp64,
     r: Real3d_fp64,
     f1: Real3d_fp64,
@@ -952,7 +1129,6 @@ def stokes_sl_ewald_fp64(
 
 @pk.function
 def stokes_dl_ewald_fp64(
-    self,
     u: Real3d_fp64,
     r: Real3d_fp64,
     f2: Real3d_fp64,
@@ -1372,11 +1548,191 @@ def p2p_laplace_gm1d_fp64(
                 f1.y = forces_list[1][s]
                 f1.z = forces_list[2][s]
                 # update potential
-                u = self.laplace_ewald_fp64(u, r, f1, d2, xi)
+                u = laplace_ewald_fp64(u, r, f1, d2, xi)
         u_lst: List[pk.double] = [u.x, u.y, u.z]
         for k in range(dim_out):
             potentials[k][t_idx] = u_lst[k]
 
     pk.parallel_for(pk.TeamThreadRange(team_member, t_cell_chunk_size), thread_loop)
+
+
+@pk.workunit
+def p2p_stokes_comb_gm2d_fp64(
+    team_member: pk.TeamMember,
+    t_cell_chunk_size: int,
+    t_list2global: pk.View1D[int],
+    t_cell_size: int,
+    nz2t_cell_map: pk.View1D[int],
+    num_cells_shape: List[int],
+    dim_out: int,
+    nnz_t_cells: int,
+    targets_list: pk.View2D[pk.double],
+    s_counter: pk.View1D[int],
+    s2nz_cell_map: pk.View1D[int],
+    s_cell_size: int,
+    rc_squared: pk.double,
+    potentials: pk.View2D[pk.double],
+    forces_list: pk.View2D[pk.double],
+    normals_list: pk.View2D[pk.double],
+    sources_list: pk.View2D[pk.double],
+    periodicity: int,
+    box,  # View/List of int/double
+    xi: pk.double,
+    xi_squared: pk.double,
+    xi_two_inv_sqrt_pi: pk.double,
+    s_cell_threads: int,
+    vector_size: int,
+    t_counter: pk.View1D[int],
+    t_cell_chunks: int,
+):
+
+    # kernel constants
+    num_cells_x: int = num_cells_shape[0]
+    num_cells_y: int = num_cells_shape[1]
+    num_cells_z: int = num_cells_shape[2]
+    cell_grid_area: int = num_cells_y * num_cells_z
+
+    inv_sqrt_pi: pk.double = 0.564189583547756286948079  # = 1/sqrt(pi)
+    two_inv_sqrt_pi: pk.double = 2 * inv_sqrt_pi
+    C_term1: pk.double = xi_squared * xi * inv_sqrt_pi
+    c1: pk.double = 1.3333333333333333
+    c2: pk.double = 0.8
+    c3: pk.double = 0.2857142857142857
+    c4: pk.double = 0.07407407407407407
+    m_c1_C_term1: pk.double = c1 * C_term1
+    m_xi_squared_2: pk.double = xi_squared * 2
+
+    nz_t_cell: int = team_member.league_rank() // t_cell_chunks
+    t_cell_chunk: int = team_member.league_rank() % t_cell_chunks
+    t_off: int = nz_t_cell * t_cell_size + (t_cell_chunk * t_cell_chunk_size)
+    t_cell: int = nz2t_cell_map[nz_t_cell]
+    nt_cell: int = t_counter[t_cell]
+    t_cell_x: int = t_cell // (cell_grid_area)
+    t_cell_y: int = (t_cell % (cell_grid_area)) // num_cells_z
+    t_cell_z: int = (t_cell % (cell_grid_area)) % num_cells_z
+
+    def target_loop(ll: int):
+        t: int = t_off + ll
+        if ll + (t_cell_chunk * t_cell_chunk_size) >= nt_cell:
+            return
+        t_idx: int = t_list2global[t]
+        if t_idx < 0:
+            return
+
+        trg: Real3d_fp64 = Real3d_fp64()
+        trg.x = targets_list[0][t]
+        trg.y = targets_list[1][t]
+        trg.z = targets_list[2][t]
+
+        u: Real3d_fp64 = Real3d_fp64()
+
+        def vector_loop(kk: int):
+            for k in range(27):
+                source_cell: Cell_fp64 = get_source_cell_fp64(
+                    k,
+                    t_cell_x,
+                    t_cell_y,
+                    t_cell_z,
+                    num_cells_x,
+                    num_cells_y,
+                    num_cells_z,
+                    box[0],
+                    box[1],
+                    box[2],
+                )
+                if source_cell.inbounds == False:
+                    continue
+                s_cell: int = (
+                    source_cell.x * cell_grid_area
+                    + source_cell.y * num_cells_z
+                    + source_cell.z
+                )
+                ns_cell: int = s_counter[s_cell]
+                nz_s_cell: int = s2nz_cell_map[s_cell]
+                s_off: int = nz_s_cell * s_cell_size
+                for jj in range(s_cell_threads):
+                    ii: int = jj + kk * s_cell_threads
+                    if ii >= s_cell_size:
+                        break
+                    s: int = s_off + ii
+                    if s - (nz_s_cell * s_cell_size) >= ns_cell:
+                        break
+                    r: Real3d_fp64 = Real3d_fp64()
+                    r.x = trg.x - (sources_list[0][s]) - source_cell.x_shift
+                    r.y = trg.y - (sources_list[1][s]) - source_cell.y_shift
+                    r.z = trg.z - (sources_list[2][s]) - source_cell.z_shift
+                    d2: pk.double = dot_fp64(r, r)
+                    # Check if source is within rc of target
+                    if d2 > rc_squared:
+                        continue
+                    # kernel dispatch
+                    f1: Real3d_fp64 = Real3d_fp64()
+                    f2: Real3d_fp64 = Real3d_fp64()
+                    n: Real3d_fp64 = Real3d_fp64()
+                    # TODO: change to George's method
+                    od: pk.double = pk.rsqrt((d2 != 0) * (d2) + (d2 == 0))
+                    d: pk.double = (d2 != 0) * (1 / od)
+                    od = (d2 != 0) * od
+                    od2: pk.double = od * od
+                    f1.x = forces_list[0][s]
+                    f1.y = forces_list[1][s]
+                    f1.z = forces_list[2][s]
+                    f2.x = forces_list[3][s]
+                    f2.y = forces_list[4][s]
+                    f2.z = forces_list[5][s]
+                    n.x = normals_list[0][s]
+                    n.y = normals_list[1][s]
+                    n.z = normals_list[2][s]
+                    u = stokes_comb_ewald_fp64(
+                        u,
+                        r,
+                        f1,
+                        f2,
+                        n,
+                        d2,
+                        d,
+                        od,
+                        od2,
+                        xi,
+                        xi_squared,
+                        xi_two_inv_sqrt_pi,
+                        two_inv_sqrt_pi,
+                        C_term1,
+                        c2,
+                        c3,
+                        c4,
+                        m_c1_C_term1,
+                        m_xi_squared_2,
+                    )
+
+        pk.parallel_for(pk.ThreadVectorRange(team_member, vector_size), vector_loop)
+
+        def reduce_x(_: int, acc: pk.Acc[pk.double]):
+            acc += u.x
+
+        def reduce_y(_: int, acc: pk.Acc[pk.double]):
+            acc += u.y
+
+        def reduce_z(_: int, acc: pk.Acc[pk.double]):
+            acc += u.z
+
+        reduced_pot_x: pk.double = pk.parallel_reduce(
+            pk.ThreadVectorRange(team_member, vector_size), reduce_x
+        )
+        reduced_pot_y: pk.double = pk.parallel_reduce(
+            pk.ThreadVectorRange(team_member, vector_size), reduce_y
+        )
+        reduced_pot_z: pk.double = pk.parallel_reduce(
+            pk.ThreadVectorRange(team_member, vector_size), reduce_z
+        )
+
+        def write():
+            potentials[0][t_idx] = reduced_pot_x
+            potentials[1][t_idx] = reduced_pot_y
+            potentials[2][t_idx] = reduced_pot_z
+
+        pk.single(pk.PerThread(team_member), write)
+
+    pk.parallel_for(pk.TeamThreadRange(team_member, t_cell_chunk_size), target_loop)
 
 
