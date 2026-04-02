@@ -49,6 +49,8 @@ from ._pk_kernels._p2p_workunits import (
     p2p_stokes_comb_gm2d_fp64,
     p2p_stokes_comb_sm1d_fp32,
     p2p_stokes_comb_sm1d_fp64,
+    p2p_stokes_comb_sm2d_fp32,
+    p2p_stokes_comb_sm2d_fp64,
     p2p_laplace_gm1d_fp32,
     p2p_laplace_gm1d_fp64,
 )
@@ -208,6 +210,11 @@ def p2p(
                 if device_pre.data.dtype == np.float64
                 else p2p_stokes_comb_sm1d_fp32
             ),
+            "SM-2D": (
+                p2p_stokes_comb_sm2d_fp64
+                if device_pre.data.dtype == np.float64
+                else p2p_stokes_comb_sm2d_fp32
+            ),
         },
         "STOKES_SL": {
             "GM-1D": (
@@ -291,18 +298,26 @@ def p2p(
         else:
             kwargs["forces_list"] = source_list.force_list
 
-        if method.upper() in ["GM-2D", "SM-1D"]:
+        if method.upper() in ["GM-2D", "SM-1D", "SM-2D"]:
             kwargs["t_cell_chunks"] = math.ceil(
                 target_list.cell_size / kwargs["t_cell_chunk_size"]
             )
             kwargs["t_counter"] = target_list.counter
-        if method.upper() == "GM-2D":
-            kwargs["s_cell_threads"] = math.ceil(source_list.cell_size / vector_size)
+        if method.upper() in ["GM-2D", "SM-2D"]:
             kwargs["vector_size"] = vector_size
-        if method.upper() == "SM-1D":
+        if method.upper() in ["SM-1D", "SM-2D"]:
             kwargs["s_cell_chunk_size"] = vector_size * s_per_thread
             kwargs["s_cell_chunks"] = math.ceil(
                 source_list.cell_size / kwargs["s_cell_chunk_size"]
+            )
+        if method.upper() == "GM-2D":
+            kwargs["s_cell_threads"] = math.ceil(source_list.cell_size / vector_size)
+        if method.upper() == "SM-2D":
+            kwargs["s_cell_chunk_threads"] = math.ceil(
+                kwargs["s_cell_chunk_size"] / vector_size
+            )
+            kwargs["t_cell_chunk_threads"] = math.ceil(
+                kwargs["t_cell_chunk_size"] / vector_size
             )
 
         pk.parallel_for(
