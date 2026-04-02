@@ -870,6 +870,213 @@ def p2p_stokes_comb_gm2d_fp32(
 
     pk.parallel_for(pk.TeamThreadRange(team_member, t_cell_chunk_size), target_loop)
 
+@pk.workunit(scratch=[(int, lambda p: p.t_cell_chunk_size), (pk.float, lambda p: p.t_cell_chunk_size * 3), (pk.float, lambda p: p.s_cell_chunk_size * 12)])
+def p2p_stokes_comb_sm1d_fp32(
+    team_member: pk.TeamMember,
+    t_cell_chunk_size: int,
+    t_list2global: pk.View1D[int],
+    t_cell_size: int,
+    nz2t_cell_map: pk.View1D[int],
+    num_cells_shape: List[int],
+    dim_out: int,
+    nnz_t_cells: int,
+    targets_list: pk.View2D[pk.float],
+    s_counter: pk.View1D[int],
+    s2nz_cell_map: pk.View1D[int],
+    s_cell_size: int,
+    rc_squared: pk.float,
+    potentials: pk.View2D[pk.float],
+    forces_list: pk.View2D[pk.float],
+    normals_list: pk.View2D[pk.float],
+    sources_list: pk.View2D[pk.float],
+    periodicity: int,
+    box,  # View/List of int/double
+    xi: pk.float,
+    xi_squared: pk.float,
+    xi_two_inv_sqrt_pi: pk.float,
+
+    s_cell_chunk_size: int,
+    s_cell_chunks: int,
+    t_cell_chunks: int,
+    t_counter: pk.View1D[int],
+):
+    # kernel constants
+    num_cells_x: int = num_cells_shape[0]
+    num_cells_y: int = num_cells_shape[1]
+    num_cells_z: int = num_cells_shape[2]
+    cell_grid_area: int = num_cells_y * num_cells_z
+
+    inv_sqrt_pi: pk.float = 0.564189583547756286948079  # = 1/sqrt(pi)
+    two_inv_sqrt_pi: pk.float = 2 * inv_sqrt_pi
+    C_term1: pk.float = xi_squared * xi * inv_sqrt_pi
+    c1: pk.float = 1.3333333333333333
+    c2: pk.float = 0.8
+    c3: pk.float = 0.2857142857142857
+    c4: pk.float = 0.07407407407407407
+    m_c1_C_term1: pk.float = c1 * C_term1
+    m_xi_squared_2: pk.float = xi_squared * 2
+
+    nz_t_cell: int = team_member.league_rank() // t_cell_chunks
+    t_cell_chunk: int = team_member.league_rank() % t_cell_chunks
+    t_off: int = nz_t_cell * t_cell_size + (
+        t_cell_chunk * t_cell_chunk_size
+    )
+    t_cell: int = nz2t_cell_map[nz_t_cell]
+    nt_cell: int = t_counter[t_cell]
+    t_cell_x: int = t_cell // (cell_grid_area)
+    t_cell_y: int = (t_cell % (cell_grid_area)) // num_cells_z
+    t_cell_z: int = (t_cell % (cell_grid_area)) % num_cells_z
+
+    # declare shmem arrays
+    shmem_idt: pk.ScratchView1D[int] = pk.ScratchView1D(
+        team_member.team_scratch(0), t_cell_chunk_size
+    )
+    shmem_t: pk.ScratchView2D[pk.float] = pk.ScratchView2D(
+        team_member.team_scratch(0), t_cell_chunk_size, 3
+    )
+    shmem_s: pk.ScratchView2D[pk.float] = pk.ScratchView2D(
+        team_member.team_scratch(0), s_cell_chunk_size, 3
+    )
+    shmem_sl: pk.ScratchView2D[pk.float] = pk.ScratchView2D(
+        team_member.team_scratch(0), s_cell_chunk_size, 3
+    )
+    shmem_dl: pk.ScratchView2D[pk.float] = pk.ScratchView2D(
+        team_member.team_scratch(0), s_cell_chunk_size, 3
+    )
+    shmem_n: pk.ScratchView2D[pk.float] = pk.ScratchView2D(
+        team_member.team_scratch(0), s_cell_chunk_size, 3
+    )
+
+    def load_shmem_t(ii: int):
+        if ii + (t_cell_chunk * t_cell_chunk_size) >= nt_cell:
+            return
+        t: int = t_off + ii
+        t_idx: int = t_list2global[t]
+        shmem_idt[ii] = t_idx
+        if t_idx < 0:
+            return
+        for d in range(3):
+            shmem_t[ii][d] = targets_list[d][t]
+
+    pk.parallel_for(
+        pk.TeamThreadRange(team_member, t_cell_chunk_size), load_shmem_t
+    )
+
+    def load_shmem_s(ii: int):
+        s: int = s_off + ii
+        if s - (nz_s_cell * s_cell_size) >= ns_cell:
+            return
+        for d in range(3):
+            shmem_s[ii][d] = sources_list[d][s]
+            shmem_sl[ii][d] = forces_list[d][s]
+            shmem_dl[ii][d] = forces_list[d + 3][s]
+            shmem_n[ii][d] = normals_list[d][s]
+
+    def target_loop(jj: int):
+        if jj + (t_cell_chunk * t_cell_chunk_size) >= nt_cell:
+            return
+        t_idx: int = shmem_idt[jj]
+        if t_idx < 0:
+            return
+
+        trg: Real3d_fp32 = Real3d_fp32()
+        trg.x = shmem_t[jj][0]
+        trg.y = shmem_t[jj][1]
+        trg.z = shmem_t[jj][2]
+
+        u: Real3d_fp32 = Real3d_fp32()
+
+        for ii in range(s_cell_chunk_size):
+            s: int = s_off + ii
+            if s - (nz_s_cell * s_cell_size) >= ns_cell:
+                continue
+            r: Real3d_fp32 = Real3d_fp32()
+            r.x = trg.x - (shmem_s[ii][0]) - source_cell.x_shift
+            r.y = trg.y - (shmem_s[ii][1]) - source_cell.y_shift
+            r.z = trg.z - (shmem_s[ii][2]) - source_cell.z_shift
+            d2: pk.float = dot_fp32(r, r)
+            # Check if source is within rc of target
+            if d2 > rc_squared:
+                continue
+            # kernel dispatch
+            f1: Real3d_fp32 = Real3d_fp32()
+            f2: Real3d_fp32 = Real3d_fp32()
+            n: Real3d_fp32 = Real3d_fp32()
+            # TODO: change to George's method
+            od: pk.float = pk.rsqrt((d2 != 0) * (d2) + (d2 == 0))
+            d: pk.float = (d2 != 0) * (1 / od)
+            od = (d2 != 0) * od
+            od2: pk.float = od * od
+            f1.x = shmem_sl[ii][0]
+            f1.y = shmem_sl[ii][1]
+            f1.z = shmem_sl[ii][2]
+            f2.x = shmem_dl[ii][0]
+            f2.y = shmem_dl[ii][1]
+            f2.z = shmem_dl[ii][2]
+            n.x = shmem_n[ii][0]
+            n.y = shmem_n[ii][1]
+            n.z = shmem_n[ii][2]
+            u = stokes_comb_ewald_fp32(
+                u,
+                r,
+                f1,
+                f2,
+                n,
+                d2,
+                d,
+                od,
+                od2,
+                xi,
+                xi_squared,
+                xi_two_inv_sqrt_pi,
+                two_inv_sqrt_pi,
+                C_term1,
+                c2,
+                c3,
+                c4,
+                m_c1_C_term1,
+                m_xi_squared_2,
+            )
+
+        potentials[0][t_idx] += u.x
+        potentials[1][t_idx] += u.y
+        potentials[2][t_idx] += u.z
+
+    for k in range(27):
+        source_cell: Cell_fp32 = get_source_cell_fp32(
+            k,
+            t_cell_x,
+            t_cell_y,
+            t_cell_z,
+            num_cells_x,
+            num_cells_y,
+            num_cells_z,
+            box[0],
+            box[1],
+            box[2],
+        )
+        if source_cell.inbounds == False:
+            continue
+        s_cell: int = (
+            source_cell.x * cell_grid_area
+            + source_cell.y * num_cells_z
+            + source_cell.z
+        )
+        ns_cell: int = s_counter[s_cell]
+        nz_s_cell: int = s2nz_cell_map[s_cell]
+        s_off: int = nz_s_cell * s_cell_size
+        for _ in range(s_cell_chunks):
+            pk.parallel_for(
+                pk.TeamThreadRange(team_member, s_cell_chunk_size),
+                load_shmem_s,
+            )
+            team_member.team_barrier()
+            pk.parallel_for(
+                pk.TeamThreadRange(team_member, t_cell_chunk_size), target_loop
+            )
+            team_member.team_barrier()
+            s_off += s_cell_chunk_size
+
 
 @pk.classtype
 class Real3d_fp64:
@@ -1734,5 +1941,212 @@ def p2p_stokes_comb_gm2d_fp64(
         pk.single(pk.PerThread(team_member), write)
 
     pk.parallel_for(pk.TeamThreadRange(team_member, t_cell_chunk_size), target_loop)
+
+@pk.workunit(scratch=[(int, lambda p: p.t_cell_chunk_size), (pk.double, lambda p: p.t_cell_chunk_size * 3), (pk.double, lambda p: p.s_cell_chunk_size * 12)])
+def p2p_stokes_comb_sm1d_fp64(
+    team_member: pk.TeamMember,
+    t_cell_chunk_size: int,
+    t_list2global: pk.View1D[int],
+    t_cell_size: int,
+    nz2t_cell_map: pk.View1D[int],
+    num_cells_shape: List[int],
+    dim_out: int,
+    nnz_t_cells: int,
+    targets_list: pk.View2D[pk.double],
+    s_counter: pk.View1D[int],
+    s2nz_cell_map: pk.View1D[int],
+    s_cell_size: int,
+    rc_squared: pk.double,
+    potentials: pk.View2D[pk.double],
+    forces_list: pk.View2D[pk.double],
+    normals_list: pk.View2D[pk.double],
+    sources_list: pk.View2D[pk.double],
+    periodicity: int,
+    box,  # View/List of int/double
+    xi: pk.double,
+    xi_squared: pk.double,
+    xi_two_inv_sqrt_pi: pk.double,
+
+    s_cell_chunk_size: int,
+    s_cell_chunks: int,
+    t_cell_chunks: int,
+    t_counter: pk.View1D[int],
+):
+    # kernel constants
+    num_cells_x: int = num_cells_shape[0]
+    num_cells_y: int = num_cells_shape[1]
+    num_cells_z: int = num_cells_shape[2]
+    cell_grid_area: int = num_cells_y * num_cells_z
+
+    inv_sqrt_pi: pk.double = 0.564189583547756286948079  # = 1/sqrt(pi)
+    two_inv_sqrt_pi: pk.double = 2 * inv_sqrt_pi
+    C_term1: pk.double = xi_squared * xi * inv_sqrt_pi
+    c1: pk.double = 1.3333333333333333
+    c2: pk.double = 0.8
+    c3: pk.double = 0.2857142857142857
+    c4: pk.double = 0.07407407407407407
+    m_c1_C_term1: pk.double = c1 * C_term1
+    m_xi_squared_2: pk.double = xi_squared * 2
+
+    nz_t_cell: int = team_member.league_rank() // t_cell_chunks
+    t_cell_chunk: int = team_member.league_rank() % t_cell_chunks
+    t_off: int = nz_t_cell * t_cell_size + (
+        t_cell_chunk * t_cell_chunk_size
+    )
+    t_cell: int = nz2t_cell_map[nz_t_cell]
+    nt_cell: int = t_counter[t_cell]
+    t_cell_x: int = t_cell // (cell_grid_area)
+    t_cell_y: int = (t_cell % (cell_grid_area)) // num_cells_z
+    t_cell_z: int = (t_cell % (cell_grid_area)) % num_cells_z
+
+    # declare shmem arrays
+    shmem_idt: pk.ScratchView1D[int] = pk.ScratchView1D(
+        team_member.team_scratch(0), t_cell_chunk_size
+    )
+    shmem_t: pk.ScratchView2D[pk.double] = pk.ScratchView2D(
+        team_member.team_scratch(0), t_cell_chunk_size, 3
+    )
+    shmem_s: pk.ScratchView2D[pk.double] = pk.ScratchView2D(
+        team_member.team_scratch(0), s_cell_chunk_size, 3
+    )
+    shmem_sl: pk.ScratchView2D[pk.double] = pk.ScratchView2D(
+        team_member.team_scratch(0), s_cell_chunk_size, 3
+    )
+    shmem_dl: pk.ScratchView2D[pk.double] = pk.ScratchView2D(
+        team_member.team_scratch(0), s_cell_chunk_size, 3
+    )
+    shmem_n: pk.ScratchView2D[pk.double] = pk.ScratchView2D(
+        team_member.team_scratch(0), s_cell_chunk_size, 3
+    )
+
+    def load_shmem_t(ii: int):
+        if ii + (t_cell_chunk * t_cell_chunk_size) >= nt_cell:
+            return
+        t: int = t_off + ii
+        t_idx: int = t_list2global[t]
+        shmem_idt[ii] = t_idx
+        if t_idx < 0:
+            return
+        for d in range(3):
+            shmem_t[ii][d] = targets_list[d][t]
+
+    pk.parallel_for(
+        pk.TeamThreadRange(team_member, t_cell_chunk_size), load_shmem_t
+    )
+
+    def load_shmem_s(ii: int):
+        s: int = s_off + ii
+        if s - (nz_s_cell * s_cell_size) >= ns_cell:
+            return
+        for d in range(3):
+            shmem_s[ii][d] = sources_list[d][s]
+            shmem_sl[ii][d] = forces_list[d][s]
+            shmem_dl[ii][d] = forces_list[d + 3][s]
+            shmem_n[ii][d] = normals_list[d][s]
+
+    def target_loop(jj: int):
+        if jj + (t_cell_chunk * t_cell_chunk_size) >= nt_cell:
+            return
+        t_idx: int = shmem_idt[jj]
+        if t_idx < 0:
+            return
+
+        trg: Real3d_fp64 = Real3d_fp64()
+        trg.x = shmem_t[jj][0]
+        trg.y = shmem_t[jj][1]
+        trg.z = shmem_t[jj][2]
+
+        u: Real3d_fp64 = Real3d_fp64()
+
+        for ii in range(s_cell_chunk_size):
+            s: int = s_off + ii
+            if s - (nz_s_cell * s_cell_size) >= ns_cell:
+                continue
+            r: Real3d_fp64 = Real3d_fp64()
+            r.x = trg.x - (shmem_s[ii][0]) - source_cell.x_shift
+            r.y = trg.y - (shmem_s[ii][1]) - source_cell.y_shift
+            r.z = trg.z - (shmem_s[ii][2]) - source_cell.z_shift
+            d2: pk.double = dot_fp64(r, r)
+            # Check if source is within rc of target
+            if d2 > rc_squared:
+                continue
+            # kernel dispatch
+            f1: Real3d_fp64 = Real3d_fp64()
+            f2: Real3d_fp64 = Real3d_fp64()
+            n: Real3d_fp64 = Real3d_fp64()
+            # TODO: change to George's method
+            od: pk.double = pk.rsqrt((d2 != 0) * (d2) + (d2 == 0))
+            d: pk.double = (d2 != 0) * (1 / od)
+            od = (d2 != 0) * od
+            od2: pk.double = od * od
+            f1.x = shmem_sl[ii][0]
+            f1.y = shmem_sl[ii][1]
+            f1.z = shmem_sl[ii][2]
+            f2.x = shmem_dl[ii][0]
+            f2.y = shmem_dl[ii][1]
+            f2.z = shmem_dl[ii][2]
+            n.x = shmem_n[ii][0]
+            n.y = shmem_n[ii][1]
+            n.z = shmem_n[ii][2]
+            u = stokes_comb_ewald_fp64(
+                u,
+                r,
+                f1,
+                f2,
+                n,
+                d2,
+                d,
+                od,
+                od2,
+                xi,
+                xi_squared,
+                xi_two_inv_sqrt_pi,
+                two_inv_sqrt_pi,
+                C_term1,
+                c2,
+                c3,
+                c4,
+                m_c1_C_term1,
+                m_xi_squared_2,
+            )
+
+        potentials[0][t_idx] += u.x
+        potentials[1][t_idx] += u.y
+        potentials[2][t_idx] += u.z
+
+    for k in range(27):
+        source_cell: Cell_fp64 = get_source_cell_fp64(
+            k,
+            t_cell_x,
+            t_cell_y,
+            t_cell_z,
+            num_cells_x,
+            num_cells_y,
+            num_cells_z,
+            box[0],
+            box[1],
+            box[2],
+        )
+        if source_cell.inbounds == False:
+            continue
+        s_cell: int = (
+            source_cell.x * cell_grid_area
+            + source_cell.y * num_cells_z
+            + source_cell.z
+        )
+        ns_cell: int = s_counter[s_cell]
+        nz_s_cell: int = s2nz_cell_map[s_cell]
+        s_off: int = nz_s_cell * s_cell_size
+        for _ in range(s_cell_chunks):
+            pk.parallel_for(
+                pk.TeamThreadRange(team_member, s_cell_chunk_size),
+                load_shmem_s,
+            )
+            team_member.team_barrier()
+            pk.parallel_for(
+                pk.TeamThreadRange(team_member, t_cell_chunk_size), target_loop
+            )
+            team_member.team_barrier()
+            s_off += s_cell_chunk_size
 
 
