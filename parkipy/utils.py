@@ -87,7 +87,7 @@ def get_execution_space(
     -------
         :class:`pykokkos.ExecutionSpace`
     """
-    valid_spaces = ("GPU", "Cuda", "HIP", "OpenMP")
+    valid_spaces = ("GPU", "Cuda", "HIP", "OpenMP", "CPU")
     if execution_space == None:
         return pk.get_default_space()
     else:
@@ -99,7 +99,7 @@ def get_execution_space(
                     execution_space = "Cuda"
                 case "HIP":
                     execution_space = "HIP"
-                case "OPENMP":
+                case "OPENMP" | "CPU":
                     execution_space = "OpenMP"
                 case "HOST":
                     execution_space = pk.get_default_space()
@@ -117,13 +117,11 @@ def get_execution_space(
         elif isinstance(execution_space, pk.ExecutionSpace):
             return execution_space
         else:
-            raise TypeError(
-                f"""
+            raise TypeError(f"""
                     `execution_space` expected to be of type
                     `str` or `pk.ExecutionSpace`, but is 
                     of type {type(execution_space)}
-                    """
-            )
+                    """)
 
 
 def get_array_module(
@@ -156,7 +154,7 @@ def get_array_module(
 
     """
     execution_space = get_execution_space(execution_space)
-    if execution_space in [pk.ExecutionSpace.Cuda, pk.ExecutionSpace.HIP]:
+    if not pk.is_host_execution_space(execution_space):
         import cupy
 
         return cupy

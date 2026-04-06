@@ -321,7 +321,7 @@ def p2p(
             )
 
         pk.parallel_for(
-            f"P2G-{kernel.upper()}-{method.upper()}",
+            f"P2P-{kernel.upper()}-{method.upper()}",
             policy,
             workunit[kernel.upper()][method.upper()],
             **kwargs,

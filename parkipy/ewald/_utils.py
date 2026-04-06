@@ -9,7 +9,7 @@ def get_ifftn(execution_space, fft_type):
     """
     fft_type = fft_type.upper()
     execution_space = utils.get_execution_space(execution_space)
-    if execution_space in [pk.ExecutionSpace.Cuda, pk.ExecutionSpace.HIP]:
+    if not pk.is_host_execution_space(execution_space):
         from cupyx.scipy.fft import irfftn, ifftn
     else:
         from scipy.fft import irfftn, ifftn
@@ -28,7 +28,7 @@ def get_fftn(execution_space, fft_type):
     """
     fft_type = fft_type.upper()
     execution_space = utils.get_execution_space(execution_space)
-    if execution_space in [pk.ExecutionSpace.Cuda, pk.ExecutionSpace.HIP]:
+    if not pk.is_host_execution_space(execution_space):
         from cupyx.scipy.fft import rfftn, fftn
     else:
         from scipy.fft import rfftn, fftn
