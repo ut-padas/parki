@@ -135,7 +135,7 @@ class CellList:
             )
 
         # count particles in cells
-        self._cell_grid_shape = [int(self.box[i] / self.cutoff) for i in range(3)]
+        self._cell_grid_shape = self.am.array([int(self.box[i] / self.cutoff) for i in range(3)], dtype=self.am.int32)
         _grid_shape = self.am.asarray(self.cell_grid_shape)
         self._num_cells = int(_grid_shape.prod())
         self._counter = self.am.zeros(shape=self.num_cells, dtype=self.am.int32)

@@ -688,7 +688,7 @@ class DevicePre:
 
         # Kernel and memory settings per backend
         match self.execution_space:
-            case pk.ExecutionSpace.Cuda:
+            case pk.ExecutionSpace.Cuda | pk.ExecutionSpace.DebugCuda:
                 max_shmem_block = (
                     self.am.cuda.Device(0).attributes["MaxSharedMemoryPerBlock"]
                     - 1024
