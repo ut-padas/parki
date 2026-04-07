@@ -64,15 +64,11 @@ def _get_cell_GETCELL(
         int(box_length_y / rc),
         int(box_length_z / rc),
     ]
-    cell_size: List[pk.double] = [
-        box_length_x / num_cells[0],
-        box_length_y / num_cells[1],
-        box_length_z / num_cells[2],
-    ]
+
     cell_xyz: List[int] = [
-        p[0][i] / cell_size[0],
-        p[1][i] / cell_size[1],
-        p[2][i] / cell_size[2],
+        int(p[0][i] / (box_length_x / num_cells[0])),
+        int(p[1][i] / (box_length_y / num_cells[1])),
+        int(p[2][i] / (box_length_z / num_cells[2])),
     ]
     cell: int = (
         cell_xyz[0] * num_cells[2] * num_cells[1]

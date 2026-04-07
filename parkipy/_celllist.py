@@ -3,6 +3,8 @@ Module for the parkipy.CellList class.
 """
 
 import math
+import warnings
+import numpy as np
 import pykokkos as pk
 
 from .utils import get_execution_space, get_array_module
@@ -135,7 +137,9 @@ class CellList:
             )
 
         # count particles in cells
-        self._cell_grid_shape = self.am.array([int(self.box[i] / self.cutoff) for i in range(3)], dtype=self.am.int32)
+        self._cell_grid_shape = self.am.array(
+            [int(self.box[i] / self.cutoff) for i in range(3)], dtype=self.am.int32
+        )
         _grid_shape = self.am.asarray(self.cell_grid_shape)
         self._num_cells = int(_grid_shape.prod())
         self._counter = self.am.zeros(shape=self.num_cells, dtype=self.am.int32)
@@ -144,7 +148,23 @@ class CellList:
         cell = (
             cell_x * _grid_shape[1:].prod() + cell_y * _grid_shape[2] + cell_z
         ).astype(self.am.int32)
-        nonempty_cells, cell_sizes = self.am.unique(cell, return_counts=True)
+
+        if (
+            not pk.is_host_execution_space(self.execution_space)
+            and self.am.cuda.runtime.is_hip
+        ):
+            warnings.warn(
+                "AMD ROCm (gfx942) detected. Falling back to CPU for 'unique' operation "
+                "to avoid GPU Scan kernel compilation errors (64-bit mask bug). "
+                "This may result in a slight performance overhead during setup.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            nonempty_cells, cell_sizes = np.unique(cell.get(), return_counts=True)
+            nonempty_cells = self.am.asarray(nonempty_cells)
+            cell_sizes = self.am.asarray(cell_sizes)
+        else:
+            nonempty_cells, cell_sizes = self.am.unique(cell, return_counts=True)
         self._counter[nonempty_cells] = cell_sizes
 
         # create lists
@@ -183,7 +203,20 @@ class CellList:
             dp=d,
         )
         mask = self.particle_index >= 0
-        loc = self.am.nonzero(mask)[0]
+        if (
+            not pk.is_host_execution_space(self.execution_space)
+            and self.am.cuda.runtime.is_hip
+        ):
+            warnings.warn(
+                "AMD ROCm (gfx942) detected. Falling back to CPU for 'unique' operation "
+                "to avoid GPU Scan kernel compilation errors (64-bit mask bug). "
+                "This may result in a slight performance overhead during setup.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            loc = np.nonzero(mask.get())[0]
+        else:
+            loc = self.am.nonzero(mask)[0]
         glb = self.particle_index[loc]
         if isinstance(self.forces, tuple):
             out = []
@@ -412,5 +445,24 @@ class CellList:
             (0 <= nx_) & (nx_ < nx) & (0 <= ny_) & (ny_ < ny) & (0 <= nz_) & (nz_ < nz)
         )
         neighbor_linear = nx_ * (ny * nz) + ny_ * nz + nz_
-        neighbors[valid] = self.nonempty_cell_index[neighbor_linear[valid]]
+        if (
+            not pk.is_host_execution_space(self.execution_space)
+            and self.am.cuda.runtime.is_hip
+        ):
+            warnings.warn(
+                "AMD ROCm (gfx942) detected. Falling back to CPU for 'unique' operation "
+                "to avoid GPU Scan kernel compilation errors (64-bit mask bug). "
+                "This may result in a slight performance overhead during setup.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            valid = valid.get()
+            neighbor_linear = neighbor_linear.get()
+            neighbors = neighbors.get()
+
+            neighbors[valid] = self.nonempty_cell_index[neighbor_linear[valid]].get()
+
+            neighbors = self.am.asarray(neighbors)
+        else:
+            neighbors[valid] = self.nonempty_cell_index[neighbor_linear[valid]]
         self._nonempty_neighbors = neighbors.reshape(self.num_cells, 27)
