@@ -695,7 +695,7 @@ class DevicePre:
                     - 3 * 1024
                 )
 
-            case pk.ExecutionSpace.HIP:
+            case pk.ExecutionSpace.HIP | pk.ExecutionSpace.DebugHIP:
                 print("WARNING: HIP shmem block size hardcoded to 64KB")
                 max_shmem_block = 64000
 
