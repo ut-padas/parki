@@ -5,7 +5,7 @@ Ewald summation for the combined stokes single and double
 layer potential with one periodic direction executed with
 multiple processes.
 
->>> mpiexec -n 2 python examples/ewald/stokes1p_mp.py
+>>> mpiexec -n 2 python examples/distributed/ewald/stokes1p_mp.py
 """
 
 import sys
@@ -80,12 +80,12 @@ def main(args):
     dens_dl_ref[:, :ns] = dens_dl.get()
     norms_ref[:, :ns] = norms.get()
 
-    parkipy.distributed.gather_points(mpi_comm, "host", pot_mpi.T, nt)
-    parkipy.distributed.gather_points(mpi_comm, "host", trg_ref.T, nt)
-    parkipy.distributed.gather_points(mpi_comm, "host", src_ref.T, ns)
-    parkipy.distributed.gather_points(mpi_comm, "host", dens_sl_ref.T, ns)
-    parkipy.distributed.gather_points(mpi_comm, "host", dens_dl_ref.T, ns)
-    parkipy.distributed.gather_points(mpi_comm, "host", norms_ref.T, ns)
+    parkipy.distributed.gather_points(mpi_comm, "openmp", pot_mpi.T, nt)
+    parkipy.distributed.gather_points(mpi_comm, "openmp", trg_ref.T, nt)
+    parkipy.distributed.gather_points(mpi_comm, "openmp", src_ref.T, ns)
+    parkipy.distributed.gather_points(mpi_comm, "openmp", dens_sl_ref.T, ns)
+    parkipy.distributed.gather_points(mpi_comm, "openmp", dens_dl_ref.T, ns)
+    parkipy.distributed.gather_points(mpi_comm, "openmp", norms_ref.T, ns)
 
     if rank == 0:
         # send ref arrays back to gpu

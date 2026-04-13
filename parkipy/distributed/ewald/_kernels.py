@@ -118,6 +118,7 @@ class EwaldKernel:
     def __call__(
         self,
         *args,
+        options,
         cell_size=None,
         rc=None,
         p2p_method="GM-1D",
@@ -218,6 +219,7 @@ class EwaldKernel:
             execution_space=execution_space,
             fft_type=fft_type,
             distributed=True,
+            scatter=options.scatter,
         )
         # algorithm
         walltime = {}
@@ -290,14 +292,29 @@ class EwaldKernel:
 @dataclass
 class DistributedEwaldOptions(EwaldOptions):
     """
-    Distributed Ewald Options
+    Data class providing options for
+    the distributed Ewald kernels.
+    Subclass of :class:`EwaldOptions`.
+
+    Parameters
+    ----------
+    scatter: bool
+        Scatter targets and sources across ranks.
+        This is an all-to-all operation and assumes
+        no structure in the particle distribution.
+        If particles are already slab distributed across
+        ranks, scatter can be set to false. If false,
+        target points are guaranteed to live *in the same order*
+        on their original rank. Defaults to `True`.
     """
+
+    scatter: bool = True
 
 
 ## Implementations of specific kernels ##
 
 
-def stokes_1p(*args, **kwargs):
+def stokes_sl(targets, sources, densities, options):
     r"""
     Compute the Stokes single layer potential
 
@@ -316,7 +333,30 @@ def stokes_1p(*args, **kwargs):
     and :math:`P` is the specified periodicity.
 
     """
-
+    args = [
+        targets,
+        sources,
+        densities,
+        options.periodicity,
+        options.box,
+        options.tolerance,
+        options.execution_space,
+    ]
+    exclude = {
+        "box",
+        "tolerance",
+        "periodicity",
+        "execution_space",
+        "torch_fft",
+        "p2p_threads_x",
+        "p2p_threads_y",
+        "p2g_threads",
+        "g2p_threads",
+        "return_walltime",
+        "return_params",
+        "scatter",
+    }
+    kwargs = {k: v for k, v in options.__dict__.items() if k not in exclude}
     pot = EwaldKernel(
         name="stokes_comb",
         dim_in=3,
@@ -324,7 +364,7 @@ def stokes_1p(*args, **kwargs):
         kernel="stokes_sl",
         takes_normals=False,
         description="Stokes single layer potential.",
-    )(*args, **kwargs)
+    )(*args, options=options, **kwargs)
     return pot
 
 
