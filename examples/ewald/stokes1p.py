@@ -18,8 +18,7 @@ def main(args):
     tol = 1e-4
 
     # generate sources, targets, densities, and normals
-    nt = 4000000
-    ns = 4000000
+    ns = nt = args.N
     trg = am.random.rand(3, nt) * am.array(box).reshape(3, 1)
     src = am.random.rand(3, ns) * am.array(box).reshape(3, 1)
     dens_sl = am.random.randn(3, ns)
@@ -50,6 +49,13 @@ if __name__ == "__main__":
         type=str,
         default="CUDA",
         help="Execution device.",
+    )
+    parser.add_argument(
+        "-N",
+        dest="N",
+        type=int,
+        default="100_000",
+        help="Number of particles.",
     )
     args = parser.parse_args()
     exit(main(args))

@@ -53,6 +53,7 @@ class PerfModel:
         kernel,
         N_out,
         N_in,
+        N_grid,
         d_out,
         d_in,
         fft_dim,
@@ -79,6 +80,12 @@ class PerfModel:
                 UserWarning,
             )
             device_name = None
+
+        # store run parameters
+        self._N_in = N_in
+        self._N_out = N_out
+        self._N_grid = N_grid
+        self._N_fft = fft_shape
 
         # store time
         self._time_p2p = p2p_time
@@ -137,6 +144,14 @@ class PerfModel:
         RESET = "\033[0m"
         lines = []
 
+        # Ewald Run Parameters
+        lines.append("\n\n")
+        lines.append(f"{BOLD}Ewald Parameters{RESET}")
+        lines.append("-" * 60)
+        lines.append(
+            f"  N_in = {self.N_in:_}, N_out = {self.N_out:_}, N_grid = {self.N_grid:_}, N_fft = {self.N_fft:_}"
+        )
+
         # Walltimes
         lines.append("\n\n")
         lines.append(f"{BOLD}Ewald Walltimes (seconds){RESET}")
@@ -171,29 +186,62 @@ class PerfModel:
         lines.append(f"{BOLD}Ewald Cost Model{RESET}")
         lines.append("-" * 60)
 
-        # FLOPs
-        lines.append("FLOPs:")
-        lines.append(f"  P2P : {self.flop_p2p:12.3e}")
-        lines.append(f"  P2G : {self.flop_p2g:12.3e}")
-        lines.append(f"  FFT : {self.flop_fft:12.3e}")
-        lines.append(f"  CNV : {self.flop_cnv:12.3e}")
-        lines.append(f"  IFFT: {self.flop_ifft:12.3e}")
-        lines.append(f"  G2P : {self.flop_g2p:12.3e}")
-        lines.append(f"  TOTAL: {self.flop_ewald:11.3e}")
+        # FLOP (total number of floating point operations)
+        lines.append("Throughput (FLOP/s):")
+        lines.append(f"  P2P : {self.flop_p2p/self.time_p2p['tot']:12.3e}")
+        lines.append(f"  P2G : {self.flop_p2g/self.time_p2g['tot']:12.3e}")
+        lines.append(f"  FFT : {self.flop_fft/self.time_fft['tot']:12.3e}")
+        lines.append(f"  CNV : {self.flop_cnv/self.time_cnv['tot']:12.3e}")
+        lines.append(f"  IFFT: {self.flop_ifft/self.time_ifft['tot']:12.3e}")
+        lines.append(f"  G2P : {self.flop_g2p/self.time_g2p['tot']:12.3e}")
+        lines.append(f"  TOTAL: {self.flop_ewald/self.time_ewald:11.3e}")
 
         lines.append("")
 
         # Memory ops (bytes moved)
-        lines.append("Memory traffic (bytes):")
-        lines.append(f"  P2P : {self.mop_p2p:12.3e}")
-        lines.append(f"  P2G : {self.mop_p2g:12.3e}")
-        lines.append(f"  FFT : {self.mop_fft:12.3e}")
-        lines.append(f"  CNV : {self.mop_cnv:12.3e}")
-        lines.append(f"  IFFT: {self.mop_ifft:12.3e}")
-        lines.append(f"  G2P : {self.mop_g2p:12.3e}")
-        lines.append(f"  TOTAL: {self.mop_ewald:11.3e}")
+        lines.append("Bandwidth (bytes/s):")
+        lines.append(f"  P2P : {self.mop_p2p/self.time_p2p['tot']:12.3e}")
+        lines.append(f"  P2G : {self.mop_p2g/self.time_p2g['tot']:12.3e}")
+        lines.append(f"  FFT : {self.mop_fft/self.time_fft['tot']:12.3e}")
+        lines.append(f"  CNV : {self.mop_cnv/self.time_cnv['tot']:12.3e}")
+        lines.append(f"  IFFT: {self.mop_ifft/self.time_ifft['tot']:12.3e}")
+        lines.append(f"  G2P : {self.mop_g2p/self.time_g2p['tot']:12.3e}")
+        lines.append(f"  TOTAL: {self.mop_ewald/self.time_ewald:11.3e}")
+        lines.append("\n")
 
         return "\n".join(lines)
+
+    @property
+    def N_in(self):
+        """
+        Number of source particles.
+        Read-only
+        """
+        return self._N_in
+
+    @property
+    def N_out(self):
+        """
+        Number of target particles.
+        Read-only
+        """
+        return self._N_out
+
+    @property
+    def N_grid(self):
+        """
+        Number of regular grid points.
+        Read-only
+        """
+        return self._N_grid
+
+    @property
+    def N_fft(self):
+        """
+        Number of regular grid points on the FFT (i.e., upsampled) grid.
+        Read-only
+        """
+        return self._N_grid
 
     @property
     def time_p2p(self):

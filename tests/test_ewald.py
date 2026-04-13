@@ -19,7 +19,8 @@ import parkipy
     ],
 )
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
-def test_self_convergence(kernel, periodicity, dtype):
+@pytest.mark.parametrize("device", ["CPU", "GPU"])
+def test_self_convergence(kernel, periodicity, dtype, device):
     """
     run self convergence test on all supported kernels
     for all periodic directions in single and double
@@ -27,48 +28,44 @@ def test_self_convergence(kernel, periodicity, dtype):
     """
     if kernel == parkipy.ewald.laplace and periodicity == 1:
         pytest.xfail("not yet implemented")
-    run_convergence(fun=kernel, periodicity=periodicity, dtype=dtype)
+    run_convergence(fun=kernel, periodicity=periodicity, dtype=dtype, device=device)
 
 
-def test_FGC_R2R():
-    """
-    test the R2C FFT paired with C2R IFFT
-    gives the same results as C2C FFT, IFFT
-    for real densities
-    """
-    raise NotImplementedError
-
-
-def test_gpu():
-    """
-    test that code compiles, runs, and is correct
-    on all available devices for any solver
-    """
-    run_convergence(device="GPU")
+"""
+@pytest.mark.parametrize(
+    "kernel",
+    [parkipy.ewald.stokes_sl, parkipy.ewald.stokes_comb, parkipy.ewald.laplace],
+)
+def test_precision(kernel, periodicity):
+    # get targets and sources
+"""
 
 
 @pytest.mark.parametrize("p2p_method", ["GM-1D", "GM-2D", "SM-1D", "SM-2D"])
-def test_p2p_stokes(p2p_method):
+@pytest.mark.parametrize("device", ["CPU", "GPU"])
+def test_p2p_stokes(p2p_method, device):
     """
     test different p2p methods for the 1-per stokes solver
     """
-    run_convergence(p2p_method=p2p_method)
+    run_convergence(p2p_method=p2p_method, device=device)
 
 
 @pytest.mark.parametrize("p2g_method", ["BASE", "SOURCE", "GRID", "HYBRID"])
-def test_p2g_stokes(p2g_method):
+@pytest.mark.parametrize("device", ["CPU", "GPU"])
+def test_p2g_stokes(p2g_method, device):
     """
     test different p2g method for the 1-per stokes solver
     """
-    run_convergence(p2g_method=p2g_method)
+    run_convergence(p2g_method=p2g_method, device=device)
 
 
 @pytest.mark.parametrize("g2p_method", ["BASE", "TARGET"])
-def test_g2p_stokes(g2p_method):
+@pytest.mark.parametrize("device", ["CPU", "GPU"])
+def test_g2p_stokes(g2p_method, device):
     """
     test different g2p methods for the 1-per stokes solver
     """
-    run_convergence(g2p_method=g2p_method)
+    run_convergence(g2p_method=g2p_method, device=device)
 
 
 def run_convergence(
@@ -85,6 +82,7 @@ def run_convergence(
     periodicity=1,
     nutral=False,
     fft_type="R2C",
+    torch_fft=False,
 ):
     """
     Test (1) self-convergence and (2) consistency
@@ -115,6 +113,7 @@ def run_convergence(
             box,
             periodicity,
             fft_type,
+            torch_fft,
             verbosity=0,
             nutral=nutral,
         )
@@ -151,6 +150,7 @@ def run_convergence(
                 box,
                 periodicity,
                 fft_type,
+                torch_fft,
                 verbosity=0,
                 nutral=nutral,
             )
@@ -220,6 +220,7 @@ def run(
     box,
     periodicity,
     fft_type,
+    torch_fft,
     verbosity=0,
     nutral=False,
 ) -> None:
@@ -251,6 +252,7 @@ def run(
         p2g_method=p2g_method,
         fft_type=fft_type,
         execution_space=execution_space,
+        torch_fft=torch_fft,
     )
     if fun == parkipy.ewald.stokes_comb:
         dens_sl = am.random.randn(3, ns).astype(dtype)
