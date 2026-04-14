@@ -17,8 +17,8 @@ def reference(x, y, q, cutoff):
 
 def cell_list(x, y, q, cutoff, box):
     u = np.zeros(x.shape[1])
-    x_list = parkipy.CellList(x, cutoff, box)
-    y_list = parkipy.CellList(y, cutoff, box, forces=q)
+    x_list = parkipy.CellList(x, cutoff, box, execution_space="CPU")
+    y_list = parkipy.CellList(y, cutoff, box, forces=q, execution_space="CPU")
 
     # loop over nonempty x-cells
     for cell_ne in range(x_list.num_nonempty_cells):
