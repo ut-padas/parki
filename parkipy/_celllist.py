@@ -43,6 +43,7 @@ class CellList:
         forces=None,
         padding_factor=1,
         skip_empty_cells=True,
+        periodicity=0,
     ):
         """
         Creates a new CellList object.
@@ -67,6 +68,9 @@ class CellList:
             - `padding_factor`: Positive integer such that the common cell list
               size will be a multiple of `padding_factor`. Defualts to `1`.
             - `skip_empty_cells`: If false, every cell is treated as nonempty.
+            - `periodicity`: Integer 0–3 specifying periodic boundary conditions.
+              0 = no periodicity, 1 = periodic in x only, 2 = periodic in x and y,
+              3 = periodic in x, y, and z. Defaults to 0.
 
         Cell lists are of size `self.num_nonempty_cells * self.cell_size`,
         where the *nonempty* cell index ranges the slowest and the particles
@@ -94,14 +98,19 @@ class CellList:
                 f"got {self.cutoff} of type {type(cutoff)}"
             )
 
-        if self.particles.min() <= 0:
+        if self.particles.min() < 0:
             raise ValueError(
-                "particle array expected to lie in positive quadrant; non-positive entries where found"
+                "particle array expected to lie in non-negative quadrant; negative entries where found"
             )
         if self.am.any(self.particles.max(axis=1) >= self.box):
             raise ValueError(f"particle coordinates exceed box lengths {self.box}")
         self._forces = forces
         self._skip_empty_cells = skip_empty_cells
+        if periodicity not in (0, 1, 2, 3):
+            raise ValueError(
+                f"periodicity must be 0, 1, 2, or 3, got {periodicity}"
+            )
+        self._periodicity = periodicity
 
         # get local variables and check for value errors
         if self.dtype is float and self.particles.min() < 1e-8:
@@ -296,6 +305,14 @@ class CellList:
         return self._skip_empty_cells
 
     @property
+    def periodicity(self):
+        """
+        Integer 0–3 specifying which axes have periodic boundary conditions.
+        0 = none, 1 = x, 2 = x+y, 3 = x+y+z. Read-only.
+        """
+        return self._periodicity
+
+    @property
     def particle_list(self):
         """
         Particle cell list. Read-only.
@@ -429,7 +446,20 @@ class CellList:
         """
         For each (global) cell index, create a list of the
         nonempty cell index of the 27 3d neighbors.
+
+        Axes with periodic boundary conditions (governed by `self.periodicity`)
+        wrap neighbor coordinates with modulo arithmetic instead of discarding
+        out-of-bounds neighbors.  Axes without periodicity still discard
+        neighbors that fall outside the grid (value stays -1).
+
+        periodicity=0: no wrapping (original behaviour)
+        periodicity=1: wrap x axis only
+        periodicity=2: wrap x and y axes
+        periodicity=3: wrap x, y, and z axes
         """
+        # periodic_axes[i] is True when axis i wraps
+        periodic_axes = [self.periodicity >= (i + 1) for i in range(3)]  # [x, y, z]
+
         neighbors = self.am.full((self.num_cells, 3, 3, 3), -1, dtype=self.am.int32)
         nx, ny, nz = self.cell_grid_shape
         cell = self.am.arange(self.num_cells)
@@ -438,13 +468,34 @@ class CellList:
         cell_z = cell % nz
         offsets = self.am.array([-1, 0, 1])
         dx, dy, dz = self.am.meshgrid(offsets, offsets, offsets, indexing="ij")
+
+        # Raw (possibly out-of-bounds) neighbor coordinates
         nx_ = cell_x[:, None, None, None] + dx
         ny_ = cell_y[:, None, None, None] + dy
         nz_ = cell_z[:, None, None, None] + dz
-        valid = (
-            (0 <= nx_) & (nx_ < nx) & (0 <= ny_) & (ny_ < ny) & (0 <= nz_) & (nz_ < nz)
-        )
+
+        # Apply periodic wrapping per axis, or check in-bounds for non-periodic axes
+        if periodic_axes[0]:
+            nx_ = nx_ % nx
+            valid_x = self.am.ones(nx_.shape, dtype=bool)
+        else:
+            valid_x = (0 <= nx_) & (nx_ < nx)
+
+        if periodic_axes[1]:
+            ny_ = ny_ % ny
+            valid_y = self.am.ones(ny_.shape, dtype=bool)
+        else:
+            valid_y = (0 <= ny_) & (ny_ < ny)
+
+        if periodic_axes[2]:
+            nz_ = nz_ % nz
+            valid_z = self.am.ones(nz_.shape, dtype=bool)
+        else:
+            valid_z = (0 <= nz_) & (nz_ < nz)
+
+        valid = valid_x & valid_y & valid_z
         neighbor_linear = nx_ * (ny * nz) + ny_ * nz + nz_
+
         if (
             not pk.is_host_execution_space(self.execution_space)
             and self.am.cuda.runtime.is_hip
