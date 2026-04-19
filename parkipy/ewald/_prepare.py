@@ -688,18 +688,18 @@ class DevicePre:
 
         # Kernel and memory settings per backend
         match self.execution_space:
-            case pk.ExecutionSpace.Cuda | pk.ExecutionSpace.DebugCuda:
+            case pk.ExecutionSpace.Cuda:
                 max_shmem_block = (
                     self.am.cuda.Device(0).attributes["MaxSharedMemoryPerBlock"]
                     - 1024
                     - 3 * 1024
                 )
 
-            case pk.ExecutionSpace.HIP | pk.ExecutionSpace.DebugHIP:
+            case pk.ExecutionSpace.HIP:
                 print("WARNING: HIP shmem block size hardcoded to 64KB")
                 max_shmem_block = 64000
 
-            case pk.ExecutionSpace.OpenMP | pk.ExecutionSpace.DebugOpenMP:
+            case pk.ExecutionSpace.OpenMP:
                 omp_threads = int(os.environ.get("OMP_NUM_THREADS", "1"))
                 if omp_threads == 1:
                     warnings.warn(

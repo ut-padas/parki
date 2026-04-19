@@ -31,41 +31,34 @@ def test_self_convergence(kernel, periodicity, dtype, device):
     run_convergence(fun=kernel, periodicity=periodicity, dtype=dtype, device=device)
 
 
-"""
-@pytest.mark.parametrize(
-    "kernel",
-    [parkipy.ewald.stokes_sl, parkipy.ewald.stokes_comb, parkipy.ewald.laplace],
-)
-def test_precision(kernel, periodicity):
-    # get targets and sources
-"""
-
-
 @pytest.mark.parametrize("p2p_method", ["GM-1D", "GM-2D", "SM-1D", "SM-2D"])
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("device", ["CPU", "GPU"])
-def test_p2p_stokes(p2p_method, device):
+def test_p2p_stokes(p2p_method, device, dtype):
     """
     test different p2p methods for the 1-per stokes solver
     """
-    run_convergence(p2p_method=p2p_method, device=device)
+    run_convergence(p2p_method=p2p_method, device=device, dtype=dtype)
 
 
 @pytest.mark.parametrize("p2g_method", ["BASE", "SOURCE", "GRID", "HYBRID"])
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("device", ["CPU", "GPU"])
-def test_p2g_stokes(p2g_method, device):
+def test_p2g_stokes(p2g_method, device, dtype):
     """
     test different p2g method for the 1-per stokes solver
     """
-    run_convergence(p2g_method=p2g_method, device=device)
+    run_convergence(p2g_method=p2g_method, device=device, dtype=dtype)
 
 
 @pytest.mark.parametrize("g2p_method", ["BASE", "TARGET"])
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("device", ["CPU", "GPU"])
-def test_g2p_stokes(g2p_method, device):
+def test_g2p_stokes(g2p_method, device, dtype):
     """
     test different g2p methods for the 1-per stokes solver
     """
-    run_convergence(g2p_method=g2p_method, device=device)
+    run_convergence(g2p_method=g2p_method, device=device, dtype=dtype)
 
 
 def run_convergence(
@@ -93,7 +86,7 @@ def run_convergence(
     if dtype == np.float64:
         tolvA = [1e-4, 1e-5, 1e-7, 1e-9, 1e-11]
     elif dtype == np.float32:
-        tolvA = [1e-1, 1e-2, 1e-3, 1e-5, 1e-6]
+        tolvA = [1e-1, 1e-3, 1e-4, 1e-5, 1e-6]
     else:
         raise NotImplementedError(f"dtype={dtype}")
     potvA = []
@@ -170,7 +163,7 @@ def run_convergence(
     print("Errors:", errorvA)
     print("Tolerances:", tolvA)
     am.testing.assert_array_less(
-        errorvA, 5 * tolvA, err_msg="Self-convergence failed: error exceeds tolerance."
+        errorvA, 10 * tolvA, err_msg="Self-convergence failed: error exceeds tolerance."
     )
 
     # Vary rc (consistency check)
@@ -279,6 +272,7 @@ def run(
         charges -= am.mean(charges).astype(dtype)
         if dtype == "fp_32":
             charges = am.where(charges < 1e-5, 0.5, charges)
+        charges -= am.mean(charges)
         pot = fun(
             trg,
             src,

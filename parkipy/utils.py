@@ -87,7 +87,6 @@ def get_execution_space(
     -------
         :class:`pykokkos.ExecutionSpace`
     """
-    valid_spaces = ("GPU", "Cuda", "HIP", "OpenMP", "CPU")
     if execution_space == None:
         return pk.get_default_space()
     else:
@@ -95,24 +94,14 @@ def get_execution_space(
             match execution_space.upper():
                 case "GPU":
                     execution_space = pk.kokkos_manager.get_gpu_framework()
-                case "CUDA":
-                    execution_space = "Cuda"
-                case "HIP":
-                    execution_space = "HIP"
-                case "OPENMP" | "CPU":
-                    execution_space = "OpenMP"
-                case "HOST":
-                    execution_space = pk.get_default_space()
-                    if not pk.interface.is_host_execution_space(execution_space):
-                        raise ValueError(
-                            f"PyKokkos default execution space {execution_space} is not"
-                            " a host execution space, please specify one of"
-                            " 'OpenMP', 'Threads', 'Serial' host execution spaces."
-                        )
+                case "HOST" | "CPU":
+                    execution_space = pk.Serial
+                    for s in pk.kokkos_manager.get_available_execution_spaces():
+                        if s in pk.HostParallelExecutionSpace:
+                            execution_space = s
+                            break
                 case _:
-                    raise ValueError(
-                        f"execution space must be one of {valid_spaces}, got '{execution_space}'."
-                    )
+                    pass
             return pk.ExecutionSpace(execution_space)
         elif isinstance(execution_space, pk.ExecutionSpace):
             return execution_space
