@@ -41,6 +41,7 @@ ____________________
 .. autosummary::
    :toctree: generated/
 
+   stokes_sl
    stokes_comb
    laplace
 

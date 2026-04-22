@@ -60,39 +60,62 @@ CC=gcc CXX=g++ CFLAGS="" CXXFLAGS="" pip install mpi4py --no-cache-dir --no-bina
 pip install nvmath-python
 ```
 
+# Example
+Consider the discritized Stokes single-layer potential
+```math
+u(x_i) = \sum_{j=1}^{N_s} \left( \frac{I}{\|x_i-y_j\|} + \frac{\|x_i-y_j\| \ocross \|x_i-y_j\| }{\|x_i-y_j\|^3} \right) f(y_j)
+```
+with fully periodic boundary conditions.
+
+Solving $u(x_i)$ is easy with ParKI:
+
+```python
+import cupy as cp     # numpy also supported
+import parkipy
+
+rng = cp.random.default_rng(123)
+
+# generate particles and densities
+x = rng.random(size=(3, 312))
+y = rng.random(size=(3, 773))
+f = rng.random(size=(3, 773))
+
+# declare Ewald sum options
+options = parkipy.ewald.EwaldOptions(
+    periodicity=3,
+    box=[1,1,1],
+    tolerance=1e-8,
+    cell_size=23,
+    execution_space="CUDA",
+)
+
+# solve for the potential
+u = parkipy.ewald.stokes_sl(x, y, f, options)
+```
+
 # Repository Structure
 ```bash
 .
-├── analysis
+├── analysis                # Performance analysis scripts
 │   ├── cycle_counts
 │   ├── distributed
-│   │   └── data
 │   ├── erf-approximation
 │   └── ewald
-│       ├── data
-│       └── plots
-├── doc
-│   └── source
-│       ├── reference
-│       │   └── generated
-│       ├── _static
-│       ├── _templates
-│       │   └── autosummary
-│       └── user
-├── examples
+├── doc                     # Documentation
+├── examples                # Common uses
 │   ├── distributed
 │   │   └── ewald
 │   └── ewald
-├── external
-├── parkipy
-│   ├── distributed
-│   │   └── ewald
-│   ├── ewald
-│   │   └── _pk_kernels
+├── external                # Location for third-party libraries
+├── parkipy                 # parkipy module
+│   ├── distributed         # parkipy.distributed module
+│   │   └── ewald           # parkipy.distributed.ewald module
+│   ├── ewald               # parkipy.ewald module
+│   │   └── _pk_kernels     # parkipy.ewald PyKokkos kernels
 │   │       └── templates
-│   └── _pk_kernels
+│   └── _pk_kernels         # parkipy PyKokkos kernels
 │       └── templates
-└── tests
+└── tests                   # Unit tests
 ```
 The Parki repository contains 6 subdirectories:
 * **analysis**: performance analysis scripts for package methods.

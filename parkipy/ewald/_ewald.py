@@ -253,128 +253,76 @@ def p2p(
     # call kokkos executable
     kernel_start = sort_end = time.time()
     RangePush("P2P-kernel")
-    if kernel.upper() in ["STOKES_COMB", "STOKES_SL", "LAPLACE"]:
-        # set up kernel call
-        target_threads = math.ceil(threads_x / vector_size)
-        target_chunk_size = target_threads * t_per_thread
-        target_cell_chunks = math.ceil(target_list.cell_size / target_chunk_size)
-        teams = target_list.num_nonempty_cells * target_cell_chunks
-        policy = pk.TeamPolicy(
-            device_pre.execution_space,
-            teams,
-            target_threads,
-        )
-        kwargs = {
-            "t_cell_chunk_size": target_chunk_size,
-            "t_list2global": target_list.particle_index,
-            "t_cell_size": target_list.cell_size,
-            "nz2t_cell_map": target_list.nonempty_cells,
-            "num_cells_shape": target_list.cell_grid_shape,
-            "dim_out": int(device_pre.near_potential.shape[0]),
-            "nnz_t_cells": target_list.num_nonempty_cells,
-            "targets_list": target_list.particle_list,
-            "s_counter": source_list.counter,
-            "s2nz_cell_map": source_list.nonempty_cell_index,
-            "s_cell_size": source_list.cell_size,
-            "rc_squared": device_pre.data.opt.rc**2,
-            "potentials": device_pre.near_potential,
-            "sources_list": source_list.particle_list,
-            "periodicity": (
-                device_pre.data.opt.periodicity
-                if not device_pre.data.opt.distributed
-                else 0
-            ),
-            "box": device_pre.am.array(device_pre.data.opt.ghost_box),
-            "xi": device_pre.data.opt.xi,
-            "xi_squared": device_pre.data.opt.xi**2,
-            "xi_two_inv_sqrt_pi": device_pre.data.opt.xi
-            * 2
-            * 0.564189583547756286948079,
-        }
+    # set up kernel call
+    target_threads = math.ceil(threads_x / vector_size)
+    target_chunk_size = target_threads * t_per_thread
+    target_cell_chunks = math.ceil(target_list.cell_size / target_chunk_size)
+    teams = target_list.num_nonempty_cells * target_cell_chunks
+    policy = pk.TeamPolicy(
+        device_pre.execution_space,
+        teams,
+        target_threads,
+    )
+    kwargs = {
+        "t_cell_chunk_size": target_chunk_size,
+        "t_list2global": target_list.particle_index,
+        "t_cell_size": target_list.cell_size,
+        "nz2t_cell_map": target_list.nonempty_cells,
+        "num_cells_shape": target_list.cell_grid_shape,
+        "dim_out": int(device_pre.near_potential.shape[0]),
+        "nnz_t_cells": target_list.num_nonempty_cells,
+        "targets_list": target_list.particle_list,
+        "s_counter": source_list.counter,
+        "s2nz_cell_map": source_list.nonempty_cell_index,
+        "s_cell_size": source_list.cell_size,
+        "rc_squared": device_pre.data.opt.rc**2,
+        "potentials": device_pre.near_potential,
+        "sources_list": source_list.particle_list,
+        "periodicity": (
+            device_pre.data.opt.periodicity
+            if not device_pre.data.opt.distributed
+            else 0
+        ),
+        "box": device_pre.am.array(device_pre.data.opt.ghost_box),
+        "xi": device_pre.data.opt.xi,
+        "xi_squared": device_pre.data.opt.xi**2,
+        "xi_two_inv_sqrt_pi": device_pre.data.opt.xi * 2 * 0.564189583547756286948079,
+    }
 
-        if device_pre.has_normals:
-            kwargs["forces_list"] = source_list.force_list[0]
-            kwargs["normals_list"] = source_list.force_list[1]
-        else:
-            kwargs["forces_list"] = source_list.force_list
-
-        if method.upper() in ["GM-2D", "SM-1D", "SM-2D"]:
-            kwargs["t_cell_chunks"] = math.ceil(
-                target_list.cell_size / kwargs["t_cell_chunk_size"]
-            )
-            kwargs["t_counter"] = target_list.counter
-        if method.upper() in ["GM-2D", "SM-2D"]:
-            kwargs["vector_size"] = vector_size
-        if method.upper() in ["SM-1D", "SM-2D"]:
-            kwargs["s_cell_chunk_size"] = vector_size * s_per_thread
-            kwargs["s_cell_chunks"] = math.ceil(
-                source_list.cell_size / kwargs["s_cell_chunk_size"]
-            )
-        if method.upper() == "GM-2D":
-            kwargs["s_cell_threads"] = math.ceil(source_list.cell_size / vector_size)
-        if method.upper() == "SM-2D":
-            kwargs["s_cell_chunk_threads"] = math.ceil(
-                kwargs["s_cell_chunk_size"] / vector_size
-            )
-            kwargs["t_cell_chunk_threads"] = math.ceil(
-                kwargs["t_cell_chunk_size"] / vector_size
-            )
-
-        pk.parallel_for(
-            f"P2P-{kernel.upper()}-{method.upper()}",
-            policy,
-            workunit[kernel.upper()][method.upper()],
-            **kwargs,
-        )
+    if device_pre.has_normals:
+        kwargs["forces_list"] = source_list.force_list[0]
+        kwargs["normals_list"] = source_list.force_list[1]
     else:
-        """
-        pk.execute(
-            device_pre.execution_space,
-            device_pre.p2p_workload(
-                pk.array(device_pre.near_potential),
-                pk.array(target_list.counter),
-                pk.array(target_list.particle_list),
-                pk.array(source_list.counter),
-                pk.array(source_list.particle_list),
-                pk.array(
-                    source_list.force_list[0]
-                    if isinstance(source_list.force_list, tuple)
-                    else source_list.force_list
-                ),
-                pk.array(
-                    source_list.force_list[1]
-                    if isinstance(source_list.force_list, tuple)
-                    else source_list.force_list
-                ),  # dummy variable if no normals
-                pk.array(target_list.particle_index),
-                pk.array(target_list.nonempty_cells),
-                pk.array(source_list.nonempty_cells),
-                pk.array(target_list.nonempty_cell_index),
-                pk.array(source_list.nonempty_cell_index),
-                device_pre.data.opt.ghost_box,
-                (
-                    device_pre.data.opt.periodicity
-                    if not device_pre.data.opt.distributed
-                    else 0
-                ),
-                device_pre.data.opt.xi,
-                device_pre.data.opt.rc,
-                has_sl,
-                has_dl,
-                has_ewald,
-                target_list.num_nonempty_cells,
-                source_list.num_nonempty_cells,
-                target_list.cell_size,
-                source_list.cell_size,
-                threads_x,
-                t_per_thread,
-                s_per_thread,
-                vector_size,
-                method_flag,
-                kernel_flag,
-            ),
+        kwargs["forces_list"] = source_list.force_list
+
+    if method.upper() in ["GM-2D", "SM-1D", "SM-2D"]:
+        kwargs["t_cell_chunks"] = math.ceil(
+            target_list.cell_size / kwargs["t_cell_chunk_size"]
         )
-        """
+        kwargs["t_counter"] = target_list.counter
+    if method.upper() in ["GM-2D", "SM-2D"]:
+        kwargs["vector_size"] = vector_size
+    if method.upper() in ["SM-1D", "SM-2D"]:
+        kwargs["s_cell_chunk_size"] = vector_size * s_per_thread
+        kwargs["s_cell_chunks"] = math.ceil(
+            source_list.cell_size / kwargs["s_cell_chunk_size"]
+        )
+    if method.upper() == "GM-2D":
+        kwargs["s_cell_threads"] = math.ceil(source_list.cell_size / vector_size)
+    if method.upper() == "SM-2D":
+        kwargs["s_cell_chunk_threads"] = math.ceil(
+            kwargs["s_cell_chunk_size"] / vector_size
+        )
+        kwargs["t_cell_chunk_threads"] = math.ceil(
+            kwargs["t_cell_chunk_size"] / vector_size
+        )
+
+    pk.parallel_for(
+        f"P2P-{kernel.upper()}-{method.upper()}",
+        policy,
+        workunit[kernel.upper()][method.upper()],
+        **kwargs,
+    )
     RangePop()
     kernel_end = time.time()
     walltime = {
@@ -666,80 +614,29 @@ def p2g(
         forces = (device_pre.data.forces, device_pre.data.normals)
     else:
         forces = device_pre.data.forces
-    # To sort or not to sort, that is the question
-    if 0:  # method.upper() == "HYBRID":
-        # get source list
-        source_list = CellList(
-            scaled_sources,
-            (device_pre.data.opt.window_P / 2),
-            device_pre.am.array(device_pre.data.opt.ghost_grid_shape_ext).astype(
-                device_pre.data.dtype
-            ),
-            execution_space=device_pre.execution_space,
-            forces=forces,
-        )
-        cell_chunk_size: int = min(source_list.cell_size, device_pre.p2g_max_cell_size)
 
-        # pykokkos kernel
-        walltime["kernel"] = time.time()
-        RangePush("P2G-kernel")
-        """
-        pk.execute(
-            device_pre.execution_space,
-            device_pre.p2g_workload(
-                threads,
-                device_pre.Ns,
-                method_flag,
-                device_pre.data.opt.window_P,
-                source_list.num_nonempty_cells,
-                source_list.cell_size,
-                cell_chunk_size,
-                source_list.cell_grid_shape,
-                (
-                    device_pre.data.opt.periodicity
-                    if not device_pre.data.opt.distributed
-                    else 0
-                ),
-                device_pre.has_normals,
-                device_pre.data.dim_H,
-                device_pre.data.opt.ghost_grid_shape_ext,
-                pk.array(source_list.particle_list),
-                pk.array(
-                    source_list.force_list[0]
-                    if isinstance(source_list.force_list, tuple)
-                    else source_list.force_list
-                ),
-                pk.array(
-                    source_list.force_list[1]
-                    if isinstance(source_list.force_list, tuple)
-                    else source_list.force_list
-                ),  # dummy variable if normals are none
-                pk.array(source_list.nonempty_cell_index),
-                pk.array(source_list.nonempty_cells),
-                pk.array(H_view),
-            ),
+    # pykokkos kernel
+    walltime["kernel"] = time.time()
+    RangePush("P2G-kernel")
+    # method == BASE | SOURCE | GRID | HYBRID
+    method_name = method.upper() + (
+        " WITH NORMALS" if device_pre.has_normals else " WITHOUT NORMALS"
+    )
+    if method_name not in device_pre.p2g_workunit.keys():
+        raise NotImplementedError(
+            f"P2G method '{method_name}' not implemented. Available methods: '{device_pre.p2g_workunit.keys()}'"
         )
-        """
-        walltime["kernel"] = time.time() - walltime["kernel"]
-    else:
-        # method == BASE | SOURCE | GRID | HYBRID
-        method_name = method.upper() + (
-            " WITH NORMALS" if device_pre.has_normals else " WITHOUT NORMALS"
-        )
-        if method_name not in device_pre.p2g_workunit.keys():
-            raise NotImplementedError(
-                f"P2G method '{method_name}' not implemented. Available methods: '{device_pre.p2g_workunit.keys()}'"
-            )
-        walltime["kernel"] = time.time()
-        RangePush("P2G-kernel")
-        pk.parallel_for(
-            f"P2G-{method.upper()}",
-            policy,
-            device_pre.p2g_workunit[method_name],
-            **kwargs,
-        )
-        RangePop()
-        walltime["kernel"] = time.time() - walltime["kernel"]
+    walltime["kernel"] = time.time()
+    RangePush("P2G-kernel")
+    pk.parallel_for(
+        f"P2G-{method.upper()}",
+        policy,
+        device_pre.p2g_workunit[method_name],
+        **kwargs,
+    )
+    RangePop()
+    walltime["kernel"] = time.time() - walltime["kernel"]
+
     match method.upper():
         case "BASE":
             H_view = H_view.transpose(3, 0, 1, 2)
