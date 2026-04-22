@@ -63,8 +63,9 @@ class CellList:
               (e.g., 'OpenMP') or a PyKokkos object (e.g., pk.OpenMP).
               Defaults to `pk.get_default_space()`
             - `forces`: Optional force, or tuple of forces, ascribed to
-              a particle, such that each force array is of shape `(k,n)`,
-              where the dimension `k` is specific to the force.
+              a particle, such that each force array is of *either* shape `(k,n)`,
+              where the dimension `k` is specific to the force,
+              *or* shape `(r,k,n)` where `r` is some batched dimension.
             - `padding_factor`: Positive integer such that the common cell list
               size will be a multiple of `padding_factor`. Defualts to `1`.
             - `skip_empty_cells`: If false, every cell is treated as nonempty.
@@ -103,13 +104,11 @@ class CellList:
                 "particle array expected to lie in non-negative quadrant; negative entries where found"
             )
         if self.am.any(self.particles.max(axis=1) >= self.box):
-            raise ValueError(f"particle coordinates exceed box lengths {self.box}")
+            raise ValueError(f"particle coordinates exceed box lengths {self.box}, "f"got maximum coordinates {self.particles.max(axis=1)}.")
         self._forces = forces
         self._skip_empty_cells = skip_empty_cells
         if periodicity not in (0, 1, 2, 3):
-            raise ValueError(
-                f"periodicity must be 0, 1, 2, or 3, got {periodicity}"
-            )
+            raise ValueError(f"periodicity must be 0, 1, 2, or 3, got {periodicity}")
         self._periodicity = periodicity
 
         # get local variables and check for value errors
@@ -227,33 +226,59 @@ class CellList:
         else:
             loc = self.am.nonzero(mask)[0]
         glb = self.particle_index[loc]
-        if isinstance(self.forces, tuple):
-            out = []
-            for force in forces:
-                if len(force.shape) == 1:
-                    force = force.reshape(1, -1)
-                df, nf = force.shape
+
+        def _get_force_list(forces):
+            if forces.ndim == 1:
+                # shape (N,) → treat as a single scalar-per-particle force
+                forces = forces.reshape(1, -1)
+                df, nf = forces.shape
                 if nf != n:
                     raise ValueError(
                         "force expected to have the same `n` dimension as"
-                        f" particles {n}, got {nf}."
+                        f" particles {n}, got {nf}"
                     )
-                force_list = self.am.zeros(shape=(df, list_len), dtype=force.dtype)
-                force_list[:, loc] = force[:, glb]
+                force_list = self.am.zeros(shape=(df, list_len), dtype=forces.dtype)
+                force_list[:, loc] = forces[:, glb]
+                force_list = force_list
+            elif forces.ndim == 2:
+                # shape (k, N) — original non-batched behaviour
+                df, nf = forces.shape
+                if nf != n:
+                    raise ValueError(
+                        "force expected to have the same `n` dimension as"
+                        f" particles {n}, got {nf}"
+                    )
+                force_list = self.am.zeros(shape=(df, list_len), dtype=forces.dtype)
+                force_list[:, loc] = forces[:, glb]
+                force_list = force_list
+            elif forces.ndim == 3:
+                # shape (r, k, N) — batched forces
+                r_batch, k_dim, nf = forces.shape
+                if nf != n:
+                    raise ValueError(
+                        "batched force expected to have the same `n` dimension as"
+                        f" particles {n}, got {nf}"
+                    )
+                force_list = self.am.zeros(
+                    shape=(r_batch, k_dim, list_len), dtype=forces.dtype
+                )
+                force_list[:, :, loc] = forces[:, :, glb]
+                force_list = force_list
+            else:
+                raise ValueError(
+                    "forces ndarray must have 1, 2, or 3 dimensions"
+                    f" (shapes (N,), (k,N), or (r,k,N)), got ndim={forces.ndim}"
+                )
+            return force_list
+
+        if isinstance(self.forces, tuple):
+            out = []
+            for force in forces:
+                force_list = _get_force_list(force)
                 out.append(force_list)
             self._force_list = tuple(out)
         elif isinstance(self.forces, self.am.ndarray):
-            if len(forces.shape) == 1:
-                forces = forces.reshape(1, -1)
-            df, nf = forces.shape
-            if nf != n:
-                raise ValueError(
-                    "force expected to have the same `n` dimension as"
-                    f" particles {n}, got {nf}"
-                )
-            force_list = self.am.zeros(shape=(df, list_len), dtype=forces.dtype)
-            force_list[:, loc] = forces[:, glb]
-            self._force_list = force_list
+            self._force_list = _get_force_list(self.forces)
         elif self.forces is not None:
             raise ValueError(
                 "forces expected to be a tuple of `ndarray`s"
@@ -282,6 +307,13 @@ class CellList:
         is just a single force list. In either case,
         forces associated to "ghost" particles
         are set to 0.
+
+        When `self.forces` is an `ndarray` of shape `(r, k, N)`
+        (batched forces), `self.force_list` has shape
+        `(r, k, num_nonempty_cells * cell_size)` and can be
+        indexed as `force_list[:, :, jj]` to retrieve all
+        batch/channel values for the particle at list position `jj`.
+
         Read-only.
         """
         return self._force_list

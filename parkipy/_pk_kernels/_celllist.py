@@ -42,19 +42,10 @@ def get_nonempty_neighbors(
                 nonempty_neighbors[cell][dx + 1][dy + 1][dz + 1] = neighbor
 
 
-
-
-
-
-
-
-
-
 @pk.workunit
 def count_particles_fp32(i: int, counter, p, rc, box):
     cell: int = _get_cell_fp32(p, i, rc, box[0], box[1], box[2])
     pk.atomic_add(counter, [cell], 1)
-
 
 
 @pk.function
@@ -85,7 +76,6 @@ def _get_cell_fp32(
     return cell
 
 
-
 @pk.workunit
 def reshuffle_particles_fp32(
     i: int,
@@ -106,7 +96,6 @@ def reshuffle_particles_fp32(
     l2g[l_idx] = i  # write
     for k in range(dp):
         p_list[k][l_idx] = p[k][i]  # read + write
-
 
 
 @pk.workunit
@@ -193,5 +182,3 @@ def reshuffle_forces_fp64(
         return
     for k in range(dq):
         q_list[k][i] = q[k][glb]
-
-
