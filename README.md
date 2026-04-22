@@ -1,5 +1,26 @@
-# (Par)allel (Par)ticle (K)ernel (I)nteractions library: ParKI
+# ParKI
+```
+         ____                 __  __   ______
+        /\  _`\              /\ \/\ \ /\__  _\
+        \ \ \L\ \ __     _ __\ \ \/'/'\/_/\ \/
+         \ \ ,__/'__`\  /\`'__\ \ , <    \ \ \
+          \ \ \/\ \L\.\_\ \ \/ \ \ \\`\   \_\ \__
+           \ \_\ \__/.\_\\ \_\  \ \_\ \_\ /\_____\
+            \/_/\/__/\/_/ \/_/   \/_/\/_/ \/_____/
+
+          Parallel  ·  Particle  ·  Kernel  ·  Interactions
+
+   .+------+     +------+     +------+     +------+     +------+.
+ .' |    .'|    /|     /|     |      |     |\     |\    |`.    | `.
++---+--+'  |   +-+----+ |     +------+     | +----+-+   |  `+--+---+
+|   |  |   |   | |    | |     |      |     | |    | |   |   |  |   |
+|  ,+--+---+   | +----+-+     +------+     +-+----+ |   +---+--+   |
+|.'    | .'    |/     |/      |      |      \|     \|    `. |   `. |
++------+'      +------+       +------+       +------+      `+------+
+
+```
 The ParKI library provides a python API, ParkiPy, supporting a `CellList` class for local-particle interactions, the `ewald` module for computing Ewald summations of the Stokes and Laplace kernels in arbitrary periodicities, and the `distributed.ewald` module for computing Ewald summation in a slab distributed box. 
+
 
 ## Supported Kernels
 
