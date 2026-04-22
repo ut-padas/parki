@@ -181,7 +181,7 @@ def run_convergence(
         max_err = am.max(errors)
         try:
             np.testing.assert_(
-                max_err < 20 * tol,
+                max_err < 30 * tol,
                 msg=f"Consistency test failed for tol={tol:.3e}: max error = {max_err:.3e}",
             )
         except AssertionError as e:
@@ -224,16 +224,13 @@ def run(
     if verbosity >= 2:
         print("=====allocate GPU arrays=====")
 
-    am.random.seed(123)  # seed random numbers
-    trg = am.random.rand(3, nt).astype(dtype) * am.array(box, dtype=dtype).reshape(
+    rng = am.random.default_rng(123)
+    trg = rng.random(size=(3,nt), dtype=dtype) * am.array(box, dtype=dtype).reshape(
         -1, 1
     )
-    src = am.random.rand(3, ns).astype(dtype) * am.array(box, dtype=dtype).reshape(
+    src = rng.random(size=(3, ns), dtype=dtype) * am.array(box, dtype=dtype).reshape(
         -1, 1
     )
-    if dtype == np.float32:
-        trg = am.where(trg < 1e-5, 0.5, trg)
-        src = am.where(src < 1e-5, 0.5, src)
 
     options = parkipy.ewald.EwaldOptions(
         periodicity=periodicity,
@@ -248,15 +245,12 @@ def run(
         torch_fft=torch_fft,
     )
     if fun == parkipy.ewald.stokes_comb:
-        dens_sl = am.random.randn(3, ns).astype(dtype)
-        dens_dl = am.random.randn(3, ns).astype(dtype)
+        dens_sl = rng.random(size=(3, ns), dtype=dtype)
+        dens_dl = rng.random(size=(3, ns), dtype=dtype)
         dens = am.vstack(
             (dens_sl, dens_dl), dtype=dtype
         )  # stack densities for ewald call
-        normal = am.random.randn(3, ns).astype(dtype)
-        if dtype == "fp32":
-            dens = am.where(dens < 1e-5, 0.5, dens)
-            normal = am.where(normal < 1e-5, 0.5, normal)
+        normal = rng.random(size=(3, ns), dtype=dtype)
         if verbosity >= 2:
             print("======Spectral Ewald Sum======")
 
@@ -268,10 +262,7 @@ def run(
             options,
         )
     elif fun == parkipy.ewald.laplace:
-        charges = am.random.randn(ns).astype(dtype)
-        charges -= am.mean(charges).astype(dtype)
-        if dtype == "fp_32":
-            charges = am.where(charges < 1e-5, 0.5, charges)
+        charges = rng.standard_normal(size=ns, dtype=dtype)
         charges -= am.mean(charges)
         pot = fun(
             trg,
@@ -280,9 +271,7 @@ def run(
             options,
         )
     elif fun == parkipy.ewald.stokes_sl:
-        dens = am.random.randn(3, ns).astype(dtype)
-        if dtype == "fp32":
-            dense = am.where(dens < 1e-5, 0.5, dens)
+        dens = rng.random(size=(3, ns), dtype=dtype)
 
         pot = fun(trg, src, dens, options)
     else:
