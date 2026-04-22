@@ -304,10 +304,10 @@ def laplace_ewald_fp64(
     u: Real3d_fp64, r: Real3d_fp64, f: Real3d_fp64, d2: pk.double, xi: pk.double
 ) -> Real3d_fp64:
     TWO_OVER_RSQRT_PI: pk.double = 1.1283791670955126
-    d: pk.double = pk.sqrt(d2)
-    od: pk.double = 1.0 / d
-    od = (od - od) + od
-    od = pk.fmax(od, 0.0)
+    # TODO: change to George's method
+    od: pk.double = pk.rsqrt((d2 != 0) * (d2) + (d2 == 0))
+    d: pk.double = (d2 != 0) * (1 / od)
+    od = (d2 != 0) * od
     xid: pk.double = xi * d
     ewald: pk.double = f.x * pk.erfc(xid) * od
     self: pk.double = (od == 0) * (-xi * TWO_OVER_RSQRT_PI * f.x)

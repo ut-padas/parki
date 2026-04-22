@@ -307,10 +307,10 @@ def laplace_ewald_fp32(
     u: Real3d_fp32, r: Real3d_fp32, f: Real3d_fp32, d2: pk.float, xi: pk.float
 ) -> Real3d_fp32:
     TWO_OVER_RSQRT_PI: pk.float = 1.1283791670955126
-    d: pk.float = pk.sqrt(d2)
-    od: pk.float = 1.0 / d
-    od = (od - od) + od
-    od = pk.fmax(od, 0.0)
+    # TODO: change to George's method
+    od: pk.float = pk.rsqrt((d2 != 0) * (d2) + (d2 == 0))
+    d: pk.float = (d2 != 0) * (1 / od)
+    od = (d2 != 0) * od
     xid: pk.float = xi * d
     ewald: pk.float = f.x * pk.erfc(xid) * od
     self: pk.float = (od == 0) * (-xi * TWO_OVER_RSQRT_PI * f.x)
@@ -1077,6 +1077,7 @@ def p2p_stokes_comb_sm1d_fp32(
             team_member.team_barrier()
             s_off += s_cell_chunk_size
 
+
 @pk.workunit(
     scratch=[
         (int, lambda p: p.t_cell_chunk_size),
@@ -1112,7 +1113,7 @@ def p2p_stokes_comb_sm2d_fp32(
     t_cell_chunks: int,
     t_counter: pk.View1D[int],
     s_cell_chunk_threads: int,
-    t_cell_chunk_threads: int, 
+    t_cell_chunk_threads: int,
     vector_size: int,
 ):
     # kernel constants
@@ -1133,9 +1134,7 @@ def p2p_stokes_comb_sm2d_fp32(
 
     nz_t_cell: int = team_member.league_rank() // t_cell_chunks
     t_cell_chunk: int = team_member.league_rank() % t_cell_chunks
-    t_off: int = nz_t_cell * t_cell_size + (
-        t_cell_chunk * t_cell_chunk_size
-    )
+    t_off: int = nz_t_cell * t_cell_size + (t_cell_chunk * t_cell_chunk_size)
     t_cell: int = nz2t_cell_map[nz_t_cell]
     nt_cell: int = t_counter[t_cell]
     t_cell_x: int = t_cell // (cell_grid_area)
@@ -1152,7 +1151,7 @@ def p2p_stokes_comb_sm2d_fp32(
         team_member.team_scratch(0), s_cell_chunk_size, 3
     )
     shmem_sl: pk.ScratchView2D[pk.float] = pk.ScratchView2D(
-        team_member.team_scratch(0), s_cell_chunk_size, 3 
+        team_member.team_scratch(0), s_cell_chunk_size, 3
     )
     shmem_dl: pk.ScratchView2D[pk.float] = pk.ScratchView2D(
         team_member.team_scratch(0), s_cell_chunk_size, 3
@@ -1185,13 +1184,9 @@ def p2p_stokes_comb_sm2d_fp32(
             for d in range(3):
                 shmem_t[ii][d] = targets_list[d][t]
 
-        pk.parallel_for(
-            pk.ThreadVectorRange(team_member, vector_size), vector_loop
-        )
+        pk.parallel_for(pk.ThreadVectorRange(team_member, vector_size), vector_loop)
 
-    pk.parallel_for(
-        pk.TeamThreadRange(team_member, t_cell_chunk_threads), load_shmem_t
-    )
+    pk.parallel_for(pk.TeamThreadRange(team_member, t_cell_chunk_threads), load_shmem_t)
 
     def load_shmem_s(kk: int):
         def vector_loop(jj: int):
@@ -1205,9 +1200,7 @@ def p2p_stokes_comb_sm2d_fp32(
                 shmem_dl[ii][d] = forces_list[d + 3][s]
                 shmem_n[ii][d] = normals_list[d][s]
 
-        pk.parallel_for(
-            pk.ThreadVectorRange(team_member, vector_size), vector_loop
-        )
+        pk.parallel_for(pk.ThreadVectorRange(team_member, vector_size), vector_loop)
 
     def target_loop(jj: int):
         if jj + (t_cell_chunk * t_cell_chunk_size) >= nt_cell:
@@ -1325,9 +1318,7 @@ def p2p_stokes_comb_sm2d_fp32(
         if source_cell.inbounds == False:
             continue
         s_cell: int = (
-            source_cell.x * cell_grid_area
-            + source_cell.y * num_cells_z
-            + source_cell.z
+            source_cell.x * cell_grid_area + source_cell.y * num_cells_z + source_cell.z
         )
         ns_cell: int = s_counter[s_cell]
         nz_s_cell: int = s2nz_cell_map[s_cell]
@@ -1646,10 +1637,10 @@ def laplace_ewald_fp64(
     u: Real3d_fp64, r: Real3d_fp64, f: Real3d_fp64, d2: pk.double, xi: pk.double
 ) -> Real3d_fp64:
     TWO_OVER_RSQRT_PI: pk.double = 1.1283791670955126
-    d: pk.double = pk.sqrt(d2)
-    od: pk.double = 1.0 / d
-    od = (od - od) + od
-    od = pk.fmax(od, 0.0)
+    # TODO: change to George's method
+    od: pk.double = pk.rsqrt((d2 != 0) * (d2) + (d2 == 0))
+    d: pk.double = (d2 != 0) * (1 / od)
+    od = (d2 != 0) * od
     xid: pk.double = xi * d
     ewald: pk.double = f.x * pk.erfc(xid) * od
     self: pk.double = (od == 0) * (-xi * TWO_OVER_RSQRT_PI * f.x)
@@ -2416,6 +2407,7 @@ def p2p_stokes_comb_sm1d_fp64(
             team_member.team_barrier()
             s_off += s_cell_chunk_size
 
+
 @pk.workunit(
     scratch=[
         (int, lambda p: p.t_cell_chunk_size),
@@ -2451,7 +2443,7 @@ def p2p_stokes_comb_sm2d_fp64(
     t_cell_chunks: int,
     t_counter: pk.View1D[int],
     s_cell_chunk_threads: int,
-    t_cell_chunk_threads: int, 
+    t_cell_chunk_threads: int,
     vector_size: int,
 ):
     # kernel constants
@@ -2472,9 +2464,7 @@ def p2p_stokes_comb_sm2d_fp64(
 
     nz_t_cell: int = team_member.league_rank() // t_cell_chunks
     t_cell_chunk: int = team_member.league_rank() % t_cell_chunks
-    t_off: int = nz_t_cell * t_cell_size + (
-        t_cell_chunk * t_cell_chunk_size
-    )
+    t_off: int = nz_t_cell * t_cell_size + (t_cell_chunk * t_cell_chunk_size)
     t_cell: int = nz2t_cell_map[nz_t_cell]
     nt_cell: int = t_counter[t_cell]
     t_cell_x: int = t_cell // (cell_grid_area)
@@ -2491,7 +2481,7 @@ def p2p_stokes_comb_sm2d_fp64(
         team_member.team_scratch(0), s_cell_chunk_size, 3
     )
     shmem_sl: pk.ScratchView2D[pk.double] = pk.ScratchView2D(
-        team_member.team_scratch(0), s_cell_chunk_size, 3 
+        team_member.team_scratch(0), s_cell_chunk_size, 3
     )
     shmem_dl: pk.ScratchView2D[pk.double] = pk.ScratchView2D(
         team_member.team_scratch(0), s_cell_chunk_size, 3
@@ -2524,13 +2514,9 @@ def p2p_stokes_comb_sm2d_fp64(
             for d in range(3):
                 shmem_t[ii][d] = targets_list[d][t]
 
-        pk.parallel_for(
-            pk.ThreadVectorRange(team_member, vector_size), vector_loop
-        )
+        pk.parallel_for(pk.ThreadVectorRange(team_member, vector_size), vector_loop)
 
-    pk.parallel_for(
-        pk.TeamThreadRange(team_member, t_cell_chunk_threads), load_shmem_t
-    )
+    pk.parallel_for(pk.TeamThreadRange(team_member, t_cell_chunk_threads), load_shmem_t)
 
     def load_shmem_s(kk: int):
         def vector_loop(jj: int):
@@ -2544,9 +2530,7 @@ def p2p_stokes_comb_sm2d_fp64(
                 shmem_dl[ii][d] = forces_list[d + 3][s]
                 shmem_n[ii][d] = normals_list[d][s]
 
-        pk.parallel_for(
-            pk.ThreadVectorRange(team_member, vector_size), vector_loop
-        )
+        pk.parallel_for(pk.ThreadVectorRange(team_member, vector_size), vector_loop)
 
     def target_loop(jj: int):
         if jj + (t_cell_chunk * t_cell_chunk_size) >= nt_cell:
@@ -2664,9 +2648,7 @@ def p2p_stokes_comb_sm2d_fp64(
         if source_cell.inbounds == False:
             continue
         s_cell: int = (
-            source_cell.x * cell_grid_area
-            + source_cell.y * num_cells_z
-            + source_cell.z
+            source_cell.x * cell_grid_area + source_cell.y * num_cells_z + source_cell.z
         )
         ns_cell: int = s_counter[s_cell]
         nz_s_cell: int = s2nz_cell_map[s_cell]

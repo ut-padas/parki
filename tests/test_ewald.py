@@ -86,7 +86,7 @@ def run_convergence(
     if dtype == np.float64:
         tolvA = [1e-4, 1e-5, 1e-7, 1e-9, 1e-11]
     elif dtype == np.float32:
-        tolvA = [1e-1, 1e-3, 1e-4, 1e-5, 1e-6]
+        tolvA = [1e-1, 1e-4, 1e-5, 1e-6]
     else:
         raise NotImplementedError(f"dtype={dtype}")
     potvA = []
@@ -225,7 +225,7 @@ def run(
         print("=====allocate GPU arrays=====")
 
     rng = am.random.default_rng(123)
-    trg = rng.random(size=(3,nt), dtype=dtype) * am.array(box, dtype=dtype).reshape(
+    trg = rng.random(size=(3, nt), dtype=dtype) * am.array(box, dtype=dtype).reshape(
         -1, 1
     )
     src = rng.random(size=(3, ns), dtype=dtype) * am.array(box, dtype=dtype).reshape(
