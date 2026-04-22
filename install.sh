@@ -64,7 +64,7 @@ git clone https://github.com/kokkos/pykokkos.git
 cd pykokkos
 
 conda env update -n $ENV_NAME -f base/environment.yml
-python install_base.py install -- \
+python install_base.py install --verbose -- \
 	-DENABLE_VIEW_RANKS=4 \
 	-DENABLE_MEMORY_TRAITS=OFF \
 	-DENABLE_THREADS=OFF \
