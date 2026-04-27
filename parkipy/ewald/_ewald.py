@@ -59,6 +59,7 @@ try:
     from cupy.cuda.nvtx import RangePush, RangePop
 except ModuleNotFoundError:
     RangePush = lambda x: x
+    RangePop = lambda: None
 
 
 def p2p(
