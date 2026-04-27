@@ -686,33 +686,6 @@ class DevicePre:
                     f"Kernel must be one of 'LAPLACE', 'STOKES_COMB', got '{self.kernel.upper()}'."
                 )
 
-        # Kernel and memory settings per backend
-        match self.execution_space:
-            case pk.ExecutionSpace.Cuda:
-                max_shmem_block = (
-                    self.am.cuda.Device(0).attributes["MaxSharedMemoryPerBlock"]
-                    - 1024
-                    - 3 * 1024
-                )
-
-            case pk.ExecutionSpace.HIP:
-                print("WARNING: HIP shmem block size hardcoded to 64KB")
-                max_shmem_block = 64000
-
-            case pk.ExecutionSpace.OpenMP:
-                omp_threads = int(os.environ.get("OMP_NUM_THREADS", "1"))
-                if omp_threads == 1:
-                    warnings.warn(
-                        "Only 1 OpenMP thread detected. Set OMP_NUM_THREADS to control parallelism.",
-                        RuntimeWarning,
-                    )
-                max_shmem_block = 4.5 * 1024**2
-
-            case _:
-                raise ValueError(
-                    f"Unsupported execution space '{self.execution_space}'."
-                )
-
         # Choose kernel function variants based on dtype
         dtype_size = self.am.dtype(self.data.dtype).itemsize
         self.convolution_sum_sl_dl = convolution_sum_sl_dl
@@ -767,6 +740,9 @@ class DevicePre:
         dim_f = self.data.forces.shape[0]
 
         # Compute max shared-memory-per-cell size for P2G
+        max_shmem_block = pk.TeamPolicy(
+            self.execution_space, 1, "auto"
+        ).scratch_size_max()
         int_size = self.am.dtype(int).itemsize
         iod_size = int_size / dtype_size
         p2g_cell_size = (max_shmem_block / dtype_size) / (

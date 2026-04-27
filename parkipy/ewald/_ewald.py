@@ -758,7 +758,7 @@ def fft(device_pre, options, fftmp_buffers=None):
         else:
             extra_args = {}
             if pk.is_host_execution_space(device_pre.execution_space):
-                extra_args["workers"] = int(os.environ.get("OMP_NUM_THREADS"))
+                extra_args["workers"] = int(os.environ.get("OMP_NUM_THREADS", 1))
             fftn = get_fftn(device_pre.execution_space, device_pre.data.fft_type)
             device_pre.data.Hg[...] = (
                 fftn(
@@ -1185,7 +1185,7 @@ def ifft(device_pre, options, fftmp_buffers=None):
             # TODO: torch IFFT
             extra_args = {}
             if pk.is_host_execution_space(device_pre.execution_space):
-                extra_args["workers"] = int(os.environ.get("OMP_NUM_THREADS"))
+                extra_args["workers"] = int(os.environ.get("OMP_NUM_THREADS", 1))
             RangePush("IFFT-kernel")
             ifftn = get_ifftn(device_pre.execution_space, device_pre.data.fft_type)
             device_pre.data.H[: device_pre.dim_out, ...] = ifftn(
