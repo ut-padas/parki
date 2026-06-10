@@ -1,11 +1,17 @@
 .. _user:
 
 ##################
-ParkiPy user guide
+ParkiPy User Guide
 ##################
 
-This guide explores basic setup, usage, and futures. 
-Details are found in :ref:`reference`.
+ParkiPy is a Python library for fast, performance-portable evaluation of
+particle kernel interactions. It provides Ewald summation routines for the
+Stokes and Laplace kernels, a distributed multi-GPU backend, and a cell-list
+API for local particle interactions — all behind a clean NumPy/CuPy-compatible
+interface.
+
+This guide covers installation, core concepts, and worked examples. For
+detailed API documentation, see :ref:`reference`.
 
 .. toctree::
    :caption: Getting Started
