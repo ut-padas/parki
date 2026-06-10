@@ -19,7 +19,7 @@
 +------+'      +------+       +------+       +------+      `+------+
 
 ```
-The ParKI library provides a python API, ParkiPy, supporting a `CellList` class for local-particle interactions, the `ewald` module for computing Ewald summations of the Stokes and Laplace kernels in arbitrary periodicities, and the `distributed.ewald` module for computing Ewald summation in a slab distributed box. 
+The ParKI library provides a python API, ParkiPy, supporting a `CellList` class for local-particle interactions, the `ewald` module for computing Ewald summations of the Stokes and Laplace kernels in arbitrary periodicities, and the `distributed.ewald` module for computing Ewald summation in a slab distributed box.
 
 
 ## Supported Kernels
@@ -145,3 +145,23 @@ The Parki repository contains 6 subdirectories:
 * **Figure 7** (P2P portability): run `analysis/ewald/analyze_p2p_portability.py`
 * **Figure 8** (P2G portability): run `analysis/ewald/analyze_p2g_portability.py`
 * **Figure 9** (Ewald portability): run `analysis/ewald/analyze_ewald_portability.py`
+
+# Building the Docs
+Install `conda install -c conda-forge sphinx furo`.
+Make `cd docs; make html`.
+Viewed by opening `doc/build/html/index.html`
+
+# Building the Docs
+
+To build the documentation locally, first install Sphinx and the required Furo theme:
+```bash
+conda install -c conda-forge sphinx furo
+```
+
+Then, navigate to the `doc` directory and compile the HTML pages:
+```bash
+cd doc
+make html
+```
+
+Once the build completes, you can view the documentation by opening `doc/build/html/index.html` in your web browser.
