@@ -13,6 +13,30 @@ from ..utils import round_up
 
 
 def check_positive(val, s):
+    """
+    Validate that a derived Ewald parameter is real and positive.
+
+    Strips a negligible imaginary component (relative magnitude < 1e-16)
+    before checking. Raises ``ValueError`` if the value is not real and
+    positive after stripping.
+
+    Parameters
+    ----------
+    val : complex or float
+        The parameter value to validate.
+    s : str
+        Name of the parameter, used in the error message.
+
+    Returns
+    -------
+    val : float
+        The real part of ``val``, confirmed to be positive.
+
+    Raises
+    ------
+    ValueError
+        If ``val`` is not real and positive.
+    """
     if np.imag(val) / np.real(val) < 1e-16:
         val = np.real(val)
     if not np.isreal(val) or val <= 0:
@@ -557,8 +581,8 @@ class SEParams:
     window_shape_factor: float
         Window function parameter :math:`\beta`. The default is ``2.5``, which is the
         optimal parameter for the Kaiser-Bessel window function.
-    Post-Init Parameters
-    --------------------
+    Attributes
+    ----------
     box: list[float]
         Length of the local computational box in each direction.
     glb_box: list[float]
