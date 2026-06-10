@@ -39,7 +39,72 @@ OPERATION_CONSTANTS = {
 
 class PerfModel:
     """
-    docstring
+    Performance model for an Ewald summation run.
+
+    Stores per-stage wall-clock times and computes floating-point operation
+    (FLOP) and memory operation (MOP) count estimates for each stage of the
+    Ewald algorithm: P2P, P2G, FFT, CNV, IFFT, and G2P.
+
+    An instance is returned as the second element of the kernel output when
+    ``options.return_walltime == True``.
+
+    FLOP counts are device-aware: hardware-specific instruction costs are
+    looked up from an internal table for known GPUs (currently the A100 and
+    GH200). For unrecognised devices all instruction costs default to 1 and a
+    ``UserWarning`` is raised.
+
+    Parameters
+    ----------
+    p2p_time : dict
+        Wall-clock time dict for the P2P (near-field) stage.
+    p2g_time : dict
+        Wall-clock time dict for the P2G (particle-to-grid spreading) stage.
+    fft_time : dict
+        Wall-clock time dict for the forward FFT stage.
+    cnv_time : dict
+        Wall-clock time dict for the convolution (CNV) stage.
+    ifft_time : dict
+        Wall-clock time dict for the inverse FFT stage.
+    g2p_time : dict
+        Wall-clock time dict for the G2P (grid-to-particle interpolation) stage.
+    kernel : str
+        Name of the Ewald kernel (e.g. ``'stokes_sl'``, ``'stokes_comb'``,
+        ``'laplace'``). Used to select the correct FLOP cost model.
+    N_out : int
+        Number of target particles.
+    N_in : int
+        Number of source particles.
+    N_grid : int
+        Number of far-field grid points.
+    d_out : int
+        Output dimension (number of components per target).
+    d_in : int
+        Total input dimension, counting source positions, densities, and
+        (where applicable) normal vectors.
+    fft_dim : int
+        Number of components transformed in the forward FFT.
+    ifft_dim : int
+        Number of components transformed in the inverse FFT.
+    fft_shape : array_like
+        Shape of the (upsampled) FFT grid.
+    cell_size : int
+        Near-field cell size used by the P2P stage.
+    window_P : int
+        Window function support size in grid subintervals.
+    dtype : numpy.dtype
+        Floating-point dtype of the input arrays. Used to compute memory
+        operation counts (``itemsize`` bytes per real element,
+        ``2 * itemsize`` per complex element).
+    execution_space : pykokkos.ExecutionSpace
+        Kokkos execution space. Used to determine whether to query the GPU
+        device name for hardware-specific FLOP constants.
+
+
+    Notes
+    -----
+    Throughput (FLOP/s) and bandwidth (bytes/s) for each stage can be read
+    from the ``__repr__`` output, or computed directly as
+    ``perf.flop_<stage> / perf.time_<stage>['tot']``.
     """
 
     def __init__(
@@ -64,10 +129,6 @@ class PerfModel:
         dtype,
         execution_space,
     ):
-        """
-        docstring
-        """
-
         device_name = None
         if not is_host_execution_space(execution_space):
             import cupy as cp
@@ -302,7 +363,7 @@ class PerfModel:
     @property
     def flop_p2p(self):
         """
-        FLOP model for the P2P algorithm.
+        Estimated floating-point operation count for the P2P algorithm.
         Read-only.
         """
         return self._flop_p2p
@@ -310,7 +371,7 @@ class PerfModel:
     @property
     def flop_p2g(self):
         """
-        FLOP model for the P2G algorithm.
+        Estimated floating-point operation count for the P2G algorithm.
         Read-only.
         """
         return self._flop_p2g
@@ -318,7 +379,7 @@ class PerfModel:
     @property
     def flop_fft(self):
         """
-        FLOP model for the FFT algorithm.
+        Estimated floating-point operation count for the FFT algorithm.
         Read-only.
         """
         return self._flop_fft
@@ -326,7 +387,7 @@ class PerfModel:
     @property
     def flop_cnv(self):
         """
-        FLOP model for the CNV algorithm.
+        Estimated floating-point operation count for the CNV algorithm.
         Read-only.
         """
         return self._flop_cnv
@@ -334,7 +395,7 @@ class PerfModel:
     @property
     def flop_ifft(self):
         """
-        FLOP model for the IFFT algorithm.
+        Estimated floating-point operation count for the IFFT algorithm.
         Read-only.
         """
         return self._flop_ifft
@@ -342,7 +403,7 @@ class PerfModel:
     @property
     def flop_g2p(self):
         """
-        FLOP model for the G2P algorithm.
+        Estimated floating-point operation count for the G2P algorithm.
         Read-only.
         """
         return self._flop_g2p
@@ -350,7 +411,7 @@ class PerfModel:
     @property
     def flop_ewald(self):
         """
-        FLOP model for the Ewald sum.
+        Estimated total floating-point operation count across all Ewald stages.
         Read-only.
         """
         return self._flop_ewald
@@ -358,7 +419,7 @@ class PerfModel:
     @property
     def mop_p2p(self):
         """
-        MOP model for the P2P algorithm.
+        Estimated memory operation count (bytes moved) for the P2P algorithm.
         Read-only.
         """
         return self._mop_p2p
@@ -366,7 +427,7 @@ class PerfModel:
     @property
     def mop_p2g(self):
         """
-        MOP model for the P2G algorithm.
+        Estimated memory operation count (bytes moved) for the P2G algorithm.
         Read-only.
         """
         return self._mop_p2g
@@ -374,7 +435,7 @@ class PerfModel:
     @property
     def mop_fft(self):
         """
-        MOP model for the FFT algorithm.
+        Estimated memory operation count (bytes moved) for the FFT algorithm.
         Read-only.
         """
         return self._mop_fft
@@ -382,7 +443,7 @@ class PerfModel:
     @property
     def mop_cnv(self):
         """
-        MOP model for the CNV algorithm.
+        Estimated memory operation count (bytes moved) for the CNV algorithm.
         Read-only.
         """
         return self._mop_cnv
@@ -390,7 +451,7 @@ class PerfModel:
     @property
     def mop_ifft(self):
         """
-        MOP model for the IFFT algorithm.
+        Estimated memory operation count (bytes moved) for the IFFT algorithm.
         Read-only.
         """
         return self._mop_ifft
@@ -398,7 +459,7 @@ class PerfModel:
     @property
     def mop_g2p(self):
         """
-        MOP model for the G2P algorithm.
+        Estimated memory operation count (bytes moved) for the G2P algorithm.
         Read-only.
         """
         return self._mop_g2p
@@ -406,7 +467,7 @@ class PerfModel:
     @property
     def mop_ewald(self):
         """
-        MOP model for the Ewald sum.
+        Estimated total memory operation count (bytes moved) across all Ewald stages.
         Read-only.
         """
         return self._mop_ewald
