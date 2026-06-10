@@ -507,8 +507,85 @@ class EwaldOptions:
 
 
 def stokes_sl(trg, src, dens, options):
-    """
-    Compute the Stokes single layer potential
+    r"""
+    Compute the Stokes single-layer potential.
+
+    .. math::
+
+        \boldsymbol{u}(\boldsymbol{x}_i) = \sum_{j=1}^{N} \sum_{p \in P}
+        \left(
+            \frac{\boldsymbol{q}_j}{\lVert \boldsymbol{r}_{ij} \rVert}
+            +
+            \frac{\boldsymbol{r}_{ij} (\boldsymbol{r}_{ij} \cdot \boldsymbol{q}_j)}
+                 {\lVert \boldsymbol{r}_{ij} \rVert^3}
+        \right),
+
+    where :math:`\boldsymbol{r}_{ij} = \boldsymbol{x}_i - \boldsymbol{y}_j`
+    and :math:`P` is the specified periodicity.
+
+    .. warning:: Currently only supported for :math:`P=1,3`.
+
+    Parameters
+    ----------
+    trg : ndarray
+        Array of target positions :math:`\boldsymbol{x}_i` at which to evaluate
+        the potential. Shape ``(3, nt)`` with default array ordering (``'C'`` for
+        :mod:`cupy`, ``'F'`` for :mod:`numpy`).
+
+    src : ndarray
+        Array of source positions :math:`\boldsymbol{y}_j` of shape ``(3, ns)``
+        with default array ordering.
+
+    dens : ndarray
+        Single-layer density :math:`\boldsymbol{q}_j` at each source point.
+        Shape ``(3, ns)`` with default array ordering.
+
+    options : EwaldOptions
+        Dataclass specifying Ewald parameters.
+
+    Returns
+    -------
+    potential : ndarray
+        Ewald approximation of the Stokes single-layer potential at the target
+        points :math:`\boldsymbol{u}(\boldsymbol{x}_i)`, shape ``(3, nt)``.
+
+    walltimes : dict, optional
+        Wall-clock time for each stage of the Ewald summation
+        (``'p2p'``, ``'p2g'``, ``'fft'``, ``'cnv'``, ``'ifft'``, ``'g2p'``).
+        Only returned if ``options.return_walltime == True``.
+
+    params : SEParams, optional
+        :class:`SEParams` dataclass containing the derived Ewald parameters used
+        for this call. Only returned if ``options.return_params == True``.
+
+    Raises
+    ------
+    NotImplementedError
+        If ``options.periodicity`` is not ``1`` or ``3``.
+
+    Notes
+    -----
+    Parameter selection based off [1]_.
+
+    References
+    ----------
+    .. [1] Bagge, J., & Tornberg, A.-K. (2023).
+        Fast Ewald summation for Stokes flow with arbitrary periodicity.
+        Journal of Computational Physics, 493, 112473.
+        https://doi.org/10.1016/j.jcp.2023.112473
+
+    Examples
+    --------
+    >>> import parkipy
+    >>> import numpy as np
+    >>> nt = ns = 10000
+    >>> trg = src = np.random.rand(3, nt)
+    >>> dens = np.random.randn(3, ns)
+    >>> options = parkipy.ewald.EwaldOptions(
+    ...     box=[1, 1, 1], periodicity=3, tolerance=1e-4,
+    ...     execution_space="openmp", cell_size=224, return_walltime=True,
+    ... )
+    >>> pot, walltime = parkipy.ewald.stokes_sl(trg, src, dens, options)
     """
     valid_periodicities = [0, 1, 2, 3]
     if options.periodicity not in valid_periodicities:
@@ -558,7 +635,7 @@ def stokes_comb(trg, src, dens, normal, options):
     .. warning:: Currently only supported for :math:`P=1,3`.
 
     Parameters
-    __________
+    ----------
     trg: ndarray
         Array of target values :math:`\boldsymbol{x}_i` to compute the Stokes potential.
         Array should be shape ``(3,nt)`` with the default ordering (i.e., ``'C'`` ordering for
@@ -579,7 +656,7 @@ def stokes_comb(trg, src, dens, normal, options):
         Dataclass specifying Ewald parameters.
 
     Returns
-    _______
+    -------
     potential: ndarray
         Array containing the Ewald approximation for the
         Stokes potential at the target points :math:`\boldsymbol{u}(\boldsymbol{x}_i)`.
@@ -593,7 +670,7 @@ def stokes_comb(trg, src, dens, normal, options):
         Only returned if ``options.return_params == True``.
 
     Raises
-    ______
+    ------
     NotImplementedError
         If ``options.periodicity`` is not ``1`` or ``3``.
 
@@ -602,14 +679,13 @@ def stokes_comb(trg, src, dens, normal, options):
     Parameter selection based off [1]_.
 
     References
-    __________
+    ----------
     .. [1] Bagge, J., & Tornberg, A.-K. (2023).
         Fast Ewald summation for Stokes flow with arbitrary periodicity.
         Journal of Computational Physics, 493, 112473. https://doi.org/10.1016/j.jcp.2023.112473
 
-
     Examples
-    ________
+    --------
     >>> import parkipy
     >>> import numpy as np
     >>> trg = src = np.random.rand(3, 100000)
@@ -671,7 +747,7 @@ def laplace(trg, src, charge, options):
     .. warning:: Currently only supported for :math:`P=3`.
 
     Parameters
-    __________
+    ----------
     trg: ndarray
         Array of target values :math:`\boldsymbol{x}_i` to compute the Stokes potential.
         Array should be shape ``(3,nt)`` with the default ordering (i.e., ``'C'`` ordering for
@@ -689,7 +765,7 @@ def laplace(trg, src, charge, options):
         Dataclass specifying Ewald parameters.
 
     Returns
-    _______
+    -------
     potential: ndarray
         Array containing the Ewald approximation for the
         Laplace potential at the target points :math:`\boldsymbol{u}(\boldsymbol{x}_i)`.
@@ -703,7 +779,7 @@ def laplace(trg, src, charge, options):
         Only returned if ``options.return_params == True``.
 
     Raises
-    ______
+    ------
     NotImplementedError
         If ``options.periodicity`` is not ``3``, if ``options.p2p_method`` is not ``'GM-1D'``,
         or if ``options.p2g_method`` is not ``'HYBRID'``.
@@ -713,13 +789,13 @@ def laplace(trg, src, charge, options):
     Parameter selection based off [1]_.
 
     References
-    __________
+    ----------
     .. [1] Shamshirgar, D. S., Bagge, J., & Tornberg, A.-K. (2021).
         Fast Ewald summation for electrostatic potentials with arbitrary periodicity.
         The Journal of Chemical Physics, 154(16), 164109. https://doi.org/10.1063/5.0044895
 
     Examples
-    ________
+    --------
     >>> import parkipy
     >>> import numpy as np
     >>> nt = ns = 10000
