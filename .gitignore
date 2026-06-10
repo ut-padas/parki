@@ -70,6 +70,7 @@ instance/
 
 # Sphinx documentation
 docs/_build/
+doc/source/reference/generated
 
 # PyBuilder
 .pybuilder/
@@ -217,3 +218,5 @@ pk_cpp/
 
 # vim
 *.swp
+
+
