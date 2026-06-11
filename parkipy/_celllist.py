@@ -1,0 +1,554 @@
+"""
+Module for the parkipy.CellList class.
+"""
+
+import math
+import warnings
+import numpy as np
+import pykokkos as pk
+
+from .utils import get_execution_space, get_array_module
+from ._pk_kernels._celllist import (
+    count_particles_fp32,
+    count_particles_fp64,
+    reshuffle_particles_fp32,
+    reshuffle_particles_fp64,
+    reshuffle_forces_fp32,
+    reshuffle_forces_fp64,
+    get_nonempty_neighbors,
+)
+
+
+class CellList:
+    """
+    A class to generate cell lists given
+    particle coordinates, a cutoff radius,
+    and a computational box.
+
+    This class automaticaly generates a CellList
+    upon instantiation as well as relevant counters
+    and mappings.
+
+    Cell lists are performance portable, with
+    target devices specified by a PyKokkos
+    execution space object.
+    """
+
+    def __init__(
+        self,
+        particles,
+        cutoff,
+        box,
+        execution_space=None,
+        forces=None,
+        padding_factor=1,
+        skip_empty_cells=True,
+        periodicity=0,
+    ):
+        """
+        Creates a new CellList object.
+
+        Input:
+            - `particles`. Particle coordinates. Expected to be of shape
+              `(d, n)`, where `n` is the number of particles and `d`
+              is the dimension.
+            - `cutoff`: Cell cutoff radius. Radius must satisfy
+              `cutoff < min(box)`.
+            - `box`: Side lengths of the computational box.
+              We expect `0 <= particles[d] <= box[d]` for all d,
+              but we do not explicitly enforce this assumption.
+            - `execution_space`: PyKokkos execution space See
+              https://kokkos.org/kokkos-core-wiki/API/core/execution_spaces.html
+              for available execution spaces. Input is either a string
+              (e.g., 'OpenMP') or a PyKokkos object (e.g., pk.OpenMP).
+              Defaults to `pk.get_default_space()`
+            - `forces`: Optional force, or tuple of forces, ascribed to
+              a particle, such that each force array is of *either* shape `(k,n)`,
+              where the dimension `k` is specific to the force,
+              *or* shape `(r,k,n)` where `r` is some batched dimension.
+            - `padding_factor`: Positive integer such that the common cell list
+              size will be a multiple of `padding_factor`. Defualts to `1`.
+            - `skip_empty_cells`: If false, every cell is treated as nonempty.
+            - `periodicity`: Integer 0–3 specifying periodic boundary conditions.
+              0 = no periodicity, 1 = periodic in x only, 2 = periodic in x and y,
+              3 = periodic in x, y, and z. Defaults to 0.
+
+        Cell lists are of size `self.num_nonempty_cells * self.cell_size`,
+        where the *nonempty* cell index ranges the slowest and the particles
+        in cell index ranges the fastes.
+        """
+        # parse inputs
+        self._dtype = particles.dtype
+        self._execution_space = get_execution_space(execution_space)
+        self._am = get_array_module(execution_space)
+        self._particles = particles
+        if not isinstance(self.particles, self.am.ndarray):
+            raise ValueError(
+                f"particles expected to be {self.am.ndarray} "
+                f"but are type {type(self.particles)}"
+            )
+        self._box = self.am.asarray(box, dtype=self.dtype)
+        if self.box.size != 3:
+            raise ValueError(f"expected box of shape (3,), got {box.shape}")
+        self._cutoff = cutoff
+        if not isinstance(self.cutoff, float) or not (
+            0 <= self.cutoff <= self.box.min()
+        ):
+            raise ValueError(
+                f"cutoff expected to be a float between {(0, self.box.min())}, "
+                f"got {self.cutoff} of type {type(cutoff)}"
+            )
+
+        if self.particles.min() < 0:
+            raise ValueError(
+                "particle array expected to lie in non-negative quadrant; negative entries where found"
+            )
+        if self.am.any(self.particles.max(axis=1) >= self.box):
+            raise ValueError(
+                f"particle coordinates exceed box lengths {self.box}, "
+                f"got maximum coordinates {self.particles.max(axis=1)}."
+            )
+        self._forces = forces
+        self._skip_empty_cells = skip_empty_cells
+        if periodicity not in (0, 1, 2, 3):
+            raise ValueError(f"periodicity must be 0, 1, 2, or 3, got {periodicity}")
+        self._periodicity = periodicity
+
+        # get local variables and check for value errors
+        if self.dtype is float and self.particles.min() < 1e-8:
+            raise ValueError(
+                "smallest particle coordinate {self.particles.min()} is less than machine precision 1e-8."
+            )
+        if self.particles.ndim != 2:
+            raise ValueError(
+                f"particles expected to have shape (d,n), got shape f{particles.shape}"
+            )
+        d, n = self.particles.shape
+        if d != 3:
+            raise ValueError(
+                "CellList only supported for particles in dimension 3," f" got {d}."
+            )
+        if self.particles.dtype == self.am.float32:
+            counter_workunit = count_particles_fp32
+            reshuffle_particles_workunit = reshuffle_particles_fp32
+            reshuffle_forces_workunit = reshuffle_forces_fp32
+        elif self.particles.dtype == self.am.float64:
+            counter_workunit = count_particles_fp64
+            reshuffle_particles_workunit = reshuffle_particles_fp64
+            reshuffle_forces_workunit = reshuffle_forces_fp64
+        else:
+            raise TypeError(
+                "particles dtype must be `float32` or `float64`,"
+                f" got {self.particles.dtype}."
+            )
+        if not isinstance(padding_factor, int) or padding_factor < 1:
+            raise ValueError(
+                "Expected `padding_factor` to be a positive integer,"
+                f" got {padding_factor}."
+            )
+
+        # count particles in cells
+        self._cell_grid_shape = self.am.array(
+            [int(self.box[i] / self.cutoff) for i in range(3)], dtype=self.am.int32
+        )
+        _grid_shape = self.am.asarray(self.cell_grid_shape)
+        self._num_cells = int(_grid_shape.prod())
+        self._counter = self.am.zeros(shape=self.num_cells, dtype=self.am.int32)
+        cell_shape = self.box / _grid_shape
+        cell_x, cell_y, cell_z = (particles.T // cell_shape).T
+        cell = (
+            cell_x * _grid_shape[1:].prod() + cell_y * _grid_shape[2] + cell_z
+        ).astype(self.am.int32)
+
+        if (
+            not pk.is_host_execution_space(self.execution_space)
+            and self.am.cuda.runtime.is_hip
+        ):
+            warnings.warn(
+                "AMD ROCm (gfx942) detected. Falling back to CPU for 'unique' operation "
+                "to avoid GPU Scan kernel compilation errors (64-bit mask bug). "
+                "This may result in a slight performance overhead during setup.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            nonempty_cells, cell_sizes = np.unique(cell.get(), return_counts=True)
+            nonempty_cells = self.am.asarray(nonempty_cells)
+            cell_sizes = self.am.asarray(cell_sizes)
+        else:
+            nonempty_cells, cell_sizes = self.am.unique(cell, return_counts=True)
+        self._counter[nonempty_cells] = cell_sizes
+
+        # create lists
+        max_cell_size = self.counter.max().item()
+        self._cell_size = math.ceil(max_cell_size / padding_factor) * padding_factor
+        self._nonempty_cells = nonempty_cells
+        if not self.skip_empty_cells:
+            self._nonempty_cells = self.am.arange(self.num_cells, dtype=self.am.int32)
+        self._num_nonempty_cells = len(self.nonempty_cells)
+        self._nonempty_cell_index = self.am.full(
+            self.num_cells, -1, dtype=self.am.int32
+        )
+        self._nonempty_cell_index[self.nonempty_cells] = self.am.arange(
+            self.num_nonempty_cells
+        )
+        list_len = self.num_nonempty_cells * self.cell_size
+        self._particle_list = self.am.full(
+            shape=(d, list_len), fill_value=-1, dtype=self.particles.dtype
+        )
+        self._particle_index = self.am.full(
+            shape=list_len, fill_value=-1, dtype=self.am.int32
+        )
+        self._counter[:] = 0
+        pk.parallel_for(
+            "reshuffle particles into cells",
+            pk.RangePolicy(self.execution_space, 0, n),
+            reshuffle_particles_workunit,
+            p_list=self._particle_list,
+            counter=self._counter,
+            l2g=self._particle_index,
+            p=self.particles,
+            cell2nz=self.nonempty_cell_index,
+            rc=self.cutoff,
+            box=self.box,
+            cell_size=self.cell_size,
+            dp=d,
+        )
+        mask = self.particle_index >= 0
+        if (
+            not pk.is_host_execution_space(self.execution_space)
+            and self.am.cuda.runtime.is_hip
+        ):
+            warnings.warn(
+                "AMD ROCm (gfx942) detected. Falling back to CPU for 'unique' operation "
+                "to avoid GPU Scan kernel compilation errors (64-bit mask bug). "
+                "This may result in a slight performance overhead during setup.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            loc = np.nonzero(mask.get())[0]
+        else:
+            loc = self.am.nonzero(mask)[0]
+        glb = self.particle_index[loc]
+
+        def _get_force_list(forces):
+            if forces.ndim == 1:
+                # shape (N,) → treat as a single scalar-per-particle force
+                forces = forces.reshape(1, -1)
+                df, nf = forces.shape
+                if nf != n:
+                    raise ValueError(
+                        "force expected to have the same `n` dimension as"
+                        f" particles {n}, got {nf}"
+                    )
+                force_list = self.am.zeros(shape=(df, list_len), dtype=forces.dtype)
+                force_list[:, loc] = forces[:, glb]
+                force_list = force_list
+            elif forces.ndim == 2:
+                # shape (k, N) — original non-batched behaviour
+                df, nf = forces.shape
+                if nf != n:
+                    raise ValueError(
+                        "force expected to have the same `n` dimension as"
+                        f" particles {n}, got {nf}"
+                    )
+                force_list = self.am.zeros(shape=(df, list_len), dtype=forces.dtype)
+                force_list[:, loc] = forces[:, glb]
+                force_list = force_list
+            elif forces.ndim == 3:
+                # shape (r, k, N) — batched forces
+                r_batch, k_dim, nf = forces.shape
+                if nf != n:
+                    raise ValueError(
+                        "batched force expected to have the same `n` dimension as"
+                        f" particles {n}, got {nf}"
+                    )
+                force_list = self.am.zeros(
+                    shape=(r_batch, k_dim, list_len), dtype=forces.dtype
+                )
+                force_list[:, :, loc] = forces[:, :, glb]
+                force_list = force_list
+            else:
+                raise ValueError(
+                    "forces ndarray must have 1, 2, or 3 dimensions"
+                    f" (shapes (N,), (k,N), or (r,k,N)), got ndim={forces.ndim}"
+                )
+            return force_list
+
+        if isinstance(self.forces, tuple):
+            out = []
+            for force in forces:
+                force_list = _get_force_list(force)
+                out.append(force_list)
+            self._force_list = tuple(out)
+        elif isinstance(self.forces, self.am.ndarray):
+            self._force_list = _get_force_list(self.forces)
+        elif self.forces is not None:
+            raise ValueError(
+                "forces expected to be a tuple of `ndarray`s"
+                f" or an `ndarray`, got {type(forces)}"
+            )
+
+        # nonempty neighbors
+        self._create_nonempty_neighbors()
+
+    @property
+    def dtype(self):
+        """
+        floating point data dtype,
+        same as particles.dtype.
+        Read-only.
+        """
+        return self._dtype
+
+    @property
+    def force_list(self):
+        """
+        If `self.forces` is a tuple,
+        `self.force_list` is a tuple
+        containg a cell list for each force
+        in the tuple. Else, `self.force_list`
+        is just a single force list. In either case,
+        forces associated to "ghost" particles
+        are set to 0.
+
+        When `self.forces` is an `ndarray` of shape `(r, k, N)`
+        (batched forces), `self.force_list` has shape
+        `(r, k, num_nonempty_cells * cell_size)` and can be
+        indexed as `force_list[:, :, jj]` to retrieve all
+        batch/channel values for the particle at list position `jj`.
+
+        Read-only.
+        """
+        return self._force_list
+
+    @property
+    def particle_index(self):
+        """
+        Integer array such that the value of index `i` is the
+        index of the particle at `self.particle_list[i]` in the
+        origional array. If `-1`, then `self.particle_list[i]` is
+        a 'ghost particle' and should be ignored. Read-only.
+        """
+        return self._particle_index
+
+    @property
+    def skip_empty_cells(self):
+        """
+        Boolean flag to skip empty cells in particle (and force) cell list.
+        Read-only.
+        """
+        return self._skip_empty_cells
+
+    @property
+    def periodicity(self):
+        """
+        Integer 0–3 specifying which axes have periodic boundary conditions.
+        0 = none, 1 = x, 2 = x+y, 3 = x+y+z. Read-only.
+        """
+        return self._periodicity
+
+    @property
+    def particle_list(self):
+        """
+        Particle cell list. Read-only.
+        """
+        return self._particle_list
+
+    @property
+    def nonempty_cell_index(self):
+        """
+        Array of size `num_cells` whoes value at
+        index `i`, if nonnegative, corresponds to
+        the nonempty cell index. If the value at
+        index `i` is negative, cell `i` is empty.
+        If `self.skip_empty_cells==False`, then
+        every cell is treated as nonempty hence
+        `self.nonempty_cell_index==self.am.arange(self.num_cells)`.
+        Read-only.
+        """
+        return self._nonempty_cell_index
+
+    @property
+    def num_nonempty_cells(self):
+        """
+        The number of nonempty cells.
+        If `self.skip_empty_cells==False`,
+        then `self.num_nonempty_cells=self.num_cells`.
+        Read-only.
+        """
+        return self._num_nonempty_cells
+
+    @property
+    def nonempty_cells(self):
+        """
+        Array of the nonzero indices of `self.counter`.
+        Given an nonempty cell index `j`,
+        `self.nonempty_cells[j]` returns `i`, the global
+        cell index.
+        If `self.skip_empty_cells==False`,
+        then `self.num_nonempty_cells=np.arange(self.num_cells)`,
+        i.e., nonempty and global cell indices are the same.
+        Read-only.
+        """
+        return self._nonempty_cells
+
+    @property
+    def nonempty_neighbors(self):
+        """
+        Return an array of shape `(self.num_cells, 27)`
+        such that given a (global) cell index `i`,
+        return the (nonempty) cell indices of it's 27
+        neighboring cells.
+        Read-only
+        """
+        return self._nonempty_neighbors
+
+    @property
+    def cell_size(self):
+        """
+        Size of each cell. Read-only.
+        """
+        return self._cell_size
+
+    @property
+    def counter(self):
+        """
+        An array of size `n` containing the number of particles per cell,
+        where `n` is the number of particles.
+        Read-only.
+        """
+        return self._counter
+
+    @property
+    def cell_grid_shape(self):
+        """
+        The shape of the cell grid, i.e.,
+        the total number of cells in each
+        direction. Read-only.
+        """
+        return self._cell_grid_shape
+
+    @property
+    def num_cells(self):
+        """
+        The total number of cells. Read-only.
+        """
+        return self._num_cells
+
+    @property
+    def particles(self):
+        """
+        The particle array used by this module. Read-only.
+        """
+        return self._particles
+
+    @property
+    def cutoff(self):
+        """
+        The cell list cutoff radius. Read-only.
+        """
+        return self._cutoff
+
+    @property
+    def box(self):
+        """
+        The computational box side lengths. Read-only.
+        """
+        return self._box
+
+    @property
+    def forces(self):
+        """
+        List of forces for each particle. Read-only.
+        """
+        return self._forces
+
+    @property
+    def execution_space(self):
+        """
+        PyKokkos execution space. Read-only.
+        """
+        return self._execution_space
+
+    @property
+    def am(self):
+        """
+        Array module (NumPy/CuPu). Determined via `self.execution_space`. Read-only.
+        """
+        return self._am
+
+    def _create_nonempty_neighbors(self):
+        """
+        For each (global) cell index, create a list of the
+        nonempty cell index of the 27 3d neighbors.
+
+        Axes with periodic boundary conditions (governed by `self.periodicity`)
+        wrap neighbor coordinates with modulo arithmetic instead of discarding
+        out-of-bounds neighbors.  Axes without periodicity still discard
+        neighbors that fall outside the grid (value stays -1).
+
+        periodicity=0: no wrapping (original behaviour)
+        periodicity=1: wrap x axis only
+        periodicity=2: wrap x and y axes
+        periodicity=3: wrap x, y, and z axes
+        """
+        # periodic_axes[i] is True when axis i wraps
+        periodic_axes = [self.periodicity >= (i + 1) for i in range(3)]  # [x, y, z]
+
+        neighbors = self.am.full((self.num_cells, 3, 3, 3), -1, dtype=self.am.int32)
+        nx, ny, nz = self.cell_grid_shape
+        cell = self.am.arange(self.num_cells)
+        cell_x = cell // (ny * nz)
+        cell_y = (cell // nz) % ny
+        cell_z = cell % nz
+        offsets = self.am.array([-1, 0, 1])
+        dx, dy, dz = self.am.meshgrid(offsets, offsets, offsets, indexing="ij")
+
+        # Raw (possibly out-of-bounds) neighbor coordinates
+        nx_ = cell_x[:, None, None, None] + dx
+        ny_ = cell_y[:, None, None, None] + dy
+        nz_ = cell_z[:, None, None, None] + dz
+
+        # Apply periodic wrapping per axis, or check in-bounds for non-periodic axes
+        if periodic_axes[0]:
+            nx_ = nx_ % nx
+            valid_x = self.am.ones(nx_.shape, dtype=bool)
+        else:
+            valid_x = (0 <= nx_) & (nx_ < nx)
+
+        if periodic_axes[1]:
+            ny_ = ny_ % ny
+            valid_y = self.am.ones(ny_.shape, dtype=bool)
+        else:
+            valid_y = (0 <= ny_) & (ny_ < ny)
+
+        if periodic_axes[2]:
+            nz_ = nz_ % nz
+            valid_z = self.am.ones(nz_.shape, dtype=bool)
+        else:
+            valid_z = (0 <= nz_) & (nz_ < nz)
+
+        valid = valid_x & valid_y & valid_z
+        neighbor_linear = nx_ * (ny * nz) + ny_ * nz + nz_
+
+        if (
+            not pk.is_host_execution_space(self.execution_space)
+            and self.am.cuda.runtime.is_hip
+        ):
+            warnings.warn(
+                "AMD ROCm (gfx942) detected. Falling back to CPU for 'unique' operation "
+                "to avoid GPU Scan kernel compilation errors (64-bit mask bug). "
+                "This may result in a slight performance overhead during setup.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            valid = valid.get()
+            neighbor_linear = neighbor_linear.get()
+            neighbors = neighbors.get()
+
+            neighbors[valid] = self.nonempty_cell_index[neighbor_linear[valid]].get()
+
+            neighbors = self.am.asarray(neighbors)
+        else:
+            neighbors[valid] = self.nonempty_cell_index[neighbor_linear[valid]]
+        self._nonempty_neighbors = neighbors.reshape(self.num_cells, 27)

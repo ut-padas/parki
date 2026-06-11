@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling >= 1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "parkipy"
+dynamic = ["version"]
+description = "Performance portable fast Ewald summation"
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+	"Environment :: GPU",
+	"Environment :: GPU :: NVIDIA CUDA",
+	"Intended Audience :: Science/Research",
+	"Operating System :: OS Independent",
+]
+licence = "Apache-2.0"
+license-files = ["LICEN[CS]E*"]
+authors = [
+	{name = "Gabriel Kosmacher"},
+	{name = "Ziyu Du"},
+	{name = "Joar Bagge"},
+	{name = "George Biros"},
+]
+
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.0",
+    "black=25.12.0",
+]
+
+[tool.hatch.version]
+path = "parkipy/__init__.py"

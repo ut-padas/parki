@@ -70,6 +70,7 @@ instance/
 
 # Sphinx documentation
 docs/_build/
+doc/source/reference/generated
 
 # PyBuilder
 .pybuilder/
@@ -205,3 +206,18 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Pickle
+*.pkl
+
+# external
+external/
+
+# PyKokkos
+pk_cpp/
+
+# vim
+*.swp
+
+# act
+artifacts

@@ -1,0 +1,40 @@
+name: Examples
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  run_examples:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+          python-version: ${{ matrix.python-version }}
+      - name: install
+        run: |
+          ENABLE_OPENMP=OFF bash  install.sh
+      - name: run examples
+        run: |
+          set -euo pipefail
+          echo "Running example scripts..."
+          while IFS= read -r f; do
+            echo "=============================="
+            echo "Running: $f"
+            python "$f"
+          done < <(find examples -type f -name "*.py")
