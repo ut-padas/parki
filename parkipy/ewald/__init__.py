@@ -30,13 +30,13 @@ single and double-layer potential in a fully periodic box on a GPU, you can call
 >>> dns = cp.vstack((dsl, ddl))
 >>> nrm = cp.random.rand(3, ns)
 >>> # Define Ewald Options
->>> options = parkipy.ewald.EwaldOptions(box=[1,1,1], periodicity=3, tolerance=1e-5, execution_space="Cuda")
+>>> options = parkipy.ewald.EwaldOptions(box=[1,1,1], periodicity=3, tolerance=1e-5, execution_space="Cuda", cell_size=224)
 >>> potential = parkipy.ewald.stokes_comb(trg, src, dns, nrm, options)
 
-Of course, detailed documentation of the Ewald kernels and options are given below.
+Detailed documentation of the Ewald kernels and options are given below.
 
 Ewald Kernel Gallery
-____________________
+--------------------
 
 .. autosummary::
    :toctree: generated/
@@ -57,7 +57,7 @@ Ewald Kernel Support
     PerfModel
 
 References
-__________
+----------
 
 .. [1] Bagge, J., & Tornberg, A.-K. (2023).
         Fast Ewald summation for Stokes flow with arbitrary periodicity.
@@ -83,4 +83,4 @@ from ._kernels import (
 from ._params import SEParams
 from ._perf import PerfModel
 
-__all__ = ["stokes_comb", "laplace"]
+__all__ = ["stokes_sl", "stokes_comb", "laplace", "EwaldOptions", "SEParams", "PerfModel"]
