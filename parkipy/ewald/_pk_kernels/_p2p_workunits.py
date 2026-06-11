@@ -5,7 +5,6 @@ import pykokkos as pk
 from typing import List
 
 
-
 @pk.classtype
 class Real3d_fp32:
     def __init__(self):
@@ -2664,5 +2663,3 @@ def p2p_stokes_comb_sm2d_fp64(
             )
             team_member.team_barrier()
             s_off += s_cell_chunk_size
-
-

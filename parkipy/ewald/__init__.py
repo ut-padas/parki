@@ -83,4 +83,11 @@ from ._kernels import (
 from ._params import SEParams
 from ._perf import PerfModel
 
-__all__ = ["stokes_sl", "stokes_comb", "laplace", "EwaldOptions", "SEParams", "PerfModel"]
+__all__ = [
+    "stokes_sl",
+    "stokes_comb",
+    "laplace",
+    "EwaldOptions",
+    "SEParams",
+    "PerfModel",
+]

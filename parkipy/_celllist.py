@@ -104,7 +104,10 @@ class CellList:
                 "particle array expected to lie in non-negative quadrant; negative entries where found"
             )
         if self.am.any(self.particles.max(axis=1) >= self.box):
-            raise ValueError(f"particle coordinates exceed box lengths {self.box}, "f"got maximum coordinates {self.particles.max(axis=1)}.")
+            raise ValueError(
+                f"particle coordinates exceed box lengths {self.box}, "
+                f"got maximum coordinates {self.particles.max(axis=1)}."
+            )
         self._forces = forces
         self._skip_empty_cells = skip_empty_cells
         if periodicity not in (0, 1, 2, 3):

@@ -4,7 +4,6 @@
 import pykokkos as pk
 
 
-
 @pk.classtype
 class Cell_fp32:
     def __init__(self):
@@ -3953,5 +3952,3 @@ def _basic_kaiser_poly_p14_fp64(x: pk.double, i: int) -> float:
             + z * (c3 + z * (c4 + z * (c5 + z * (c6 + z * (c7 + z * (c8 + z * c9))))))
         )
     )
-
-
