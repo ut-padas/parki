@@ -9,22 +9,22 @@ Distributed APIs are called from the host code and are executed on
 multi-node systems.
 
 Overview
----------
-The distributed APIs behave similarly to the single node counterparts,
-with the exception that input arrays are initialized locally on each device
-and programs are called with ``mpirun`` or similar specifications
-to launch multiple processes.
+--------
+The distributed APIs behave similarly to their single-device counterparts,
+with the exception that input arrays are initialised locally on each device
+and programs are launched with ``mpiexec`` or an equivalent MPI launcher to
+start multiple processes. Each rank owns a contiguous slab of the particle
+domain in the first periodic direction.
 
-========
+.. warning::
+   The distributed package currently only supports the ``'Cuda'`` execution
+   space for device calls.
+
 Contents
-========
+--------
 
-.. toctree::
-   :maxdepth: 2
-
-   Spectral Ewald Summation <routines.distributed.ewald.rst>
-
-.. warning:: Currently, the distributed package only supports the `'Cuda'` execution space for device calls.
+- :func:`gather_points` — collect distributed particle arrays onto rank 0
+- :ref:`parkipy.distributed.ewald <routines.distributed.ewald>` — distributed Ewald summation routines
 
 """
 
@@ -35,6 +35,8 @@ except ImportError as e:
 
 
 from ._utils import gather_points
+
+__all__ = ["gather_points"]
 
 
 def __getattr__(attr):

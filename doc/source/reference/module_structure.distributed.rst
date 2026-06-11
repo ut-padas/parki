@@ -10,6 +10,16 @@ capabilities for distributed systems.
 
 .. warning:: Currently, the distributed package only supports the `'Cuda'` execution space for device calls.
 
+
+Overview
+========
+The distributed APIs behave similarly to their single-device counterparts,
+with the exception that input arrays are initialised locally on each device
+and programs are launched with ``mpiexec`` or an equivalent MPI launcher to
+start multiple processes. Each rank owns a contiguous slab of the particle
+domain in the first periodic direction.
+
+
 Main namespaces
 ===============
 
