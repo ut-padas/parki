@@ -32,7 +32,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install sphinx pydata_sphinx_theme
+          python -m pip install --upgrade pip
+          pip install sphinx furo
+
+      - name: Install local package
+        run: |
+          pip install .
 
       - name: Build Sphinx documentation
         run: |
