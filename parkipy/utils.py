@@ -108,11 +108,13 @@ def get_execution_space(
         elif isinstance(execution_space, pk.ExecutionSpace):
             return execution_space
         else:
-            raise TypeError(f"""
+            raise TypeError(
+                f"""
                     `execution_space` expected to be of type
                     `str` or `pk.ExecutionSpace`, but is 
                     of type {type(execution_space)}
-                    """)
+                    """
+            )
 
 
 def get_array_module(

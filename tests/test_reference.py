@@ -150,19 +150,20 @@ def run(args, time_every_step=False, verbosity=0) -> None:
     trg = arr.copy()
 
     match args.kernel.upper():
-        case 'STOKES_COMB':
+        case "STOKES_COMB":
             dens_sl = am.random.randn(3, ns, dtype=dtype)
             dens_dl = am.random.randn(3, ns, dtype=dtype)
             dens = am.vstack((dens_sl, dens_dl))  # stack densities for ewald call
             normal = am.random.randn(3, ns, dtype=dtype)
-        case 'LAPLACE':
+        case "LAPLACE":
             charges = am.random.randn(ns).astype(dtype)
             charges -= am.mean(charges).astype(dtype)
             dens = charges
             normal = None
         case _:
-            raise NotImplementedError(f"kernel {args.kernel.upper()} not yet implemented.")
-
+            raise NotImplementedError(
+                f"kernel {args.kernel.upper()} not yet implemented."
+            )
 
     if verbosity >= 2:
         print("======Spectral Ewald Sum======")

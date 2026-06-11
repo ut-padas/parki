@@ -15,20 +15,23 @@ release = "0.0.1"
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
 extensions = [
-        "sphinx.ext.autodoc", 
-        "sphinx.ext.autosummary",
-        "sphinx.ext.napoleon",
-        #"sphinx.ext.linkcode",
+    "sphinx.ext.autodoc",
+    "sphinx.ext.autosummary",
+    "sphinx.ext.napoleon",
+    # "sphinx.ext.linkcode",
 ]
 autodoc_mock_imports = [
-    "pykokkos", "cupy",
-    "nvmath", "mpi4py",
+    "pykokkos",
+    "cupy",
+    "nvmath",
+    "mpi4py",
+    "kokkos",
 ]  # avoids crash for nonstandard module
-napoleon_numpy_docstring=True
+napoleon_numpy_docstring = True
 napoleon_custom_sections = [
     ("Post-Init Parameters", "params_style"),
 ]
-maximum_signature_line_length=68
+maximum_signature_line_length = 68
 
 templates_path = ["_templates"]
 exclude_patterns = []
@@ -41,11 +44,12 @@ html_theme = "furo"
 html_static_path = ["_static"]
 html_css_files = ["custom.css"]
 
+
 # -- Hook required by sphinx.ext.linkcode -----------------------------------
 def linkcode_resolve(domain, info):
-    if domain != 'py':
+    if domain != "py":
         return None
-    if not info['module']:
+    if not info["module"]:
         return None
-    filename = info['module'].replace('.', '/')
+    filename = info["module"].replace(".", "/")
     return "https://somesite/sourcerepo/%s.py" % filename
