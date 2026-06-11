@@ -316,22 +316,99 @@ class DistributedEwaldOptions(EwaldOptions):
 
 def stokes_sl(targets, sources, densities, options):
     r"""
-    Compute the Stokes single layer potential
+    Compute the distributed Stokes single-layer potential.
 
     .. math::
 
         \boldsymbol{u}(\boldsymbol{x}_i) = \sum_{j=1}^{N} \sum_{p \in P}
-        \left(\left( \frac{\boldsymbol{q}_j}{\lVert \boldsymbol{r}_{ij} \rVert}
-        +
-        \frac{\boldsymbol{r}_{ij}}{\lVert \boldsymbol{r}_{ij} \rVert^3}
-        (\boldsymbol{r}_{ij} \cdot \boldsymbol{q}_j)
-        \right)
-        + \left( \epsilon_{jlm} \frac{\boldsymbol{r}_m}{\|\boldsymbol{r}_{ij}\|^3}
-        \boldsymbol{q}_l \boldsymbol{n}_m \right) \right),
+        \left(
+            \frac{\boldsymbol{q}_j}{\lVert \boldsymbol{r}_{ij} \rVert}
+            +
+            \frac{\boldsymbol{r}_{ij} (\boldsymbol{r}_{ij} \cdot \boldsymbol{q}_j)}
+                 {\lVert \boldsymbol{r}_{ij} \rVert^3}
+        \right),
 
     where :math:`\boldsymbol{r}_{ij} = \boldsymbol{x}_i - \boldsymbol{y}_j`
     and :math:`P` is the specified periodicity.
 
+    The computation is distributed across MPI ranks. Each rank provides its
+    local slice of targets, sources, and densities. If
+    ``options.scatter == True`` (the default), particles are redistributed
+    across ranks via an all-to-all before the Ewald sum; set it to ``False``
+    if the particles are already slab-distributed.
+
+    .. warning::
+        Only ``periodicity=1`` is currently supported.
+
+    Parameters
+    ----------
+    targets : ndarray
+        Local target positions :math:`\boldsymbol{x}_i`, shape ``(3, nt_local)``
+        with default array ordering (``'C'`` for :mod:`cupy`).
+
+    sources : ndarray
+        Local source positions :math:`\boldsymbol{y}_j`, shape ``(3, ns_local)``
+        with default array ordering.
+
+    densities : ndarray
+        Single-layer density :math:`\boldsymbol{q}_j` at each local source
+        point, shape ``(3, ns_local)`` with default array ordering.
+
+    options : DistributedEwaldOptions
+        Dataclass specifying Ewald and distributed execution parameters.
+        See :class:`DistributedEwaldOptions`.
+
+    Returns
+    -------
+    potential : ndarray
+        Local Stokes single-layer potential at the (redistributed) target
+        points, shape ``(3, nt_local_out)``.
+
+    targets : ndarray
+        Redistributed target positions after the slab scatter, shape
+        ``(3, nt_local_out)``. Coordinates are in the global frame.
+
+    walltime : dict, optional
+        Per-stage wall-clock times (``'p2p'``, ``'p2g'``, ``'fft'``,
+        ``'cnv'``, ``'ifft'``, ``'g2p'``, and MPI communication stages).
+        Only returned if ``options.return_walltime == True``.
+
+    Raises
+    ------
+    NotImplementedError
+        If ``options.periodicity`` is not ``1``.
+
+    Notes
+    -----
+    Parameter selection based off [1]_.
+
+    References
+    ----------
+    .. [1] Bagge, J., & Tornberg, A.-K. (2023).
+        Fast Ewald summation for Stokes flow with arbitrary periodicity.
+        Journal of Computational Physics, 493, 112473.
+        https://doi.org/10.1016/j.jcp.2023.112473
+
+    Examples
+    --------
+    >>> from mpi4py import MPI
+    >>> import parkipy
+    >>> import numpy as np
+    >>> mpi_comm = MPI.COMM_WORLD
+    >>> size = mpi_comm.Get_size()
+    >>> am = parkipy.utils.get_array_module(
+    ...     parkipy.utils.get_execution_space("Cuda")
+    ... )
+    >>> box = [size, 1, 1]
+    >>> ns = nt = 10000
+    >>> src  = am.random.rand(3, ns) * am.array(box).reshape(3, 1)
+    >>> trg  = am.random.rand(3, nt) * am.array(box).reshape(3, 1)
+    >>> dens = am.random.randn(3, ns)
+    >>> options = parkipy.distributed.ewald.DistributedEwaldOptions(
+    ...     box=box, periodicity=1, tolerance=1e-4,
+    ...     execution_space="Cuda", cell_size=224,
+    ... )
+    >>> pot, trg_out = parkipy.distributed.ewald.stokes_sl(trg, src, dens, options)
     """
     args = [
         targets,
@@ -370,22 +447,129 @@ def stokes_sl(targets, sources, densities, options):
 
 def stokes_comb(*args, **kwargs):
     r"""
-    Compute the combined Stokes single and double layer potential
+    Compute the distributed combined Stokes single and double-layer potential.
 
     .. math::
 
         \boldsymbol{u}(\boldsymbol{x}_i) = \sum_{j=1}^{N} \sum_{p \in P}
-        \left(\left( \frac{\boldsymbol{q}_j}{\lVert \boldsymbol{r}_{ij} \rVert}
-        +
-        \frac{\boldsymbol{r}_{ij}}{\lVert \boldsymbol{r}_{ij} \rVert^3}
-        (\boldsymbol{r}_{ij} \cdot \boldsymbol{q}_j)
-        \right)
-        + \left( \epsilon_{jlm} \frac{\boldsymbol{r}_m}{\|\boldsymbol{r}_{ij}\|^3}
-        \boldsymbol{q}_l \boldsymbol{n}_m \right) \right),
+        \left(
+            \frac{\boldsymbol{q}_j}{\lVert \boldsymbol{r}_{ij} \rVert}
+            + \frac{\boldsymbol{r}_{ij} (\boldsymbol{r}_{ij} \cdot \boldsymbol{q}_j)}
+                   {\lVert \boldsymbol{r}_{ij} \rVert^3}
+            + \epsilon_{jlm}
+              \frac{(\boldsymbol{r}_{ij})_m}{\lVert \boldsymbol{r}_{ij} \rVert^3}
+              (\boldsymbol{q}_l)_{\text{DL}} (\boldsymbol{n}_j)_m
+        \right),
 
     where :math:`\boldsymbol{r}_{ij} = \boldsymbol{x}_i - \boldsymbol{y}_j`
     and :math:`P` is the specified periodicity.
 
+    .. note::
+        Unlike :func:`stokes_sl` and the single-device :func:`parkipy.ewald.stokes_comb`,
+        this function uses a **positional argument** calling convention — it does not
+        accept a :class:`DistributedEwaldOptions` object. Parameters are passed
+        directly as positional and keyword arguments to the underlying
+        :class:`EwaldKernel`.
+
+    .. warning::
+        Only ``periodicity=1`` is currently supported.
+
+    Parameters
+    ----------
+    trg : ndarray
+        Local target positions :math:`\boldsymbol{x}_i`, shape ``(3, nt_local)``
+        with default array ordering (``'C'`` for :mod:`cupy`).
+
+    src : ndarray
+        Local source positions :math:`\boldsymbol{y}_j`, shape ``(3, ns_local)``
+        with default array ordering.
+
+    dens : ndarray
+        Stacked density array of shape ``(6, ns_local)``, where ``dens[:3]``
+        is the single-layer density :math:`\boldsymbol{q}_j` and ``dens[3:]``
+        is the double-layer density.
+
+    norms : ndarray
+        Surface normal vectors at each source point, shape ``(3, ns_local)``
+        with default array ordering.
+
+    periodicity : int
+        Number of periodic spatial directions. Must be ``1``.
+
+    box : list[float]
+        Global computational box side lengths ``[Lx, Ly, Lz]``. The periodic
+        length ``Lx`` must be divisible by the number of MPI ranks.
+
+    tol : float
+        Tolerance for Ewald parameter selection.
+
+    execution_space : str
+        Kokkos execution space string, e.g. ``'Cuda'``.
+
+    rc : float, optional
+        Near-field cutoff radius. Either ``rc`` or ``cell_size`` must be
+        provided.
+
+    cell_size : int, optional
+        Near-field cell size. Used to compute ``rc`` if ``rc`` is not given.
+
+    time : bool, optional
+        If ``True``, return per-stage wall-clock times as a third output.
+        Default is ``False``.
+
+    Returns
+    -------
+    potential : ndarray
+        Local combined Stokes potential at the (redistributed) target points,
+        shape ``(3, nt_local_out)``.
+
+    targets : ndarray
+        Redistributed target positions after the slab scatter, shape
+        ``(3, nt_local_out)``. Coordinates are in the global frame.
+
+    walltime : dict, optional
+        Per-stage wall-clock times (``'p2p'``, ``'p2g'``, ``'fft'``,
+        ``'cnv'``, ``'ifft'``, ``'g2p'``, and MPI communication stages).
+        Only returned if ``time=True``.
+
+    Raises
+    ------
+    NotImplementedError
+        If ``periodicity`` is not ``1``.
+
+    Notes
+    -----
+    Parameter selection based off [1]_.
+
+    References
+    ----------
+    .. [1] Bagge, J., & Tornberg, A.-K. (2023).
+        Fast Ewald summation for Stokes flow with arbitrary periodicity.
+        Journal of Computational Physics, 493, 112473.
+        https://doi.org/10.1016/j.jcp.2023.112473
+
+    Examples
+    --------
+    >>> from mpi4py import MPI
+    >>> import parkipy
+    >>> import numpy as np
+    >>> mpi_comm = MPI.COMM_WORLD
+    >>> size = mpi_comm.Get_size()
+    >>> am = parkipy.utils.get_array_module(
+    ...     parkipy.utils.get_execution_space("Cuda")
+    ... )
+    >>> box = [size, 1, 1]
+    >>> ns = nt = 10000
+    >>> rc = np.ceil(ns / 224) ** (-1 / 3)
+    >>> src     = am.random.rand(3, ns) * am.array(box).reshape(3, 1)
+    >>> trg     = am.random.rand(3, nt) * am.array(box).reshape(3, 1)
+    >>> dens_sl = am.random.randn(3, ns)
+    >>> dens_dl = am.random.randn(3, ns)
+    >>> norms   = am.random.randn(3, ns)
+    >>> dens    = am.vstack((dens_sl, dens_dl))
+    >>> pot, trg_out, timing = parkipy.distributed.ewald.stokes_comb(
+    ...     trg, src, dens, norms, 1, box, 1e-4, "Cuda", rc=rc, time=True,
+    ... )
     """
 
     pot = EwaldKernel(
