@@ -19,7 +19,7 @@
 +------+'      +------+       +------+       +------+      `+------+
 
 ```
-The ParKI library provides a python API, ParkiPy, supporting a `CellList` class for local-particle interactions, the `ewald` module for computing Ewald summations of the Stokes and Laplace kernels in arbitrary periodicities, and the `distributed.ewald` module for computing Ewald summation in a slab distributed box.
+The ParKI library provides a python API, ParkiPy, supporting a `CellList` class for local-particle interactions, the `ewald` module for computing Ewald summations of the Stokes and Laplace kernels in arbitrary periodicities, and the `distributed.ewald` module for computing Ewald summations in a slab-distributed box.
 
 
 ## Supported Kernels
@@ -33,8 +33,8 @@ The ParKI library provides a python API, ParkiPy, supporting a `CellList` class 
 
 # Installing ParkiPy
 
-We provide the installation script `install.sh` builds a conda environment 
-and performs a native install of PyKokkos based off specified enviornment
+We provide the installation script `install.sh` which builds a conda environment 
+and performs a native install of PyKokkos based on specified environment
 variables, listed below:
  
 | flag           | default | description                              |
@@ -47,27 +47,27 @@ variables, listed below:
 
 Once the environment variables are set, install with `bash install.sh` 
 
-## Multi-GPU instillation
+## Multi-GPU installation
 Our tests use `hpcx` and `nvhpc-hpcx-cuda12/25.5`
 for CUDA and MPI libraries.
 
-Parkipy replies on `mpi4py` for internode communication
+ParkiPy relies on `mpi4py` for internode communication
 and `nvmath-python v8.0` for distributed FFTs.
 
-We the packages with pip:
+We recommend installing these packages with pip:
 ```
 CC=gcc CXX=g++ CFLAGS="" CXXFLAGS="" pip install mpi4py --no-cache-dir --no-binary :all:
 pip install nvmath-python
 ```
 
 # Example
-Consider the discritized Stokes single-layer potential
+Consider the discretized Stokes single-layer potential
 ```math
-u(x_i) = \sum_{j=1}^{N_s} \left( \frac{I}{\|x_i-y_j\|} + \frac{\|x_i-y_j\| \ocross \|x_i-y_j\| }{\|x_i-y_j\|^3} \right) f(y_j)
+u(x_i) = \sum_{j=1}^{N_s} \left( \frac{I}{\|x_i-y_j\|} + \frac{(x_i-y_j) \otimes (x_i-y_j) }{\|x_i-y_j\|^3} \right) f(y_j)
 ```
 with fully periodic boundary conditions.
 
-Solving $u(x_i)$ is easy with ParKI:
+Computing $u(x_i)$ is easy with ParKI:
 
 ```python
 import cupy as cp     # numpy also supported
@@ -89,7 +89,7 @@ options = parkipy.ewald.EwaldOptions(
     execution_space="CUDA",
 )
 
-# solve for the potential
+# compute the potential
 u = parkipy.ewald.stokes_sl(x, y, f, options)
 ```
 
@@ -117,26 +117,26 @@ u = parkipy.ewald.stokes_sl(x, y, f, options)
 │       └── templates
 └── tests                   # Unit tests
 ```
-The Parki repository contains 6 subdirectories:
+The ParKI repository contains 6 subdirectories:
 * **analysis**: performance analysis scripts for package methods.
 * **doc**: rst files used by sphinx to generate package documentation.
 * **examples**: common use cases for different APIs.
-* **external**: a dummy repository for an external install of pykokkos via the `install.sh` script.
+* **external**: a placeholder directory for an external install of pykokkos via the `install.sh` script.
 * **parkipy**: python source code; defines the `parkipy` namespace as well as the `parkipy.ewald` and `parkipy.distributed` submodules. 
-	+ PyKokkos kernels are defined in the `_pk_kernels` subdirectories. The kernels are computed just-in-time and cached in an auto-generated `pk_cpp/` repository. 
+	+ PyKokkos kernels are defined in the `_pk_kernels` subdirectories. The kernels are compiled just-in-time and cached in an auto-generated `pk_cpp/` repository. 
 * **tests**: python unit tests; run with `pytest tests`.
 
 # Reproducing/Generating Performance Results
 ## Tables
 * **Table 1** (millicycles): follow steps in `analysis/cycle_counts/README.md`
 * **Table 3** (P2P models): run `analysis/ewald/analyze_p2p_performance_models.py` 
-* **Table 5** (P2P/G2P models): run `analysis/ewald/analyze_p2g_performance_models.py` and `analysis/ewald/analyze_g2p_performance_models.py` 
+* **Table 5** (P2G/G2P models): run `analysis/ewald/analyze_p2g_performance_models.py` and `analysis/ewald/analyze_g2p_performance_models.py` 
 * **Table 6** (P2P methods): run `analysis/ewald/analyze_p2p_methods.py` 
 * **Table 7** (P2G methods): run `analysis/ewald/analyze_p2g_methods.py`
 * **Table 8** (G2P methods): run `analysis/ewald/analyze_g2p_methods.py`
-* **Table 9** (non-uniformoty): run `analysis/ewald/analyze_particle_distributions.py`
+* **Table 9** (non-uniformity): run `analysis/ewald/analyze_particle_distributions.py`
 * **Table 10** (float precision): run `analysis/ewald/analyze_dtypes.py`
-* **Table 11** (mult-gpu Ewald): run `analysis/distributed/analyze_ewald_mpi.py`
+* **Table 11** (multi-GPU Ewald): run `analysis/distributed/analyze_ewald_mpi.py`
 
 ## Figures
 * **Figure 4** (erf(x)/x): follow steps in `analysis/cycle_counts/README.md`
@@ -147,18 +147,13 @@ The Parki repository contains 6 subdirectories:
 * **Figure 9** (Ewald portability): run `analysis/ewald/analyze_ewald_portability.py`
 
 # Building the Docs
-Install `conda install -c conda-forge sphinx furo`.
-Make `cd docs; make html`.
-Viewed by opening `doc/build/html/index.html`
-
-# Building the Docs
 
 To build the documentation locally, first install Sphinx and the required Furo theme:
 ```bash
 conda install -c conda-forge sphinx furo
 ```
 
-Then, navigate to the `doc` directory and compile the HTML pages:
+Then, navigate to the `doc` directory and build the HTML documentation:
 ```bash
 cd doc
 make html
