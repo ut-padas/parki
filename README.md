@@ -160,3 +160,17 @@ make html
 ```
 
 Once the build completes, you can view the documentation by opening `doc/build/html/index.html` in your web browser.
+
+# Citing this repository
+If you have used our Ewald sums in a research project, please cite
+```
+@misc{kosmacher2026performanceportablefastewald,
+      title={A performance portable fast Ewald summation for Stokes flow}, 
+      author={Gabriel Kosmacher and Ziyu Du and Joar Bagge and George Biros},
+      year={2026},
+      eprint={2606.19059},
+      archivePrefix={arXiv},
+      primaryClass={math.NA},
+      url={https://arxiv.org/abs/2606.19059}, 
+}
+```
