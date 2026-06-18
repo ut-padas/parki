@@ -1,0 +1,53 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: parki
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Gabriel
+    family-names: Kosmacher
+    orcid: 'https://orcid.org/0000-0002-6368-0563'
+  - given-names: Ziyu
+    family-names: Du
+    orcid: 'https://orcid.org/0009-0006-2737-4012'
+  - given-names: Joar
+    family-names: Bagge
+    orcid: 'https://orcid.org/0000-0002-6953-8058'
+  - given-names: George
+    family-names: Biros
+    affiliation: The University of Texas at Austin
+identifiers:
+  - type: other
+    value: ' arXiv:2606.19059'
+    description: The ArXiv preprint of the paper
+repository-code: 'https://github.com/ut-padas/parki'
+url: 'https://ut-padas.github.io/parki/'
+abstract: Parallel Ewald sums on CPUs and GPUs.
+license: MIT
+version: 0.0.1
+date-released: '2026-06-18'
+preferred-citation:
+  type: article
+  authors:
+  - given-names: Gabriel
+    family-names: Kosmacher
+    orcid: 'https://orcid.org/0000-0002-6368-0563'
+  - given-names: Ziyu
+    family-names: Du
+    orcid: 'https://orcid.org/0009-0006-2737-4012'
+  - given-names: Joar
+    family-names: Bagge
+    orcid: 'https://orcid.org/0000-0002-6953-8058'
+  - given-names: George
+    family-names: Biros
+    affiliation: The University of Texas at Austin
+  doi: 10.48550/arXiv.2606.19059
+  url: https://arxiv.org/abs/2606.19059
+  journal: arXiv
+  collection-type: "preprint"
+  title: A performance portable fast Ewald summation for Stokes flow
+  year: 2026
