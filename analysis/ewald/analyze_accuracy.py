@@ -138,8 +138,8 @@ def main(args):
         caption=rf"Maximum component-wise $L_2$ self-convergence error for $N={float_format(N)[1:-1]}$ particles with $s={s}$ for different kernels and tolerances; "
         rf"$\#\mathcal{{P}}$ is the number of dimensions with periodic tessellations; "
         "P is the Poisson kernel, SL is the Stokeslet, DL is the Stresslet. "
-        "Particles, densities, and normal vectors are sampled from a uniform distribution."
-        rf"Reference solution has tolerance {float_format(ref_tol)}.",
+        "Particles, densities, and normal vectors are sampled from a uniform distribution. "
+        rf"Reference solution has tolerance {float_format(ref_tol)}. ",
         label="t:accuracy",
         position_float="centering",
         hrules=True,
