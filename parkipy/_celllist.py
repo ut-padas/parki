@@ -149,16 +149,13 @@ class CellList:
             )
 
         # count particles in cells
-        self._cell_grid_shape = self.am.array(
-            [int(self.box[i] / self.cutoff) for i in range(3)], dtype=self.am.int32
-        )
-        _grid_shape = self.am.asarray(self.cell_grid_shape)
-        self._num_cells = int(_grid_shape.prod())
+        self._cell_grid_shape = (self.box / self.cutoff).astype(self.am.int32)
+        self._num_cells = int(self.cell_grid_shape.prod())
         self._counter = self.am.zeros(shape=self.num_cells, dtype=self.am.int32)
-        cell_shape = self.box / _grid_shape
+        cell_shape = self.box / self.cell_grid_shape
         cell_x, cell_y, cell_z = (particles.T // cell_shape).T
         cell = (
-            cell_x * _grid_shape[1:].prod() + cell_y * _grid_shape[2] + cell_z
+            cell_x * self.cell_grid_shape[1:].prod() + cell_y * self.cell_grid_shape[2] + cell_z
         ).astype(self.am.int32)
 
         if (
