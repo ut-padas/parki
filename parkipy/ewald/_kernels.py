@@ -330,8 +330,9 @@ class EwaldOptions:
     tolerance: float
         Tolerance for Ewald summation. Used to set internal Ewald parameters.
 
-    execution_space: `pykokkos.ExecutionSpace` | {'CUDA', 'HIP', 'OPENMP'}
+    execution_space: `pykokkos.ExecutionSpace` | {'CUDA', 'HIP', 'OPENMP'}, optional
         Device for the Kokkos backend. May be pykokkos execution space type or a string.
+        Defaults to the default PyKokkos execution space.
 
     p2p_method: {'GM-1D', 'GM-2D', 'SM-1D', 'SM-2D'} , optional
         The algorithmic method for `p2p`,
@@ -402,9 +403,9 @@ class EwaldOptions:
     box: List[float]
     periodicity: Literal[0, 1, 2, 3]
     tolerance: float
-    execution_space: Union[pk.ExecutionSpace, Literal["CUDA", "HIP", "OPENMP"]]
 
     # default arguments
+    execution_space: Union[pk.ExecutionSpace, Literal["CUDA", "HIP", "OPENMP"]] = None
     p2p_method: Literal["GM-1D", "GM-2D", "SM-1D", "SM-2D"] = "GM-1D"
     p2g_method: Literal["BASE", "SOURCE", "GRID", "HYBRID"] = "HYBRID"
     g2p_method: Literal["BASE", "TARGET"] = "TARGET"
