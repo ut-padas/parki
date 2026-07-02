@@ -44,6 +44,7 @@ class CellList:
         padding_factor=1,
         skip_empty_cells=True,
         periodicity=0,
+        build_nonempty_neighbors=True,
     ):
         """
         Creates a new CellList object.
@@ -72,6 +73,7 @@ class CellList:
             - `periodicity`: Integer 0–3 specifying periodic boundary conditions.
               0 = no periodicity, 1 = periodic in x only, 2 = periodic in x and y,
               3 = periodic in x, y, and z. Defaults to 0.
+            - `build_nonempty_neighbors`: Boolean flag to build nonempty neighbor list
 
         Cell lists are of size `self.num_nonempty_cells * self.cell_size`,
         where the *nonempty* cell index ranges the slowest and the particles
@@ -99,11 +101,12 @@ class CellList:
                 f"got {self.cutoff} of type {type(cutoff)}"
             )
 
+        # check that particles are in-bounds
         if self.particles.min() < 0:
             raise ValueError(
                 "particle array expected to lie in non-negative quadrant; negative entries where found"
             )
-        if self.am.any(self.particles.max(axis=1) >= self.box):
+        if self.am.any(self.particles >= self.box[:, None]):
             raise ValueError(
                 f"particle coordinates exceed box lengths {self.box}, "
                 f"got maximum coordinates {self.particles.max(axis=1)}."
@@ -148,35 +151,23 @@ class CellList:
             )
 
         # count particles in cells
-        self._cell_grid_shape = self.am.array(
-            [int(self.box[i] / self.cutoff) for i in range(3)], dtype=self.am.int32
-        )
-        _grid_shape = self.am.asarray(self.cell_grid_shape)
-        self._num_cells = int(_grid_shape.prod())
+        self._cell_grid_shape = (self.box / self.cutoff).astype(self.am.int32)
+        self._num_cells = int(self.cell_grid_shape.prod())
         self._counter = self.am.zeros(shape=self.num_cells, dtype=self.am.int32)
-        cell_shape = self.box / _grid_shape
-        cell_x, cell_y, cell_z = (particles.T // cell_shape).T
+        cell_shape = self.box / self.cell_grid_shape
+        cell_x, cell_y, cell_z = particles // cell_shape[:, None]
         cell = (
-            cell_x * _grid_shape[1:].prod() + cell_y * _grid_shape[2] + cell_z
+            cell_x * self.cell_grid_shape[1:].prod()
+            + cell_y * self.cell_grid_shape[2]
+            + cell_z
         ).astype(self.am.int32)
 
-        if (
-            not pk.is_host_execution_space(self.execution_space)
-            and self.am.cuda.runtime.is_hip
-        ):
-            warnings.warn(
-                "AMD ROCm (gfx942) detected. Falling back to CPU for 'unique' operation "
-                "to avoid GPU Scan kernel compilation errors (64-bit mask bug). "
-                "This may result in a slight performance overhead during setup.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-            nonempty_cells, cell_sizes = np.unique(cell.get(), return_counts=True)
-            nonempty_cells = self.am.asarray(nonempty_cells)
-            cell_sizes = self.am.asarray(cell_sizes)
-        else:
-            nonempty_cells, cell_sizes = self.am.unique(cell, return_counts=True)
-        self._counter[nonempty_cells] = cell_sizes
+        # bincount
+        self._counter = self.am.bincount(cell, minlength=self.num_cells).astype(
+            self.am.int32
+        )
+        nonempty_cells = self.am.nonzero(self._counter)[0].astype(self.am.int32)
+        cell_sizes = self._counter[nonempty_cells]
 
         # create lists
         max_cell_size = self.counter.max().item()
@@ -198,6 +189,8 @@ class CellList:
         self._particle_index = self.am.full(
             shape=list_len, fill_value=-1, dtype=self.am.int32
         )
+
+        # reshuffle particles
         self._counter[:] = 0
         pk.parallel_for(
             "reshuffle particles into cells",
@@ -288,8 +281,9 @@ class CellList:
                 f" or an `ndarray`, got {type(forces)}"
             )
 
-        # nonempty neighbors
-        self._create_nonempty_neighbors()
+        if build_nonempty_neighbors:
+            # nonempty neighbors
+            self._create_nonempty_neighbors()
 
     @property
     def dtype(self):
@@ -401,6 +395,10 @@ class CellList:
         neighboring cells.
         Read-only
         """
+        if self._nonempty_neighbors is None:
+            raise ValueError(
+                f"Nonempty neighbor list not built, please set `build_nonempty_neighbors=True` in `CellList` constructor."
+            )
         return self._nonempty_neighbors
 
     @property
