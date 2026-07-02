@@ -153,28 +153,19 @@ class CellList:
         self._num_cells = int(self.cell_grid_shape.prod())
         self._counter = self.am.zeros(shape=self.num_cells, dtype=self.am.int32)
         cell_shape = self.box / self.cell_grid_shape
-        cell_x, cell_y, cell_z = (particles.T // cell_shape).T
+        cell_x, cell_y, cell_z = particles // cell_shape[:, None]
         cell = (
-            cell_x * self.cell_grid_shape[1:].prod() + cell_y * self.cell_grid_shape[2] + cell_z
+            cell_x * self.cell_grid_shape[1:].prod()
+            + cell_y * self.cell_grid_shape[2]
+            + cell_z
         ).astype(self.am.int32)
 
-        if (
-            not pk.is_host_execution_space(self.execution_space)
-            and self.am.cuda.runtime.is_hip
-        ):
-            warnings.warn(
-                "AMD ROCm (gfx942) detected. Falling back to CPU for 'unique' operation "
-                "to avoid GPU Scan kernel compilation errors (64-bit mask bug). "
-                "This may result in a slight performance overhead during setup.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-            nonempty_cells, cell_sizes = np.unique(cell.get(), return_counts=True)
-            nonempty_cells = self.am.asarray(nonempty_cells)
-            cell_sizes = self.am.asarray(cell_sizes)
-        else:
-            nonempty_cells, cell_sizes = self.am.unique(cell, return_counts=True)
-        self._counter[nonempty_cells] = cell_sizes
+        # bincount
+        self._counter = self.am.bincount(cell, minlength=self.num_cells).astype(
+            self.am.int32
+        )
+        nonempty_cells = self.am.nonzero(self._counter)[0].astype(self.am.int32)
+        cell_sizes = self._counter[nonempty_cells]
 
         # create lists
         max_cell_size = self.counter.max().item()
