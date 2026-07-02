@@ -99,11 +99,12 @@ class CellList:
                 f"got {self.cutoff} of type {type(cutoff)}"
             )
 
+        # check that particles are in-bounds
         if self.particles.min() < 0:
             raise ValueError(
                 "particle array expected to lie in non-negative quadrant; negative entries where found"
             )
-        if self.am.any(self.particles.max(axis=1) >= self.box):
+        if self.am.any(self.particles >= self.box[:, None]):
             raise ValueError(
                 f"particle coordinates exceed box lengths {self.box}, "
                 f"got maximum coordinates {self.particles.max(axis=1)}."
