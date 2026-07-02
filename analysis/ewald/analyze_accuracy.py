@@ -41,7 +41,7 @@ def main(args):
     ref_tol = 1e-12
 
     # script constants
-    N = 4_000_000
+    N = 10_000
     s = 512
     box = [1, 1, 1]
 
