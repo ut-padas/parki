@@ -163,6 +163,9 @@ class PerfModel:
             + self.time_ifft["tot"]
             + self.time_g2p["tot"]
         )
+        self._time_cell_list = (
+            self.time_p2p["sort"] + self.time_p2g["sort"] + self.time_g2p["sort"]
+        )
 
         # count flop
         self._flop_p2p = self._count_flop_p2p(kernel, N_out, cell_size, device_name)
@@ -242,6 +245,7 @@ class PerfModel:
             "\n".join("    " + l for l in pprint.pformat(self.time_g2p).splitlines())
         )
         lines.append(f"  TOTAL: {self.time_ewald}")
+        lines.append(f"  SORT%: {self.time_cell_list/self.time_ewald*100:.1f}")
 
         lines.append("\n\n")
         lines.append(f"{BOLD}Ewald Cost Model{RESET}")
@@ -359,6 +363,14 @@ class PerfModel:
         Read-only
         """
         return self._time_ewald
+
+    @property
+    def time_cell_list(self):
+        """
+        Execution time for cell list sorting.
+        Read-only
+        """
+        return self._time_cell_list
 
     @property
     def flop_p2p(self):
