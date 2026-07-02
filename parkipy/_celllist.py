@@ -44,6 +44,7 @@ class CellList:
         padding_factor=1,
         skip_empty_cells=True,
         periodicity=0,
+        build_nonempty_neighbors=True,
     ):
         """
         Creates a new CellList object.
@@ -72,6 +73,7 @@ class CellList:
             - `periodicity`: Integer 0–3 specifying periodic boundary conditions.
               0 = no periodicity, 1 = periodic in x only, 2 = periodic in x and y,
               3 = periodic in x, y, and z. Defaults to 0.
+            - `build_nonempty_neighbors`: Boolean flag to build nonempty neighbor list
 
         Cell lists are of size `self.num_nonempty_cells * self.cell_size`,
         where the *nonempty* cell index ranges the slowest and the particles
@@ -187,6 +189,8 @@ class CellList:
         self._particle_index = self.am.full(
             shape=list_len, fill_value=-1, dtype=self.am.int32
         )
+
+        # reshuffle particles
         self._counter[:] = 0
         pk.parallel_for(
             "reshuffle particles into cells",
@@ -277,8 +281,9 @@ class CellList:
                 f" or an `ndarray`, got {type(forces)}"
             )
 
-        # nonempty neighbors
-        self._create_nonempty_neighbors()
+        if build_nonempty_neighbors:
+            # nonempty neighbors
+            self._create_nonempty_neighbors()
 
     @property
     def dtype(self):
@@ -390,6 +395,10 @@ class CellList:
         neighboring cells.
         Read-only
         """
+        if self._nonempty_neighbors is None:
+            raise ValueError(
+                f"Nonempty neighbor list not built, please set `build_nonempty_neighbors=True` in `CellList` constructor."
+            )
         return self._nonempty_neighbors
 
     @property

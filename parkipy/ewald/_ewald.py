@@ -244,12 +244,14 @@ def p2p(
         device_pre.data.opt.ghost_box,
         execution_space=device_pre.execution_space,
         forces=forces,
+        build_nonempty_neighbors=False,
     )
     target_list = CellList(
         device_pre.data.targets,
         device_pre.data.opt.rc,
         device_pre.data.opt.ghost_box,
         execution_space=device_pre.execution_space,
+        build_nonempty_neighbors=False,
     )
     # call kokkos executable
     kernel_start = sort_end = time.time()
@@ -466,6 +468,7 @@ def p2g(
                 ),
                 execution_space=device_pre.execution_space,
                 forces=forces,
+                build_nonempty_neighbors=False,
             )
             cell_chunk_size: int = min(
                 source_list.cell_size, device_pre.p2g_max_cell_size
@@ -515,6 +518,7 @@ def p2g(
                 ),
                 execution_space=device_pre.execution_space,
                 forces=forces,
+                build_nonempty_neighbors=False,
             )
             cell_chunk_size: int = min(
                 source_list.cell_size, device_pre.p2g_max_cell_size
@@ -566,6 +570,7 @@ def p2g(
                 ),
                 execution_space=device_pre.execution_space,
                 forces=forces,
+                build_nonempty_neighbors=False,
             )
             cell_chunk_size: int = min(
                 source_list.cell_size, device_pre.p2g_max_cell_size
@@ -1322,6 +1327,7 @@ def g2p(device_pre, method="TARGET", threads=128):
                     device_pre.data.dtype
                 ),
                 execution_space=device_pre.execution_space,
+                build_nonempty_neighbors=False,
             )
             walltime["sort"] = time.time() - walltime["sort"]
 
