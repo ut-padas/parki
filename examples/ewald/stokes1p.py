@@ -35,6 +35,7 @@ def main(args):
         execution_space=args.device,
         return_walltime=True,
     )
+    __warmup__ = parkipy.ewald.stokes_comb(trg, src, dens, norms, options)
     pot, walltime = parkipy.ewald.stokes_comb(trg, src, dens, norms, options)
     print(walltime)
 

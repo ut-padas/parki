@@ -17,8 +17,7 @@ def main(args):
     tol = 1e-7
 
     # generate sources, targets, densities, and normals
-    nt = 100000
-    ns = 100000
+    ns = nt = args.N
     trg = am.random.rand(3, nt) * am.array(box).reshape(3, 1)
     src = am.random.rand(3, ns) * am.array(box).reshape(3, 1)
     # generate nutral charges
@@ -34,6 +33,7 @@ def main(args):
         cell_size=512,
         return_walltime=True,
     )
+    __warmup__ = parkipy.ewald.laplace(trg, src, charges, options)
     pot, walltime = parkipy.ewald.laplace(trg, src, charges, options)
     print(walltime)
 
@@ -48,6 +48,13 @@ if __name__ == "__main__":
         type=str,
         default="CUDA",
         help="Execution device.",
+    )
+    parser.add_argument(
+        "-N",
+        dest="N",
+        type=int,
+        default="100_000",
+        help="Number of particles.",
     )
     args = parser.parse_args()
     exit(main(args))
