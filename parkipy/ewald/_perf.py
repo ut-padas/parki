@@ -169,11 +169,11 @@ class PerfModel:
 
         # count flop
         self._flop_p2p = self.count_p2p_flops(kernel, N_out, cell_size, device_name)
-        self._flop_p2g = self._count_flop_p2g(kernel, N_in, window_P, device_name)
+        self._flop_p2g = self.count_p2g_flops(kernel, N_in, window_P, device_name)
         self._flop_fft = self._count_flop_fft(fft_dim, fft_shape)
         self._flop_cnv = self._count_flop_cnv(kernel, fft_shape, device_name)
         self._flop_ifft = self._count_flop_ifft(ifft_dim, fft_shape)
-        self._flop_g2p = self._count_flop_g2p(ifft_dim, N_out, window_P, device_name)
+        self._flop_g2p = self.count_g2p_flops(ifft_dim, N_out, window_P, device_name)
         self._flop_ewald = (
             self.flop_p2p
             + self.flop_p2g
@@ -528,7 +528,8 @@ class PerfModel:
         )
         return 27 * N_out * cell_size * (np.pi * (4 / 81) * C_p2p + C_dot)
 
-    def _count_flop_p2g(self, kernel, N_in, window_P, device_name):
+    @staticmethod
+    def count_p2g_flops(kernel, method, N_in, window_P, device_name):
         match kernel:
             case "stokes_sl":
                 C_p2g = (
@@ -549,7 +550,12 @@ class PerfModel:
                 raise NotImplementedError(
                     f"P2G flop model not implemented for {kernel} kernel"
                 )
-        return N_in * window_P**3 * C_p2g
+        if method == "GRID":
+            nu = min(window_P // 2 + 1, 9)  # polynomial degree
+            f = 27 * (window_P / 2) ** 3 * (C_p2g) + window_P**3 * 2 * nu
+        else:
+            f = N_in * window_P**3 * C_p2g
+        return f
 
     def _count_flop_fft(self, fft_dim, fft_shape):
         fft_size = np.array(fft_shape).prod()
@@ -606,7 +612,8 @@ class PerfModel:
         fft_size = np.array(fft_shape).prod()
         return 5 * ifft_dim * fft_size * np.log2(fft_size)
 
-    def _count_flop_g2p(self, ifft_dim, N_out, window_P, device_name):
+    @staticmethod
+    def count_g2p_flops(ifft_dim, N_out, window_P, device_name):
         return (
             N_out
             * window_P**3
