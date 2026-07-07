@@ -552,7 +552,7 @@ class PerfModel:
                 )
         if method.upper() == "GRID":
             nu = min(window_P // 2 + 1, 9)  # polynomial degree
-            f = 27 * (window_P / 2) ** 3 * (C_p2g) + window_P**3 * 2 * nu
+            f = N_in * (27 * (window_P // 2) ** 3 * (C_p2g) + window_P**3 * 2 * nu)
         else:
             f = N_in * window_P**3 * C_p2g
         return f
