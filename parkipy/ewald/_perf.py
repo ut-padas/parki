@@ -550,7 +550,7 @@ class PerfModel:
                 raise NotImplementedError(
                     f"P2G flop model not implemented for {kernel} kernel"
                 )
-        if method == "GRID":
+        if method.upper() == "GRID":
             nu = min(window_P // 2 + 1, 9)  # polynomial degree
             f = 27 * (window_P / 2) ** 3 * (C_p2g) + window_P**3 * 2 * nu
         else:
