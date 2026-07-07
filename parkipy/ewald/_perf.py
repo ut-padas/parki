@@ -168,7 +168,7 @@ class PerfModel:
         )
 
         # count flop
-        self._flop_p2p = self._count_flop_p2p(kernel, N_out, cell_size, device_name)
+        self._flop_p2p = self.count_p2p_flops(kernel, N_out, cell_size, device_name)
         self._flop_p2g = self._count_flop_p2g(kernel, N_in, window_P, device_name)
         self._flop_fft = self._count_flop_fft(fft_dim, fft_shape)
         self._flop_cnv = self._count_flop_cnv(kernel, fft_shape, device_name)
@@ -484,7 +484,8 @@ class PerfModel:
         """
         return self._mop_ewald
 
-    def _count_flop_p2p(self, kernel, N_out, cell_size, device_name):
+    @staticmethod
+    def count_p2p_flops(kernel, N_out, cell_size, device_name):
         C_stokes_ewald = (
             14 * OPERATION_CONSTANTS[device_name]["fadd"]
             + 1 * OPERATION_CONSTANTS[device_name]["frsqrt"]
@@ -520,7 +521,12 @@ class PerfModel:
                 raise NotImplementedError(
                     f"P2P flop model not implemented for {kernel} kernel"
                 )
-        return 27 * N_out * cell_size * np.pi / 6.0 * C_p2p
+        # cost of checking if the point is in bounds, kernel independent
+        C_dot = (
+            6 * OPERATION_CONSTANTS[device_name]["fadd"]
+            + 3 * OPERATION_CONSTANTS[device_name]["fmul"]
+        )
+        return 27 * N_out * cell_size * (np.pi * (4 / 81) * C_p2p + C_dot)
 
     def _count_flop_p2g(self, kernel, N_in, window_P, device_name):
         match kernel:
