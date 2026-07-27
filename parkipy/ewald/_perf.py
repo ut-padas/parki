@@ -1,5 +1,6 @@
 import pprint
 import warnings
+import platform
 import numpy as np
 from pykokkos.interface import is_host_execution_space
 
@@ -115,6 +116,7 @@ class PerfModel:
         cnv_time,
         ifft_time,
         g2p_time,
+        p2g_method,
         kernel,
         N_out,
         N_in,
@@ -129,11 +131,14 @@ class PerfModel:
         dtype,
         execution_space,
     ):
-        device_name = None
+        # get the device name
         if not is_host_execution_space(execution_space):
             import cupy as cp
 
             device_name = cp.cuda.runtime.getDeviceProperties(0)["name"].decode()
+        else:
+            device_name = platform.platform()
+
         if device_name not in OPERATION_CONSTANTS.keys():
             warnings.warn(
                 f"flop constants for device {device_name} not implemented, "
@@ -169,7 +174,7 @@ class PerfModel:
 
         # count flop
         self._flop_p2p = self.count_p2p_flops(kernel, N_out, cell_size, device_name)
-        self._flop_p2g = self.count_p2g_flops(kernel, N_in, window_P, device_name)
+        self._flop_p2g = self.count_p2g_flops(kernel, p2g_method, N_in, window_P, device_name)
         self._flop_fft = self._count_flop_fft(fft_dim, fft_shape)
         self._flop_cnv = self._count_flop_cnv(kernel, fft_shape, device_name)
         self._flop_ifft = self._count_flop_ifft(ifft_dim, fft_shape)

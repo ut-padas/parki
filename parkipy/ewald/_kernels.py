@@ -261,6 +261,7 @@ class EwaldKernel:
                 cnv_time=walltime["cnv"],
                 ifft_time=walltime["ifft"],
                 g2p_time=walltime["g2p"],
+                p2g_method=p2g_method,
                 kernel=self.kernel,
                 N_out=N_out,
                 N_in=N_in,
