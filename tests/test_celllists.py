@@ -235,3 +235,60 @@ def test_celllist_batched(Nx=773, Ny=312, box=[1, 1, 1], cutoff=0.1, r=3, k=2):
     u_cl = cell_list_batched(x, y, q, cutoff, box)
 
     np.testing.assert_allclose(u_cl, u_ref, rtol=1e-13, atol=1e-26)
+
+
+def test_nearest_neighbor(N=5, box=[1, 1, 1], cutoff=0.1):
+    """
+    Test the nearest neighbors to points within a cell-list.
+
+    If no neighbor is found within the cutoff, ensure that
+    the returned distance is None and the returned index is None.
+    """
+
+    # Dataset fits snugly within the box
+    # to test edge cases
+    dataset = (
+        np.stack(
+            np.meshgrid(
+                *[np.linspace(2 * cutoff, box[i] - 2 * cutoff, N) for i in range(3)]
+            ),
+            axis=-1,
+        )
+        .reshape(-1, 3)
+        .T
+    )
+
+    # Queries tile the whole box
+    queries = (
+        np.stack(
+            np.meshgrid(*[np.linspace(0, box[i], N, endpoint=False) for i in range(3)]),
+            axis=-1,
+        )
+        .reshape(-1, 3)
+        .T
+    )
+
+    # get reference nearest neighbor
+    distances = np.full(queries.shape[-1], fill_value=np.inf)
+    indices = np.full(queries.shape[-1], fill_value=-1, dtype=np.int32)
+    for qi, q in enumerate(queries.T):
+        for xi, x in enumerate(dataset.T):
+            r = np.linalg.norm(q - x)
+            if r < cutoff and r < distances[qi]:
+                distances[qi] = r
+                indices[qi] = xi
+
+    # get cell list nearest neighbor
+    # NOTE: for now, cell lists must have the same cutoff
+    d_list = parkipy.CellList(dataset, cutoff, box, execution_space="CPU")
+    q_list = parkipy.CellList(queries, cutoff, box, execution_space="CPU")
+
+    dist, indx = d_list.nearest(q_list)
+
+    # check the arrays
+    np.testing.assert_allclose(
+        desired=distances, actual=dist, err_msg="distances are incorrect :("
+    )
+    np.testing.assert_equal(
+        desired=indices, actual=indx, err_msg="indices are incorrect :("
+    )

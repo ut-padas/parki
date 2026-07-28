@@ -7,6 +7,70 @@ import pykokkos as pk
 
 
 @pk.workunit
+def get_nearest_neighbors(
+    team_member: pk.TeamMember,
+    # output
+    distances,
+    indices,
+    # input
+    queries_cell_index,
+    queries_index,
+    queries_cell_size,
+    queries_list,
+    dataset_list,
+    dataset_index,
+    dataset_cell_size,
+    dataset_nonempty_neighbors,
+    cutoff,
+):
+
+    # query cell to investigate
+    cell: int = queries_cell_index[team_member.league_rank()]
+    coff: int = team_member.league_rank() * queries_cell_size
+
+    def thread_loop(qid: int):
+        # each thread is a query in the cell
+        qidx: int = queries_index[coff + qid]
+        if qidx < 0:
+            return
+
+        q0: float = queries_list[0][coff + qid]
+        q1: float = queries_list[1][coff + qid]
+        q2: float = queries_list[2][coff + qid]
+
+        bestdist: float = distances[qidx]
+        bestidx: int = indices[qidx]
+
+        for k in range(27):
+            neighboring_cell: int = dataset_nonempty_neighbors[cell][k]
+            if neighboring_cell < 0:
+                continue
+            doff: int = neighboring_cell * dataset_cell_size
+
+            for did in range(doff, doff + dataset_cell_size):
+                didx: int = dataset_index[did]
+                if didx < 0:
+                    continue
+
+                rx: float = q0 - dataset_list[0][did]
+                ry: float = q1 - dataset_list[1][did]
+                rz: float = q2 - dataset_list[2][did]
+                r2: float = rx * rx + ry * ry + rz * rz
+
+                if r2 < (cutoff * cutoff) and r2 < (bestdist * bestdist):
+                    bestdist = sqrt(r2)
+                    bestidx = didx
+
+        # store best values
+        distances[qidx] = bestdist
+        indices[qidx] = bestidx
+        return
+
+    pk.parallel_for(pk.TeamThreadRange(team_member, queries_cell_size), thread_loop)
+    return
+
+
+@pk.workunit
 def get_nonempty_neighbors(
     cell: int,
     grid_area,

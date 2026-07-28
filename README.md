@@ -1,4 +1,5 @@
 # ParKI
+[![DOI](https://zenodo.org/badge/1098692951.svg)](https://doi.org/10.5281/zenodo.21415320)
 ```
          ____                 __  __   ______
         /\  _`\              /\ \/\ \ /\__  _\
