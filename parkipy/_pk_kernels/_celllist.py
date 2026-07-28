@@ -26,6 +26,8 @@ def get_nearest_neighbors(
     dataset_cell_size,
     dataset_nonempty_neighbors,
     cutoff,
+    box,
+    periodicity,
 ):
 
     # query cell to investigate
@@ -59,6 +61,14 @@ def get_nearest_neighbors(
                 rx: float = q0 - dataset_list[0][did]
                 ry: float = q1 - dataset_list[1][did]
                 rz: float = q2 - dataset_list[2][did]
+
+                if periodicity >= 1:
+                    rx = rx - box[0] * round(rx / box[0])
+                if periodicity >= 2:
+                    ry = ry - box[1] * round(ry / box[1])
+                if periodicity >= 3:
+                    rz = rz - box[2] * round(rz / box[2])
+
                 r2: float = rx * rx + ry * ry + rz * rz
 
                 if r2 < (cutoff * cutoff) and r2 < (bestdist * bestdist):

@@ -101,6 +101,10 @@ class CellList:
                 f"cutoff expected to be a float between {(0, self.box.min())}, "
                 f"got {self.cutoff} of type {type(cutoff)}"
             )
+        if self.cutoff > min(box) / 2:
+            raise ValueError(
+                f"cutoff {self.cutoff} must be smaller than min(box)/2 {min(box)/2} for minimum image convention to hold"
+            )
 
         # check that particles are in-bounds
         if self.particles.min() < 0:
@@ -605,6 +609,8 @@ class CellList:
             "dataset_index": self.particle_index,
             "dataset_cell_size": self.cell_size,
             "dataset_nonempty_neighbors": self.nonempty_neighbors,
+            "box": self.box,
+            "periodicity": self.periodicity,
         }
         pk.parallel_for(
             "Cell List Nearest Neighbors", policy, get_nearest_neighbors, **kwargs
