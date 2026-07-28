@@ -586,6 +586,8 @@ class CellList:
             raise ValueError(
                 "Queries must have the same execution space as the dataset"
             )
+        if queries.periodicity != self.periodicity:
+            raise ValueError("Queries must have the same periodicity as the dataset")
 
         # initialize arrays
         distances = np.full(
