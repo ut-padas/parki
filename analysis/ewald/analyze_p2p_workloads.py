@@ -71,13 +71,14 @@ OPERATION_CONSTANTS = {
 
 
 def p2p_cnt_flop(op_cons, kernel, Nt, s):
+    volume_frac = np.pi * (4.0 / 81.0)
     match kernel.upper():
         case "DISTANCE":
             flops = 27 * Nt * s * (4 * op_cons["fadd"] + 3 * op_cons["fadd"])
         case "LAPLACE / EWALD":
             flops = 27 * Nt * s * (
                 op_cons["fmul"] + op_cons["frsqrt"]
-            ) * np.pi / 6 + 27 * Nt * s * (4 * op_cons["fadd"] + 4 + op_cons["fmul"])
+            ) * volume_frac + 27 * Nt * s * (4 * op_cons["fadd"] + 4 + op_cons["fmul"])
         case "STOKES_SL / EWALD":
             flops = 27 * Nt * s * (
                 4
@@ -85,7 +86,7 @@ def p2p_cnt_flop(op_cons, kernel, Nt, s):
                 + 9 * op_cons["fadd"]
                 + op_cons["frsqrt"]
                 + op_cons["fdiv"]
-            ) * np.pi / 6 + 27 * Nt * s * (4 * op_cons["fadd"] + 4 + op_cons["fmul"])
+            ) * volume_frac + 27 * Nt * s * (4 * op_cons["fadd"] + 4 + op_cons["fmul"])
         case "STOKES_COMB":
             flops = 27 * Nt * s * (
                 37 * op_cons["fmul"]
@@ -95,7 +96,7 @@ def p2p_cnt_flop(op_cons, kernel, Nt, s):
                 + op_cons["fdiv"]
                 + op_cons["fexpn"]
                 + op_cons["ferf"]
-            ) * np.pi / 6 + 27 * Nt * s * (4 * op_cons["fadd"] + 4 + op_cons["fmul"])
+            ) * volume_frac + 27 * Nt * s * (4 * op_cons["fadd"] + 4 + op_cons["fmul"])
         case _:
             raise ValueError(f"performance model for {kernel.upper()} does not exist")
 
