@@ -166,7 +166,22 @@ class CellList:
         self._counter = self.am.bincount(cell, minlength=self.num_cells).astype(
             self.am.int32
         )
-        nonempty_cells = self.am.nonzero(self._counter)[0].astype(self.am.int32)
+        if (
+            not pk.is_host_execution_space(self.execution_space)
+            and self.am.cuda.runtime.is_hip
+        ):
+            warnings.warn(
+                "AMD ROCm (gfx942) detected. Falling back to CPU for 'unique' operation "
+                "to avoid GPU Scan kernel compilation errors (64-bit mask bug). "
+                "This may result in a slight performance overhead during setup.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            _counter = self._counter.get()
+            nonempty_cells = self.am.asarray(np.nonzero(_counter)[0].astype(self.am.int32))
+        else:
+            nonempty_cells = self.am.nonzero(self._counter)[0].astype(self.am.int32)
+
         cell_sizes = self._counter[nonempty_cells]
 
         # create lists
