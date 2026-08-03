@@ -160,17 +160,13 @@ class PerfModel:
         self._time_cnv = cnv_time
         self._time_ifft = ifft_time
         self._time_g2p = g2p_time
-        self._time_ewald = (
-            self.time_p2p["tot"]
-            + self.time_p2g["tot"]
-            + self.time_fft["tot"]
-            + self.time_cnv["tot"]
-            + self.time_ifft["tot"]
-            + self.time_g2p["tot"]
-        )
-        self._time_cell_list = (
-            self.time_p2p["sort"] + self.time_p2g["sort"] + self.time_g2p["sort"]
-        )
+        self._time_ewald = 0
+        self._time_cell_list = 0
+        for time in [self.time_p2p, self.time_p2g, self.time_fft, self.time_cnv, self.time_ifft, self.time_g2p]:
+            if time is not None:
+                self._time_ewald += time["tot"]
+                if "sort" in time.keys():
+                    self._time_cell_list += time["sort"]
 
         # count flop
         self._flop_p2p = self.count_p2p_flops(kernel, N_out, cell_size, device_name)

@@ -181,6 +181,7 @@ def run(args, time_every_step=False, verbosity=0) -> None:
         p2p_method=args.method,
         p2p_threads_x=args.threads_x,
         p2p_threads_y=args.threads_y,
+        exclude_far_field=True,
     )
     pot, walltime, params = parkipy.ewald.stokes_comb(trg, src, dens, norms, options)
     runtimes = {"p2p": walltime.time_p2p["kernel"]}

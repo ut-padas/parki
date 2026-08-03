@@ -128,6 +128,7 @@ class EwaldKernel:
         return_walltime=False,
         return_params=False,
         fft_type="R2C",
+        exclude_far_field=False,
     ):
         """
         Evaluate the kernel using direct evaluation.
@@ -222,6 +223,7 @@ class EwaldKernel:
             periodicity=periodicity,
             execution_space=execution_space,
             fft_type=fft_type,
+            kill_fourier_grid=exclude_far_field,
         )
         # algorithm
         walltime = {}
@@ -231,20 +233,21 @@ class EwaldKernel:
             threads_x=p2p_threads_x,
             threads_y=p2p_threads_y,
         )
-        walltime["p2g"] = p2g(
-            device_pre,
-            method=p2g_method,
-            threads=p2g_threads,
-        )
-        walltime["fft"] = fft(device_pre, options)
-        walltime["cnv"] = cnv(device_pre)
-        walltime["ifft"] = ifft(device_pre, options)
-        device_pre.data.communicate_ghost_grid_cells()
-        walltime["g2p"] = g2p(
-            device_pre,
-            method=g2p_method,
-            threads=g2p_threads,
-        )
+        if exclude_far_field is False:
+            walltime["p2g"] = p2g(
+                device_pre,
+                method=p2g_method,
+                threads=p2g_threads,
+            )
+            walltime["fft"] = fft(device_pre, options)
+            walltime["cnv"] = cnv(device_pre)
+            walltime["ifft"] = ifft(device_pre, options)
+            device_pre.data.communicate_ghost_grid_cells()
+            walltime["g2p"] = g2p(
+                device_pre,
+                method=g2p_method,
+                threads=g2p_threads,
+            )
         val = device_pre.near_potential + device_pre.far_potential
         val = val.squeeze()
         shape = self.get_shape_out(device_pre.data.targets.shape[-1])
@@ -256,11 +259,11 @@ class EwaldKernel:
         if return_walltime:
             perf = PerfModel(
                 p2p_time=walltime["p2p"],
-                p2g_time=walltime["p2g"],
-                fft_time=walltime["fft"],
-                cnv_time=walltime["cnv"],
-                ifft_time=walltime["ifft"],
-                g2p_time=walltime["g2p"],
+                p2g_time=walltime["p2g"] if not exclude_far_field else None,
+                fft_time=walltime["fft"] if not exclude_far_field else None,
+                cnv_time=walltime["cnv"] if not exclude_far_field else None,
+                ifft_time=walltime["ifft"] if not exclude_far_field else None,
+                g2p_time=walltime["g2p"] if not exclude_far_field else None,
                 p2g_method=p2g_method,
                 kernel=self.kernel,
                 N_out=N_out,
@@ -327,6 +330,11 @@ class EwaldOptions:
         Periodicity of the computational box. Periodicity ``j``
         means that ``box[j:]`` represents periodic dimensions
         and ``box[:j]`` represents free space.
+
+    exclude_far_field: bool, optional
+        Only compute the P2P (i.e., near-field) interactions
+        for a given kernel. Defaults to `False` 
+        (i.e., defaults to computing far-field interactions) 
 
     tolerance: float
         Tolerance for Ewald summation. Used to set internal Ewald parameters.
@@ -420,6 +428,7 @@ class EwaldOptions:
     rc: float | None = None
     return_walltime: bool = False
     return_params: bool = False
+    exclude_far_field: bool = False
 
     def __post_init__(self):
         if not isinstance(self.box, list) and not isinstance(self.box, np.ndarray):
