@@ -4,6 +4,8 @@ import argparse
 import numpy as np
 import pykokkos as pk
 import pickle
+import platform
+import re
 
 import parkipy
 
@@ -129,7 +131,13 @@ def save_times_to_disk(nt, repeats, times, params, args):
 
         arch = cp.cuda.Device(0).compute_capability
     else:
-        arch = None
+        if platform.system() == "Linux":
+            with open("/proc/cpuinfo") as f:
+                cpuinfo = f.read()
+            match = re.search(r"model name\s*:\s*(.+)", cpuinfo)
+            arch = match.group(1).strip().replace(" ", "_").replace("-", "_")
+        else:
+            raise NotImplementedError
 
     fname_base = (
         f"p2p_timing_result_up{args.up}"
