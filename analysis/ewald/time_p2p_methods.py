@@ -100,9 +100,18 @@ def main(args):
 
                             # store params (replace A_fun with None to make picklable)
                             if nt not in all_params[key][method][cell_size][tol]:
+                                if not pk.is_host_execution_space(execution_space):
+                                    import cupy
+
+                                    numpy_params = {
+                                        k: (v.get() if isinstance(v, cupy.ndarray) else v)
+                                        for k, v in params.__dict__.items()
+                                    }
+                                else:
+                                    numpy_params = params.__dict__
                                 all_params[key][method][cell_size][tol][
                                     nt
-                                ] = params.__dict__
+                                ] = numpy_params
                                 all_params[key][method][cell_size][tol][nt][
                                     "A_fun"
                                 ] = None  # turn off A fun to make pickleable
