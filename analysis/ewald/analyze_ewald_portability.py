@@ -222,7 +222,7 @@ def main(args):
                             eff_str,
                             ha="center",
                             va="center",  # center horizontally and vertically
-                            fontsize=10,
+                            fontsize=12,
                             color="black",
                             fontweight="bold",
                         )
@@ -257,6 +257,12 @@ def main(args):
                 x_labels.append(f"${nt_mantissa} \\times 10^{{{nt_exponent}}}$")
             ax.set_xticks(range(len(nt_list)))
             ax.set_xticklabels(x_labels, rotation=0, fontsize=tick_size)
+
+            y_labels = []
+            for y in ax.get_yticks():
+                y_labels.append(round(y,2))
+            ax.set_yticklabels(y_labels, fontsize=tick_size, rotation=0)
+            ax.legend(title="Device", fontsize=14, loc="upper left")
 
             if p == 0:
                 ax.yaxis.set_major_locator(ticker.MultipleLocator(0.05))
