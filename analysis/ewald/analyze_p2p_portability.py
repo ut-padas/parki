@@ -4,110 +4,13 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import pickle
+from parkipy.ewald import PerfModel
 
 plt.rc("font", family="serif")
 import shutil
 
 if shutil.which("latex") is not None:
     plt.rc("text", usetex=True)
-
-
-DEVICE_CONSTANTS = {
-    "a100": {
-        "bandwidth": 1555,
-        "gflops": 9.7e3,
-        "bandwidth shmem": 20e3,
-        "intensity": 9.7e3 / 1555,
-        "peak flops": 9.7e3 * 1e9,
-        "peak band": 1555 * 1e9,
-    },
-    "h200": {
-        "bandwidth": 4000,
-        "gflops": 33.5e3,
-        "bandwidth shmem": np.inf,
-        "intensity": 33.5e3 / 4000,
-        "peak flops": 33.5e3 * 1e9,
-        "peak band": 4000 * 1e9,
-    },
-    "mi300a": {
-        "bandwidth": 5300,
-        "gflops": 61.3e3,
-        "bandwidth shmem": np.inf,
-        "intensity": 61.3e3 / 5300,
-        "peak flops": 61.3e3 * 1e9,
-        "peak band": 5300 * 1e9,
-    },
-    "grace": {
-        "bandwidth": 1000 / 2,
-        "gflops": 7.1e3 / 2,
-        "bandwidth shmem": np.inf,
-        "intensity": 7.1e3 / 1000,
-        "peak flops": 7.1e3 * 1e9 / 2,
-        "peak band": 1000 * 1e9 / 2,
-    },
-    "epyc": {
-        "bandwidth": 204.8 * 2,
-        "gflops": 5e3,
-        "bandwidth shmem": np.inf,
-        "intensity": 5e3 / (204.8 * 2),
-        "peak flops": 5e3 * 1e9 / 2,
-        "peak band": 204.8 * 2 * 1e9 / 2,
-    },
-}
-
-
-OPERATION_CONSTANTS = {
-    "a100": {
-        "fadd": 2,
-        "fmul": 2,
-        "fsqrt": 29,
-        "frsqrt": 19,
-        "fdiv": 24,
-        "fexpn": 45,
-        "fsinh": 150,
-        "ferf": 86,
-    },
-    "h200": {
-        "fadd": 2,
-        "fmul": 2,
-        "fsqrt": 41,
-        "frsqrt": 30,
-        "fdiv": 35,
-        "fexpn": 50,
-        "fsinh": 361,
-        "ferf": 155,
-    },
-    "mi300a": {
-        "fadd": 2,
-        "fmul": 2,
-        "fsqrt": 41,
-        "frsqrt": 30,
-        "fdiv": 35,
-        "fexpn": 50,
-        "fsinh": 361,
-        "ferf": 155,
-    },
-    "grace": {
-        "fadd": 2,
-        "fmul": 2,
-        "fsqrt": 41,
-        "frsqrt": 30,
-        "fdiv": 35,
-        "fexpn": 50,
-        "fsinh": 361,
-        "ferf": 155,
-    },
-    "epyc": {
-        "fadd": 2,
-        "fmul": 2,
-        "fsqrt": 41,
-        "frsqrt": 30,
-        "fdiv": 35,
-        "fexpn": 50,
-        "fsinh": 361,
-        "ferf": 155,
-    },
-}
 
 
 def p2p_cnt_flop(op_cons, Nt, s):
@@ -173,7 +76,7 @@ def p2p_efficiency(dev, arch, method, time, nt, s, bt, bs, dp=True, both=False):
         if arch == 80:
             dev_name = "a100"
         elif arch == 90:
-            dev_name = "h200"
+            dev_name = "NVIDIA GH200 120GB"
         else:
             raise ValueError(f"Unknown architecture {arch}")
     elif dev.upper() == "HIP":
@@ -182,37 +85,40 @@ def p2p_efficiency(dev, arch, method, time, nt, s, bt, bs, dp=True, both=False):
         else:
             raise ValueError(f"Unknown architecture {arch}")
     elif dev.upper() == "HOST":
-        if arch == 0:
+        if arch == "Neoverse_V2":
             dev_name = "grace"
-        elif arch == 1:
+        elif arch == "AMD_EPYC_7763_64_Core_Processor":
             dev_name = "epyc"
         else:
             raise ValueError(f"Unknown architecture {arch}")
     else:
         raise ValueError(f"Unknown device {dev}")
 
-    dev_cons = DEVICE_CONSTANTS[dev_name]
-    op_cons = OPERATION_CONSTANTS[dev_name]
     string = ""
 
     p2p = {}
-    p2p["flop"] = p2p_cnt_flop(op_cons, nt, s)
-    p2p["mop"] = p2p_cnt_mop(dev_cons, method, nt, s, bt, bs, dp)
-    p2p["intense"] = p2p_cnt_intns(op_cons, dev_cons, method, nt, s, bt, bs, dp)
+    print("flops")
+    p2p["flop"] = PerfModel.count_p2p_flops("stokes_comb", nt, s, dev_name)
+    print("mops")
+    p2p["mop"] = PerfModel.count_p2p_mops("stokes_comb", method, nt, s, 8)
+    print("indensity")
+    p2p["intense"] = p2p["flop"] / p2p["mop"]
 
     print(
         f"method: {method} \tp2p_intensity: {p2p['intense']:.3f}",
         f"p2p_flops: {p2p['flop']}, p2g_mops: {p2p['mop']}",
     )
-    if p2p["intense"] > dev_cons["intensity"]:
-        string = f"${p2p['flop']/dev_cons['peak flops']/time:.0%}$ (flops)"
+    if p2p["intense"] > PerfModel.device_intensity(dev_name):
+        string = (
+            f"${p2p['flop']/PerfModel.device_throughput(dev_name)/time:.0%}$ (flops)"
+        )
     else:
-        string = f"${p2p['mop']/dev_cons['peak band']/time:.0%}$ (mops)"
+        string = f"${p2p['mop']/PerfModel.device_bandwidth(dev_name)/time:.0%}$ (mops)"
     string = string.replace("%", "\\%")
     if both:
-        string_flops = f"${p2p['flop']/dev_cons['peak flops']/time:.0%}$"
+        string_flops = f"${p2p['flop']/PerfModel.device_throughput(dev_name)/time:.0%}$"
         string_flops = string_flops.replace("%", "\\%")
-        string_mops = f"${p2p['mop']/dev_cons['peak band']/time:.0%}$"
+        string_mops = f"${p2p['mop']/PerfModel.device_bandwidth(dev_name)/time:.0%}$"
         string_mops = string_mops.replace("%", "\\%")
         string = [string_flops, string_mops]
     return string
@@ -226,8 +132,8 @@ def get_time_eff_dicts(args, Variant, Cell_size, Tol):
         ("CUDA", 90),
         ("HIP", 94),
         ("CUDA", 80),
-        ("HOST", 0),
-        ("HOST", 1),
+        ("HOST", "Neoverse_V2"),
+        ("HOST", "AMD_EPYC_7763_64_Core_Processor"),
     ]:
         args.device = device
         args.arch = arch
@@ -292,8 +198,8 @@ def main(args):
         "CUDA80": "A100",
         "CUDA90": "H200",
         "HIP94": "MI300A",
-        "HOST0": "Grace",
-        "HOST1": "Epyc",
+        "HOSTNeoverse_V2": "Grace",
+        "HOSTAMD_EPYC_7763_64_Core_Processor": "Epyc",
     }
     colors = [
         "#a6cd57",  # light green
@@ -421,6 +327,7 @@ def main(args):
     fname = f"p2p_portability_plot_cell{args.cell_size}_method{'_'.join(args.p2p_methods)}.pdf"
     fpath = os.path.join(args.output_dir, fname)
     plt.savefig(fpath, format="pdf", bbox_inches="tight")
+    print(f"plot saved to {fpath}")
 
 
 def load_times_from_disk(args, timestamp="latest", version=1):
@@ -438,6 +345,14 @@ def load_times_from_disk(args, timestamp="latest", version=1):
             + f"\n please run 'analysis/ewald/time_p2p_methods.py' "
             + f"on a {args.device} arch {args.arch} device "
             + "with proper flags to generate the file"
+        )
+    except ModuleNotFoundError as e:
+        raise ModuleNotFoundError(
+            str(e)
+            + "\nAn old pickle was saved storing cupy data, "
+            + f"\n please run 'analysis/ewald/time_p2p_methods.py' "
+            + f"on a {args.device} arch {args.arch} device "
+            + "to generate an updated numpy-only pickle"
         )
     return data_dict
 

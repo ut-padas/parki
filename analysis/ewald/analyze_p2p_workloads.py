@@ -313,7 +313,7 @@ def main(args):
     fig, axs = plt.subplots(
         1,
         len(args.p2p_methods),
-        figsize=(10 * len(args.p2p_methods), 5),
+        figsize=(10 * len(args.p2p_methods), 4),
         sharey=True,
         sharex=True,
     )
@@ -420,6 +420,7 @@ def main(args):
     fname = f"p2p_workload_plot_dev{dev_name}_method{'_'.join(args.p2p_methods)}.pdf"
     fpath = os.path.join(args.output_dir, fname)
     plt.savefig(fpath, format="pdf", bbox_inches="tight")
+    print(f"Saving figure to {fpath}")
     # plt.show()
 
 
@@ -503,7 +504,7 @@ if __name__ == "__main__":
         "--nt", dest="nt", type=int, default=1000000, help="number of target points."
     )
     parser.add_argument(
-        "--ylim", dest="ylim", default=2.85e8, help="matplotlib ylim for graph"
+        "--ylim", dest="ylim", default=3.00e8, help="matplotlib ylim for graph"
     )
 
     args = parser.parse_args()

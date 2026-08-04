@@ -106,7 +106,11 @@ def main(args):
                                     import cupy
 
                                     numpy_params = {
-                                        k: (v.get() if isinstance(v, cupy.ndarray) else v)
+                                        k: (
+                                            v.get()
+                                            if isinstance(v, cupy.ndarray)
+                                            else v
+                                        )
                                         for k, v in params.__dict__.items()
                                     }
                                 else:
