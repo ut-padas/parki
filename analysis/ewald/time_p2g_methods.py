@@ -17,7 +17,10 @@ def main(args):
     execution_space = parkipy.utils.get_execution_space(args.device)
     nt_list = [250000, 1000000, 4000000]
     _tols_s_ = [(1e-1, 160), (1e-4, 224), (1e-12, 1008)]
-    threads = [32, 64, 128, 256, 512]
+    if pk.is_host_execution_space(execution_space):
+        threads = [1]
+    else:
+        threads = [32, 64, 128, 256, 512]
     methods = ["BASE", "SOURCE", "GRID", "HYBRID"]
     repeats = 3
     all_times = dict()
