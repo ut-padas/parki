@@ -178,7 +178,9 @@ class CellList:
                 stacklevel=2,
             )
             _counter = self._counter.get()
-            nonempty_cells = self.am.asarray(np.nonzero(_counter)[0].astype(self.am.int32))
+            nonempty_cells = self.am.asarray(
+                np.nonzero(_counter)[0].astype(self.am.int32)
+            )
         else:
             nonempty_cells = self.am.nonzero(self._counter)[0].astype(self.am.int32)
 

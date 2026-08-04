@@ -333,8 +333,8 @@ class EwaldOptions:
 
     exclude_far_field: bool, optional
         Only compute the P2P (i.e., near-field) interactions
-        for a given kernel. Defaults to `False` 
-        (i.e., defaults to computing far-field interactions) 
+        for a given kernel. Defaults to `False`
+        (i.e., defaults to computing far-field interactions)
 
     tolerance: float
         Tolerance for Ewald summation. Used to set internal Ewald parameters.
