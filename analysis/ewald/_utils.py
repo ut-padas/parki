@@ -228,6 +228,7 @@ def p2g_efficiency(dev, arch, method, time, ns, P, fs_cell_size, dp_flag):
 
 
 def p2p_cnt_flop(op_cons, Nt, s):
+    volume_frac = 4.0 / 81.0
 
     flops = 27 * Nt * s * (
         37 * op_cons["fmul"]
@@ -237,7 +238,7 @@ def p2p_cnt_flop(op_cons, Nt, s):
         + op_cons["fdiv"]
         + op_cons["fexpn"]
         + op_cons["ferf"]
-    ) * np.pi / 6 + 27 * Nt * s * (4 * op_cons["fadd"] + 4 + op_cons["fmul"])
+    ) * np.pi * volume_frac + 27 * Nt * s * (4 * op_cons["fadd"] + 4 + op_cons["fmul"])
 
     return flops
 
