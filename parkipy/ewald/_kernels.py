@@ -264,6 +264,7 @@ class EwaldKernel:
                 cnv_time=walltime["cnv"] if not exclude_far_field else None,
                 ifft_time=walltime["ifft"] if not exclude_far_field else None,
                 g2p_time=walltime["g2p"] if not exclude_far_field else None,
+                p2p_method=p2p_method,
                 p2g_method=p2g_method,
                 kernel=self.kernel,
                 N_out=N_out,

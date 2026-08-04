@@ -257,8 +257,8 @@ class PerfModel:
         N_fft = np.array(fft_shape).prod()
         d_fft = fft_dim
         d_ifft = ifft_dim
-        self._mop_p2p = self._count_p2p_mops(
-            kernel, p2p_method, N_out, s, dtype.itemsize
+        self._mop_p2p = self.count_p2p_mops(
+            kernel, p2p_method, N_out, cell_size, dtype.itemsize
         )
         self._mop_p2g = self._count_mop_p2g(N_in, d_in, N_fft, d_fft, dtype.itemsize)
         self._mop_fft = self._count_mop_fft(N_fft, d_fft, 2 * dtype.itemsize)
