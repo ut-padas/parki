@@ -84,18 +84,12 @@ def main(args):
                                 import cupy
 
                                 numpy_params = {
-                                    k: (
-                                        v.get()
-                                        if isinstance(v, cupy.ndarray)
-                                        else v
-                                    )
+                                    k: (v.get() if isinstance(v, cupy.ndarray) else v)
                                     for k, v in params.__dict__.items()
                                 }
                             else:
                                 numpy_params = params.__dict__
-                            all_params[key][method][cell_size][tol][
-                                nt
-                            ] = numpy_params
+                            all_params[key][method][cell_size][tol][nt] = numpy_params
 
                             all_params[key][method][cell_size][tol][nt][
                                 "A_fun"
