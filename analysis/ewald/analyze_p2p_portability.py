@@ -5,9 +5,12 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import pickle
 
-# # Configure matplotlib to use LaTeX for text rendering and save plots as SVG
-# plt.rc("text", usetex=True)
-# plt.rc("font", family="serif")
+plt.rc("font", family="serif")
+import shutil
+
+if shutil.which("latex") is not None:
+    plt.rc("text", usetex=True)
+
 
 DEVICE_CONSTANTS = {
     "a100": {

@@ -72,6 +72,7 @@ OPERATION_CONSTANTS = {
 
 def p2p_cnt_flop(op_cons, kernel, Nt, s):
     volume_frac = np.pi * (4.0 / 81.0)
+    # volume_frac = np.pi * (1 / 6)
     match kernel.upper():
         case "DISTANCE":
             flops = 27 * Nt * s * (4 * op_cons["fadd"] + 3 * op_cons["fadd"])
@@ -312,7 +313,7 @@ def main(args):
     fig, axs = plt.subplots(
         1,
         len(args.p2p_methods),
-        figsize=(10 * len(args.p2p_methods), 4),
+        figsize=(10 * len(args.p2p_methods), 5),
         sharey=True,
         sharex=True,
     )
