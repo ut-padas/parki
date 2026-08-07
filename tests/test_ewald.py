@@ -2,7 +2,20 @@ import time
 import argparse
 import pytest
 import numpy as np
+import pykokkos as pk
 import parkipy
+
+GPU_AVAILABLE = pk.kokkos_manager.get_gpu_framework() is not None
+
+DEVICE_PARAMS = [
+    "CPU",
+    pytest.param(
+        "GPU",
+        marks=pytest.mark.skipif(
+            not GPU_AVAILABLE, reason="no GPU framework available"
+        ),
+    ),
+]
 
 
 @pytest.mark.parametrize(
@@ -19,7 +32,7 @@ import parkipy
     ],
 )
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
-@pytest.mark.parametrize("device", ["CPU", "GPU"])
+@pytest.mark.parametrize("device", DEVICE_PARAMS)
 def test_self_convergence(kernel, periodicity, dtype, device):
     """
     run self convergence test on all supported kernels
@@ -33,7 +46,7 @@ def test_self_convergence(kernel, periodicity, dtype, device):
 
 @pytest.mark.parametrize("p2p_method", ["GM-1D", "GM-2D", "SM-1D", "SM-2D"])
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
-@pytest.mark.parametrize("device", ["CPU", "GPU"])
+@pytest.mark.parametrize("device", DEVICE_PARAMS)
 def test_p2p_stokes(p2p_method, device, dtype):
     """
     test different p2p methods for the 1-per stokes solver
@@ -43,7 +56,7 @@ def test_p2p_stokes(p2p_method, device, dtype):
 
 @pytest.mark.parametrize("p2g_method", ["BASE", "SOURCE", "GRID", "HYBRID"])
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
-@pytest.mark.parametrize("device", ["CPU", "GPU"])
+@pytest.mark.parametrize("device", DEVICE_PARAMS)
 def test_p2g_stokes(p2g_method, device, dtype):
     """
     test different p2g method for the 1-per stokes solver
@@ -53,7 +66,7 @@ def test_p2g_stokes(p2g_method, device, dtype):
 
 @pytest.mark.parametrize("g2p_method", ["BASE", "TARGET"])
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
-@pytest.mark.parametrize("device", ["CPU", "GPU"])
+@pytest.mark.parametrize("device", DEVICE_PARAMS)
 def test_g2p_stokes(g2p_method, device, dtype):
     """
     test different g2p methods for the 1-per stokes solver
