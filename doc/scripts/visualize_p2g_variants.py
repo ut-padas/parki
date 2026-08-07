@@ -473,10 +473,10 @@ def main(args):
     fig_hybrid, ax = input_driven([0, 1, 4, 3, 2], True, True)
 
     if args.save:
-        fig_base.savefig("p2g_base_viz.pgf", bbox_inches="tight")
-        fig_source.savefig("p2g_source_viz.pgf", bbox_inches="tight")
-        fig_grid.savefig("p2g_grid_viz.pgf", bbox_inches="tight")
-        fig_hybrid.savefig("p2g_hybrid_viz.pgf", bbox_inches="tight")
+        fig_base.savefig("p2g_base_viz.pdf", bbox_inches="tight")
+        fig_source.savefig("p2g_source_viz.pdf", bbox_inches="tight")
+        fig_grid.savefig("p2g_grid_viz.pdf", bbox_inches="tight")
+        fig_hybrid.savefig("p2g_hybrid_viz.pdf", bbox_inches="tight")
     else:
         plt.show()
 
