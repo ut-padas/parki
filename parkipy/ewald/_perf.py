@@ -704,7 +704,13 @@ class PerfModel:
         match kernel:
             case "stokes_comb":
                 d_out = 3
-                d_in = 12
+                d_in = 9
+            case "stokes_sl":
+                d_in = 3
+                d_out = 3
+            case "laplace":
+                d_in = 1
+                d_out = 1
             case _:
                 raise NotImplementedError(
                     f"P2P mop count not implemented for kernel {kernel}"
@@ -712,7 +718,7 @@ class PerfModel:
         match method.upper():
             case "GM-1D":
                 # forall x, x + 27*s(y+f(y)+q(y)+n(y)) + u
-                mop = N_out * (3 + 27 * cell_size * d_in + d_out) * real_bytes
+                mop = N_out * (3 + 27 * cell_size * (3 + d_in) + d_out) * real_bytes
             case _:
                 raise NotImplementedError(
                     f"P2P mop count not implemented for method {method}"
