@@ -101,10 +101,6 @@ class CellList:
                 f"cutoff expected to be a float between {(0, self.box.min())}, "
                 f"got {self.cutoff} of type {type(cutoff)}"
             )
-        if self.cutoff > min(box) / 2:
-            raise ValueError(
-                f"cutoff {self.cutoff} must be smaller than min(box)/2 {min(box)/2} for minimum image convention to hold"
-            )
 
         # check that particles are in-bounds
         if self.particles.min() < 0:
@@ -157,6 +153,13 @@ class CellList:
 
         # count particles in cells
         self._cell_grid_shape = (self.box / self.cutoff).astype(self.am.int32)
+        periodic_axes = [periodicity >= (i + 1) for i in range(3)]
+        if any(p and cs < 3 for p, cs in zip(periodic_axes, self._cell_grid_shape)):
+            raise ValueError(
+                f"cell_grid_shape {self._cell_grid_shape} has fewer than 3 cells "
+                f"along a periodic axis; the 27-cell minimum-image stencil requires "
+                f"cutoff < box/3 (got cutoff={self.cutoff}, box={self.box}) along periodic axes."
+            )
         self._num_cells = int(self.cell_grid_shape.prod())
         self._counter = self.am.zeros(shape=self.num_cells, dtype=self.am.int32)
         cell_shape = self.box / self.cell_grid_shape
