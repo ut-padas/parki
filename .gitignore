@@ -215,6 +215,7 @@ external/
 
 # PyKokkos
 pk_cpp/
+.pykokkos/
 
 # vim
 *.swp

@@ -235,3 +235,134 @@ def test_celllist_batched(Nx=773, Ny=312, box=[1, 1, 1], cutoff=0.1, r=3, k=2):
     u_cl = cell_list_batched(x, y, q, cutoff, box)
 
     np.testing.assert_allclose(u_cl, u_ref, rtol=1e-13, atol=1e-26)
+
+
+class TestNearestNeighbors:
+    N = 5
+    box = [1, 1, 1]
+    cutoff = 0.1
+
+    def _dense_grid_and_tiled_queries(self):
+        """Dataset fits snugly within the box (to test edge cases);
+        queries tile the whole box."""
+        dataset = (
+            np.stack(
+                np.meshgrid(
+                    *[
+                        np.linspace(
+                            2 * self.cutoff, self.box[i] - 2 * self.cutoff, self.N
+                        )
+                        for i in range(3)
+                    ]
+                ),
+                axis=-1,
+            )
+            .reshape(-1, 3)
+            .T
+        )
+        queries = (
+            np.stack(
+                np.meshgrid(
+                    *[
+                        np.linspace(0, self.box[i], self.N, endpoint=False)
+                        for i in range(3)
+                    ]
+                ),
+                axis=-1,
+            )
+            .reshape(-1, 3)
+            .T
+        )
+        return dataset, queries
+
+    def _axis_pair_dataset_and_queries(self):
+        """
+        For each axis, self.N dataset/query pairs isolating the periodic
+        wrap on just that axis: dataset points sit within `cutoff` of
+        the low edge on axis i (other coordinates fixed at 0.5); their
+        matching queries sit within `cutoff` of the high edge on that
+        same axis. Unwrapped, each pair is ~1 apart (no match); wrapped
+        on that axis, it's ~2*eps apart (a match). This makes a given
+        `periodicity` value verifiable per-axis: pairs on axis i should
+        match iff i < periodicity.
+
+        Returns dataset, queries as (3, n) arrays, n = 3 * self.N.
+        """
+        eps = np.linspace(self.cutoff / 8, self.cutoff * 7 / 8, self.N)
+
+        n = 3 * self.N
+        dataset = np.full((3, n), 0.5)
+        queries = np.full((3, n), 0.5)
+
+        col = 0
+        for axis in range(3):
+            for e in eps:
+                dataset[axis, col] = e
+                queries[axis, col] = 1 - e
+                col += 1
+
+        return dataset, queries
+
+    def _reference_nearest(self, dataset, queries, periodicity):
+        """O(n^2) reference. Minimum-image convention is applied
+        only to the first `periodicity` axes."""
+        box_arr = np.array(self.box)
+        distances = np.full(queries.shape[-1], fill_value=np.inf)
+        indices = np.full(queries.shape[-1], fill_value=-1, dtype=np.int32)
+        for qi in range(queries.shape[-1]):
+            for xi in range(dataset.shape[-1]):
+                dr = queries[:, qi] - dataset[:, xi]
+                dr[:periodicity] -= (
+                    np.round(dr[:periodicity] / box_arr[:periodicity])
+                    * box_arr[:periodicity]
+                )
+                r = np.linalg.norm(dr)
+                if r < self.cutoff and r < distances[qi]:
+                    distances[qi] = r
+                    indices[qi] = xi
+        return distances, indices
+
+    def _check_nearest(self, dataset, queries, periodicity):
+        distances, indices = self._reference_nearest(dataset, queries, periodicity)
+
+        kwargs = dict(execution_space="CPU")
+        if periodicity:
+            kwargs["periodicity"] = periodicity
+        d_list = parkipy.CellList(dataset, self.cutoff, self.box, **kwargs)
+        q_list = parkipy.CellList(queries, self.cutoff, self.box, **kwargs)
+
+        dist, indx = d_list.nearest(q_list)
+
+        np.testing.assert_allclose(
+            desired=distances, actual=dist, err_msg="distances are incorrect :("
+        )
+        np.testing.assert_equal(
+            desired=indices, actual=indx, err_msg="indices are incorrect :("
+        )
+
+    def test_free_space(self):
+        """
+        Test the nearest neighbors to points within a cell-list.
+
+        If no neighbor is found within the cutoff, ensure that
+        the returned distance is None and the returned index is None.
+        """
+        dataset, queries = self._dense_grid_and_tiled_queries()
+        self._check_nearest(dataset, queries, periodicity=0)
+
+    def test_periodic_1(self):
+        """Only the x-axis wraps; only the axis-0 pair should be
+        found — axis-1 and axis-2 pairs must NOT match."""
+        dataset, queries = self._axis_pair_dataset_and_queries()
+        self._check_nearest(dataset, queries, periodicity=1)
+
+    def test_periodic_2(self):
+        """x and y wrap; axis-0 and axis-1 pairs should match,
+        axis-2 must NOT."""
+        dataset, queries = self._axis_pair_dataset_and_queries()
+        self._check_nearest(dataset, queries, periodicity=2)
+
+    def test_periodic_3(self):
+        """All three axes wrap; all three pairs should match."""
+        dataset, queries = self._axis_pair_dataset_and_queries()
+        self._check_nearest(dataset, queries, periodicity=3)

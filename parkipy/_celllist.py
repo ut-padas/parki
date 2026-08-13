@@ -16,6 +16,7 @@ from ._pk_kernels._celllist import (
     reshuffle_forces_fp32,
     reshuffle_forces_fp64,
     get_nonempty_neighbors,
+    get_nearest_neighbors,
 )
 
 
@@ -25,9 +26,9 @@ class CellList:
     particle coordinates, a cutoff radius,
     and a computational box.
 
-    This class automaticaly generates a CellList
-    upon instantiation as well as relevant counters
-    and mappings.
+    The :meth:`nearest` method finds the nearest
+    neighbor for each particle in a query :class:`CellList`
+    in a dataset :class:`CellList`.
 
     Cell lists are performance portable, with
     target devices specified by a PyKokkos
@@ -152,6 +153,13 @@ class CellList:
 
         # count particles in cells
         self._cell_grid_shape = (self.box / self.cutoff).astype(self.am.int32)
+        periodic_axes = [periodicity >= (i + 1) for i in range(3)]
+        if any(p and cs < 3 for p, cs in zip(periodic_axes, self._cell_grid_shape)):
+            raise ValueError(
+                f"cell_grid_shape {self._cell_grid_shape} has fewer than 3 cells "
+                f"along a periodic axis; the 27-cell minimum-image stencil requires "
+                f"cutoff < box/3 (got cutoff={self.cutoff}, box={self.box}) along periodic axes."
+            )
         self._num_cells = int(self.cell_grid_shape.prod())
         self._counter = self.am.zeros(shape=self.num_cells, dtype=self.am.int32)
         cell_shape = self.box / self.cell_grid_shape
@@ -351,7 +359,7 @@ class CellList:
     @property
     def nonempty_cell_index(self):
         """
-        Array of size `num_cells` whoes value at
+        Array of size `num_cells` whose value at
         index `i`, if nonnegative, corresponds to
         the nonempty cell index. If the value at
         index `i` is negative, cell `i` is empty.
@@ -393,6 +401,7 @@ class CellList:
         such that given a (global) cell index `i`,
         return the (nonempty) cell indices of it's 27
         neighboring cells.
+        If the neighboring cell is empty, then the value is -1.
         Read-only
         """
         if self._nonempty_neighbors is None:
@@ -404,7 +413,7 @@ class CellList:
     @property
     def cell_size(self):
         """
-        Size of each cell. Read-only.
+        Size of each cell (int). Read-only.
         """
         return self._cell_size
 
@@ -550,3 +559,66 @@ class CellList:
         else:
             neighbors[valid] = self.nonempty_cell_index[neighbor_linear[valid]]
         self._nonempty_neighbors = neighbors.reshape(self.num_cells, 27)
+
+    def nearest(self, queries):
+        """
+        Nearest-neighbor search: for each particle in `queries`,
+        find the closest particle in `self` within `self.cutoff`.
+
+        Input:
+            - `queries`: `CellList` built with the same `box`, `cutoff`,
+              and `execution_space` as `self`.
+
+        Returns:
+            `tuple` of `(distances, indices)`, each of shape
+            `(queries.particles.shape[-1],)`:
+
+            - `distances`: distance to nearest neighbor, or `inf` if
+              none found within cutoff.
+            - `indices`: index (into `self.particles`) of nearest
+              neighbor, or `-1` if none found within cutoff.
+
+        """
+        if not isinstance(queries, CellList):
+            raise TypeError("Queries must be a cell list object")
+        if not self.am.all(queries.box == self.box):
+            raise ValueError("Queries must have the same box as the dataset")
+        if queries.cutoff != self.cutoff:
+            raise ValueError("Queries must have the same cutoff as the dataset")
+        if queries.execution_space != self.execution_space:
+            raise ValueError(
+                "Queries must have the same execution space as the dataset"
+            )
+        if queries.periodicity != self.periodicity:
+            raise ValueError("Queries must have the same periodicity as the dataset")
+
+        # initialize arrays
+        distances = np.full(
+            queries.particles.shape[-1], fill_value=np.inf, dtype=self.dtype
+        )
+        indices = np.full(queries.particles.shape[-1], fill_value=-1, dtype=np.int32)
+
+        # set up pykokkos workunit
+        policy = pk.TeamPolicy(
+            self.execution_space, queries.num_nonempty_cells, pk.AUTO
+        )
+        kwargs = {
+            "distances": distances,
+            "indices": indices,
+            "queries_cell_index": queries.nonempty_cells,
+            "queries_index": queries.particle_index,
+            "queries_cell_size": queries.cell_size,
+            "queries_list": queries.particle_list,
+            "cutoff": self.cutoff,  # NOTE: same as queries.cutoff
+            "dataset_list": self.particle_list,
+            "dataset_index": self.particle_index,
+            "dataset_cell_size": self.cell_size,
+            "dataset_nonempty_neighbors": self.nonempty_neighbors,
+            "box": self.box,
+            "periodicity": self.periodicity,
+        }
+        pk.parallel_for(
+            "Cell List Nearest Neighbors", policy, get_nearest_neighbors, **kwargs
+        )
+
+        return distances, indices
