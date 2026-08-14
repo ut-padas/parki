@@ -171,10 +171,16 @@ def main(args):
 
         for nt in times_df.index:
             for device in times_df.columns:
-                for stage, time in times_df.loc[nt, device].items():
-                    stacked_data.append(
-                        {"nt": nt, "device": device, "stage": stage, "time": time}
-                    )
+                if isinstance(times_df.loc[nt, device], dict):
+                    for stage, time in times_df.loc[nt, device].items():
+                        stacked_data.append(
+                            {"nt": nt, "device": device, "stage": stage, "time": time}
+                        )
+                else:
+                    for stage in ["p2p", "p2g", "fgc", "g2p"]:
+                        stacked_data.append(
+                            {"nt": nt, "device": device, "stage": stage, "time": 0.0}
+                        )
 
         flat_df = pd.DataFrame(stacked_data)
 
@@ -191,7 +197,7 @@ def main(args):
             for j, stage in enumerate(pivot_df.columns):
                 for k, device in enumerate(devices):
                     time = pivot_df.loc[(nt, device), stage]
-                    if stage != "fgc":
+                    if stage != "fgc" and not (device == "A100" and nt >= 4_000_000):
                         eff_str = effs_devs[device][nt][stage]
                     else:
                         eff_str = ""
@@ -216,7 +222,7 @@ def main(args):
                             eff_str,
                             ha="center",
                             va="center",  # center horizontally and vertically
-                            fontsize=10,
+                            fontsize=12,
                             color="black",
                             fontweight="bold",
                         )
@@ -252,6 +258,12 @@ def main(args):
             ax.set_xticks(range(len(nt_list)))
             ax.set_xticklabels(x_labels, rotation=0, fontsize=tick_size)
 
+            y_labels = []
+            for y in ax.get_yticks():
+                y_labels.append(round(y,2))
+            ax.set_yticklabels(y_labels, fontsize=tick_size, rotation=0)
+            ax.legend(title="Device", fontsize=14, loc="upper left")
+
             if p == 0:
                 ax.yaxis.set_major_locator(ticker.MultipleLocator(0.05))
             if p == 1:
@@ -268,7 +280,7 @@ def main(args):
     fname = f"portability_plot_cell{args.cell_size}_tol{args.tol}.pdf"
     fpath = os.path.join(args.output_dir, fname)
     plt.savefig(fpath, format="pdf", bbox_inches="tight")
-    plt.show()
+    print(f"Figure save to {fpath}")
 
 
 def load_times_from_disk(args, timestamp="latest", version=1):

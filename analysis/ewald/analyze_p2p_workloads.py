@@ -71,13 +71,15 @@ OPERATION_CONSTANTS = {
 
 
 def p2p_cnt_flop(op_cons, kernel, Nt, s):
+    volume_frac = np.pi * (4.0 / 81.0)
+    # volume_frac = np.pi * (1 / 6)
     match kernel.upper():
         case "DISTANCE":
             flops = 27 * Nt * s * (4 * op_cons["fadd"] + 3 * op_cons["fadd"])
         case "LAPLACE / EWALD":
             flops = 27 * Nt * s * (
                 op_cons["fmul"] + op_cons["frsqrt"]
-            ) * np.pi / 6 + 27 * Nt * s * (4 * op_cons["fadd"] + 4 + op_cons["fmul"])
+            ) * volume_frac + 27 * Nt * s * (4 * op_cons["fadd"] + 4 + op_cons["fmul"])
         case "STOKES_SL / EWALD":
             flops = 27 * Nt * s * (
                 4
@@ -85,7 +87,7 @@ def p2p_cnt_flop(op_cons, kernel, Nt, s):
                 + 9 * op_cons["fadd"]
                 + op_cons["frsqrt"]
                 + op_cons["fdiv"]
-            ) * np.pi / 6 + 27 * Nt * s * (4 * op_cons["fadd"] + 4 + op_cons["fmul"])
+            ) * volume_frac + 27 * Nt * s * (4 * op_cons["fadd"] + 4 + op_cons["fmul"])
         case "STOKES_COMB":
             flops = 27 * Nt * s * (
                 37 * op_cons["fmul"]
@@ -95,7 +97,7 @@ def p2p_cnt_flop(op_cons, kernel, Nt, s):
                 + op_cons["fdiv"]
                 + op_cons["fexpn"]
                 + op_cons["ferf"]
-            ) * np.pi / 6 + 27 * Nt * s * (4 * op_cons["fadd"] + 4 + op_cons["fmul"])
+            ) * volume_frac + 27 * Nt * s * (4 * op_cons["fadd"] + 4 + op_cons["fmul"])
         case _:
             raise ValueError(f"performance model for {kernel.upper()} does not exist")
 
@@ -418,6 +420,7 @@ def main(args):
     fname = f"p2p_workload_plot_dev{dev_name}_method{'_'.join(args.p2p_methods)}.pdf"
     fpath = os.path.join(args.output_dir, fname)
     plt.savefig(fpath, format="pdf", bbox_inches="tight")
+    print(f"Saving figure to {fpath}")
     # plt.show()
 
 
@@ -501,7 +504,7 @@ if __name__ == "__main__":
         "--nt", dest="nt", type=int, default=1000000, help="number of target points."
     )
     parser.add_argument(
-        "--ylim", dest="ylim", default=2.85e8, help="matplotlib ylim for graph"
+        "--ylim", dest="ylim", default=3.00e8, help="matplotlib ylim for graph"
     )
 
     args = parser.parse_args()
