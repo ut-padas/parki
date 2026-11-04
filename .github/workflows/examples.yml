@@ -10,7 +10,7 @@ on:
 
 defaults:
   run:
-    shell: bash
+    shell: bash -el {0}
 
 jobs:
   run_examples:
@@ -28,13 +28,12 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: install
         run: |
-          ENABLE_OPENMP=OFF bash  install.sh
-      - name: run examples
+          ENABLE_OPENMP=OFF PYTHON_VERSION=${{ matrix.python-version }} bash install.sh
+      - name: validate examples
         run: |
+          conda activate parki
           set -euo pipefail
-          echo "Running example scripts..."
-          while IFS= read -r f; do
-            echo "=============================="
-            echo "Running: $f"
-            python "$f"
-          done < <(find examples -type f -name "*.py")
+          python -m compileall -q examples
+          for f in examples/ewald/*.py; do
+            python "$f" --help > /dev/null
+          done

@@ -41,7 +41,7 @@ source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate "$ENV_NAME"
 conda info --envs
 
-conda install -y -c conda-forge pybind11 patchelf pandas matplotlib scipy black
+conda install -y -c conda-forge pybind11 patchelf pandas matplotlib scipy black pytest
 
 if [[ "$ENABLE_CUDA" == "ON" ]]; then
   conda install -y -c conda-forge cupy
@@ -71,9 +71,10 @@ python install_base.py install --verbose -- \
 	-DENABLE_LAYOUTS=ON \
 	-DENABLE_CUDA=$ENABLE_CUDA \
 	-DENABLE_HIP=$ENABLE_HIP \
-	-DENABLE_OPENMP=$ENABLE_OPENMP
+	-DENABLE_OPENMP=$ENABLE_OPENMP \
+	-DCMAKE_UNITY_BUILD_BATCH_SIZE=${PYKOKKOS_UNITY_BATCH_SIZE:-8}
 
-pip install --user -e .
+python -m pip install -e .
 
 cd ../..
 
@@ -82,7 +83,7 @@ cd ../..
 ############################
 
 echo "Installing ParkiPy"
-pip install -e .
+python -m pip install -e .
 
 ############################
 # Validation
