@@ -249,8 +249,10 @@ def stokeslet_convolution_zero_kernel_fp32(
             C: pk.float = kk / (4 * xi * xi)
             kn: pk.float = pk.sqrt(kk)
             # modified Green's function
-            BJ0: pk.float = pk.cyl_bessel_j0(gR * kn)
-            BJ1: pk.float = pk.cyl_bessel_j1(gR * kn)
+            # PyKokkos's float32 Bessel path returns NaN for nonzero inputs.
+            bessel_arg: pk.float64 = gR * kn
+            BJ0: pk.float = pk.cyl_bessel_j0(bessel_arg)
+            BJ1: pk.float = pk.cyl_bessel_j1(bessel_arg)
             biharm: pk.float = 0.0
             if (i + k1_off) == 0 and j == 0:
                 biharm = (-1.0 / 8.0) * PI * gR * gR * gR * gR
@@ -507,8 +509,10 @@ def stresslet_convolution_zero_kernel_fp32(
             C: pk.float = kk / (4 * xi * xi)
             kn: pk.float = pk.sqrt(kk)
             # modified Green's function
-            BJ0 = pk.cyl_bessel_j0(gR * kn)
-            BJ1: pk.float = pk.cyl_bessel_j1(gR * kn)
+            # PyKokkos's float32 Bessel path returns NaN for nonzero inputs.
+            bessel_arg: pk.float64 = gR * kn
+            BJ0 = pk.cyl_bessel_j0(bessel_arg)
+            BJ1: pk.float = pk.cyl_bessel_j1(bessel_arg)
             biharm: pk.float = 0.0
             if (i + k1_off) == 0 and j == 0:
                 biharm = (-1.0 / 8.0) * PI * (gR * gR * gR * gR)
@@ -824,8 +828,10 @@ def stokeslet_convolution_zero_kernel_range_fp32(
         C: pk.float = kk / (4 * xi * xi)
         kn: pk.float = pk.sqrt(kk)
         # modified Green's function
-        BJ0: pk.float = pk.cyl_bessel_j0(gR * kn)
-        BJ1: pk.float = pk.cyl_bessel_j1(gR * kn)
+        # PyKokkos's float32 Bessel path returns NaN for nonzero inputs.
+        bessel_arg: pk.float64 = gR * kn
+        BJ0: pk.float = pk.cyl_bessel_j0(bessel_arg)
+        BJ1: pk.float = pk.cyl_bessel_j1(bessel_arg)
         biharm: pk.float = 0.0
         if (i + k1_off) == 0 and j == 0:
             biharm = (-1.0 / 8.0) * PI * gR * gR * gR * gR
@@ -1054,8 +1060,10 @@ def stresslet_convolution_zero_kernel_range_fp32(
         C: pk.float = kk / (4 * xi * xi)
         kn: pk.float = pk.sqrt(kk)
         # modified Green's function
-        BJ0 = pk.cyl_bessel_j0(gR * kn)
-        BJ1: pk.float = pk.cyl_bessel_j1(gR * kn)
+        # PyKokkos's float32 Bessel path returns NaN for nonzero inputs.
+        bessel_arg: pk.float64 = gR * kn
+        BJ0 = pk.cyl_bessel_j0(bessel_arg)
+        BJ1: pk.float = pk.cyl_bessel_j1(bessel_arg)
         biharm: pk.float = 0.0
         if (i + k1_off) == 0 and j == 0:
             biharm = (-1.0 / 8.0) * PI * (gR * gR * gR * gR)
@@ -1397,8 +1405,10 @@ def stokeslet_convolution_zero_kernel_fp64(
             C: pk.double = kk / (4 * xi * xi)
             kn: pk.double = pk.sqrt(kk)
             # modified Green's function
-            BJ0: pk.double = pk.cyl_bessel_j0(gR * kn)
-            BJ1: pk.double = pk.cyl_bessel_j1(gR * kn)
+            # PyKokkos's float32 Bessel path returns NaN for nonzero inputs.
+            bessel_arg: pk.float64 = gR * kn
+            BJ0: pk.double = pk.cyl_bessel_j0(bessel_arg)
+            BJ1: pk.double = pk.cyl_bessel_j1(bessel_arg)
             biharm: pk.double = 0.0
             if (i + k1_off) == 0 and j == 0:
                 biharm = (-1.0 / 8.0) * PI * gR * gR * gR * gR
@@ -1655,8 +1665,10 @@ def stresslet_convolution_zero_kernel_fp64(
             C: pk.double = kk / (4 * xi * xi)
             kn: pk.double = pk.sqrt(kk)
             # modified Green's function
-            BJ0 = pk.cyl_bessel_j0(gR * kn)
-            BJ1: pk.double = pk.cyl_bessel_j1(gR * kn)
+            # PyKokkos's float32 Bessel path returns NaN for nonzero inputs.
+            bessel_arg: pk.float64 = gR * kn
+            BJ0 = pk.cyl_bessel_j0(bessel_arg)
+            BJ1: pk.double = pk.cyl_bessel_j1(bessel_arg)
             biharm: pk.double = 0.0
             if (i + k1_off) == 0 and j == 0:
                 biharm = (-1.0 / 8.0) * PI * (gR * gR * gR * gR)
@@ -1976,8 +1988,10 @@ def stokeslet_convolution_zero_kernel_range_fp64(
         C: pk.double = kk / (4 * xi * xi)
         kn: pk.double = pk.sqrt(kk)
         # modified Green's function
-        BJ0: pk.double = pk.cyl_bessel_j0(gR * kn)
-        BJ1: pk.double = pk.cyl_bessel_j1(gR * kn)
+        # PyKokkos's float32 Bessel path returns NaN for nonzero inputs.
+        bessel_arg: pk.float64 = gR * kn
+        BJ0: pk.double = pk.cyl_bessel_j0(bessel_arg)
+        BJ1: pk.double = pk.cyl_bessel_j1(bessel_arg)
         biharm: pk.double = 0.0
         if (i + k1_off) == 0 and j == 0:
             biharm = (-1.0 / 8.0) * PI * gR * gR * gR * gR
@@ -2210,8 +2224,10 @@ def stresslet_convolution_zero_kernel_range_fp64(
         C: pk.double = kk / (4 * xi * xi)
         kn: pk.double = pk.sqrt(kk)
         # modified Green's function
-        BJ0 = pk.cyl_bessel_j0(gR * kn)
-        BJ1: pk.double = pk.cyl_bessel_j1(gR * kn)
+        # PyKokkos's float32 Bessel path returns NaN for nonzero inputs.
+        bessel_arg: pk.float64 = gR * kn
+        BJ0 = pk.cyl_bessel_j0(bessel_arg)
+        BJ1: pk.double = pk.cyl_bessel_j1(bessel_arg)
         biharm: pk.double = 0.0
         if (i + k1_off) == 0 and j == 0:
             biharm = (-1.0 / 8.0) * PI * (gR * gR * gR * gR)

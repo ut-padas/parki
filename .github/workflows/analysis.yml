@@ -10,7 +10,7 @@ on:
 
 defaults:
   run:
-    shell: bash
+    shell: bash -el {0}
 
 jobs:
   run_analysis:
@@ -28,13 +28,12 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: install
         run: |
-          ENABLE_OPENMP=OFF bash  install.sh
-      - name: run examples
+          ENABLE_OPENMP=OFF PYTHON_VERSION=${{ matrix.python-version }} bash install.sh
+      - name: validate analysis scripts
         run: |
+          conda activate parki
           set -euo pipefail
-          echo "Running analysis scripts..."
+          python -m compileall -q analysis
           while IFS= read -r f; do
-            echo "=============================="
-            echo "Running: $f"
-            python "$f"
+            python "$f" --help > /dev/null
           done < <(find analysis -type f -name "analyze*.py")

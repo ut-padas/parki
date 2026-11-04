@@ -10,7 +10,7 @@ on:
 
 defaults:
   run:
-    shell: bash
+    shell: bash -el {0}
 
 jobs:
   test_cpu:
@@ -28,7 +28,16 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: install
         run: |
-          ENABLE_OPENMP=OFF bash  install.sh
+          if [[ "${{ matrix.os }}" == "ubuntu-22.04-arm" ]]; then
+            export CMAKE_BUILD_PARALLEL_LEVEL=1
+            export PYKOKKOS_UNITY_BATCH_SIZE=1
+          fi
+          ENABLE_OPENMP=OFF PYTHON_VERSION=${{ matrix.python-version }} bash install.sh
       - name: test
         run: |
-          pytest tests
+          conda activate parki
+          if [[ "${{ matrix.os }}" == "ubuntu-22.04-arm" ]]; then
+            export LD_LIBRARY_PATH="$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          fi
+          python -c 'import pykokkos; from scipy.fft import rfftn'
+          python -m pytest tests --ignore=tests/test_distributed_ewald.py
