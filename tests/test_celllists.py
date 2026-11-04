@@ -1,5 +1,28 @@
 import parkipy
 import numpy as np
+import pytest
+
+
+@pytest.mark.parametrize(
+    "periodicity, box, invalid_axis",
+    [
+        (1, [1, 1, 1], 0),
+        (2, [2, 1, 1], 1),
+        (3, [2, 2, 1], 2),
+    ],
+)
+def test_periodic_axes_require_three_cells(periodicity, box, invalid_axis):
+    particles = np.array([[0.1], [0.1], [0.1]])
+    with pytest.raises(
+        ValueError, match=f"periodic axis {invalid_axis} requires at least 3 cells"
+    ):
+        parkipy.CellList(
+            particles,
+            cutoff=0.4,
+            box=box,
+            execution_space="CPU",
+            periodicity=periodicity,
+        )
 
 
 def reference(x, y, q, cutoff):

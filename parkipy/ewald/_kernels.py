@@ -571,6 +571,8 @@ def stokes_sl(trg, src, dens, options):
     ... )
     >>> pot, walltime = parkipy.ewald.stokes_sl(trg, src, dens, options)
     """
+    if options is None:
+        raise ValueError("Ewald options must be specified")
     valid_periodicities = [0, 1, 2, 3]
     if options.periodicity not in valid_periodicities:
         raise NotImplementedError(
@@ -684,7 +686,8 @@ def stokes_comb(trg, src, dens, normal, options):
     {'p2p': {'args': 3.0994415283203125e-06, 'sort': 0.004508018493652344, 'kernel': 0.08536601066589355, 'tot': 0.08987712860107422}, 'p2g': {'args': 8.106231689453125e-06, 'sort': 0.002873659133911133, 'kernel': 0.06609272956848145, 'tot': 0.06897449493408203}, 'fft': {'tot': 0.05228924751281738}, 'cnv': {'tot': 0.025938749313354492}, 'ifft': {'tot': 0.010168075561523438}, 'g2p': {'args': 2.4318695068359375e-05, 'sort': 0.0019330978393554688, 'kernel': 0.0029044151306152344, 'adj': 0.0005638599395751953, 'tot': 0.005425691604614258}}
 
     """
-
+    if options is None:
+        raise ValueError("Ewald options must be specified")
     valid_periodicities = [0, 1, 2, 3]
     if options.periodicity not in valid_periodicities:
         raise NotImplementedError(
@@ -791,7 +794,8 @@ def laplace(trg, src, charge, options):
     {'p2p': {'args': 4.291534423828125e-06, 'sort': 0.008143424987792969, 'kernel': 0.2980661392211914, 'tot': 0.3062138557434082}, 'p2g': {'args': 6.604194641113281e-05, 'sort': 0.0052490234375, 'kernel': 0.35875630378723145, 'tot': 0.3640713691711426}, 'fft': {'tot': 0.0070722103118896484}, 'cnv': {'tot': 0.016383886337280273}, 'ifft': {'tot': 0.0004782676696777344}, 'g2p': {'args': 3.647804260253906e-05, 'sort': 0.0011799335479736328, 'kernel': 0.24137353897094727, 'adj': 4.0531158447265625e-06, 'tot': 0.24259400367736816}}
 
     """
-
+    if options is None:
+        raise ValueError("Ewald options must be specified")
     valid_periodicities = [0, 1, 2, 3]
     if options.periodicity not in valid_periodicities:
         raise NotImplementedError(
