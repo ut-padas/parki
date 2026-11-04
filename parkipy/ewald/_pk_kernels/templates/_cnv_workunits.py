@@ -82,10 +82,10 @@ def stokes_kernel_STOKESKERN(
 @pk.workunit
 def laplace_convolution_kernel_LAPLACECNV(
     team_member: pk.TeamMember,
-    H,
+    H: pk.View4D[pk.double],
     grid_size_1: int,
     grid_size_2: int,
-    box,
+    box: pk.View1D[pk.double],
     k1_off: int,
     xi: pk.double,
     pw: int,
@@ -93,7 +93,7 @@ def laplace_convolution_kernel_LAPLACECNV(
     ksc: pk.double,
     grid: pk.View1D[int],
     whw: pk.double,
-    ups,
+    ups: pk.View1D[pk.float64],
     locals: pk.View1D[int],
     num_locals: int,
     freq_range: int,
@@ -150,12 +150,12 @@ def laplace_convolution_kernel_LAPLACECNV(
 @pk.workunit
 def stokeslet_convolution_kernel_STOKESCNV(
     team_member: pk.TeamMember,
-    H1,
-    H2,
-    H3,
+    H1: pk.View4D[pk.double],
+    H2: pk.View4D[pk.double],
+    H3: pk.View4D[pk.double],
     grid_size_1: int,
     grid_size_2: int,
-    box,
+    box: pk.View1D[pk.double],
     k1_off: int,
     xi: pk.double,
     pw: int,
@@ -163,7 +163,7 @@ def stokeslet_convolution_kernel_STOKESCNV(
     ksc: pk.double,
     grid: pk.View1D[int],
     whw: pk.double,
-    ups,
+    ups: pk.View1D[pk.float64],
     locals: pk.View1D[int],
     num_locals: int,
     freq_range: int,
@@ -215,23 +215,24 @@ def stokeslet_convolution_kernel_STOKESCNV(
 # END TEMPLATE STOKESCNV
 
 
+# START TEMPLATE STOKESRANGE
 @pk.workunit
-def stokeslet_convolution_kernel_range(
+def stokeslet_convolution_kernel_range_STOKESRANGE(
     wid: int,
-    H1,
-    H2,
-    H3,
+    H1: pk.View4D[pk.double],
+    H2: pk.View4D[pk.double],
+    H3: pk.View4D[pk.double],
     grid_size_1: int,
     grid_size_2: int,
-    box,
+    box: pk.View1D[pk.double],
     k1_off: int,
-    xi,
+    xi: pk.double,
     pw: int,
-    wsh,
-    ksc,
+    wsh: pk.double,
+    ksc: pk.double,
     grid: pk.View1D[int],
-    whw,
-    ups,
+    whw: pk.double,
+    ups: pk.View1D[pk.float64],
     locals: pk.View1D[int],
     num_locals: int,
 ):
@@ -289,18 +290,22 @@ def stokeslet_convolution_kernel_range(
     H3[i][j][k][1] = scaling * (kk * H3[i][j][k][1] - k_dot_H_im * k2)
 
 
+# END TEMPLATE STOKESRANGE
+
+
+# START TEMPLATE SUMSLDL
 @pk.workunit
-def convolution_sum_sl_dl(
+def convolution_sum_sl_dl_SUMSLDL(
     team_member: pk.TeamMember,
-    H1,
-    H2,
-    H3,
-    H11,
-    H21,
-    H31,
-    D1,
-    D2,
-    D3,
+    H1: pk.View4D[pk.double],
+    H2: pk.View4D[pk.double],
+    H3: pk.View4D[pk.double],
+    H11: pk.View4D[pk.double],
+    H21: pk.View4D[pk.double],
+    H31: pk.View4D[pk.double],
+    D1: pk.View4D[pk.double],
+    D2: pk.View4D[pk.double],
+    D3: pk.View4D[pk.double],
     grid_size_1: int,
     grid_size_2: int,
     freq_range: int,
@@ -328,15 +333,19 @@ def convolution_sum_sl_dl(
     pk.parallel_for(pk.TeamThreadRange(team_member, threads), thread_loop)
 
 
+# END TEMPLATE SUMSLDL
+
+
+# START TEMPLATE SUMSL
 @pk.workunit
-def convolution_sum_sl(
+def convolution_sum_sl_SUMSL(
     team_member: pk.TeamMember,
-    H1,
-    H2,
-    H3,
-    D1,
-    D2,
-    D3,
+    H1: pk.View4D[pk.double],
+    H2: pk.View4D[pk.double],
+    H3: pk.View4D[pk.double],
+    D1: pk.View4D[pk.double],
+    D2: pk.View4D[pk.double],
+    D3: pk.View4D[pk.double],
     grid_size_1: int,
     grid_size_2: int,
     freq_range: int,
@@ -364,18 +373,22 @@ def convolution_sum_sl(
     pk.parallel_for(pk.TeamThreadRange(team_member, threads), thread_loop)
 
 
+# END TEMPLATE SUMSL
+
+
+# START TEMPLATE SUMSLDLRANGE
 @pk.workunit
-def convolution_sum_sl_dl_range(
+def convolution_sum_sl_dl_range_SUMSLDLRANGE(
     wid: int,
-    H1,
-    H2,
-    H3,
-    H11,
-    H21,
-    H31,
-    D1,
-    D2,
-    D3,
+    H1: pk.View4D[pk.double],
+    H2: pk.View4D[pk.double],
+    H3: pk.View4D[pk.double],
+    H11: pk.View4D[pk.double],
+    H21: pk.View4D[pk.double],
+    H31: pk.View4D[pk.double],
+    D1: pk.View4D[pk.double],
+    D2: pk.View4D[pk.double],
+    D3: pk.View4D[pk.double],
     grid_size_1: int,
     grid_size_2: int,
 ):
@@ -393,24 +406,27 @@ def convolution_sum_sl_dl_range(
     D3[i][j][k][l] = H3[i][j][k][l] + H31[i][j][k][l]
 
 
+# END TEMPLATE SUMSLDLRANGE
+
+
 # START TEMPLATE STOKESCNV0
 @pk.workunit
 def stokeslet_convolution_zero_kernel_STOKESCNV0(
     team_member: pk.TeamMember,
-    H1,
-    H2,
-    H3,
+    H1: pk.View3D[pk.double],
+    H2: pk.View3D[pk.double],
+    H3: pk.View3D[pk.double],
     grid_size_1: int,
-    box,
+    box: pk.View1D[pk.double],
     k1_off: int,
-    xi,
+    xi: pk.double,
     pw: int,
-    wsh,
-    ksc,
+    wsh: pk.double,
+    ksc: pk.double,
     grid: pk.View1D[int],
-    whw,
-    ups,
-    gR,
+    whw: pk.double,
+    ups: pk.View1D[pk.float64],
+    gR: pk.double,
     vico_var: int,
     freq_range: int,
     periodicity: int,
@@ -505,25 +521,26 @@ def stokeslet_convolution_zero_kernel_STOKESCNV0(
 # END TEMPLATE STOKESCNV0
 
 
+# START TEMPLATE STOKESZERORANGE
 @pk.workunit
-def stokeslet_convolution_zero_kernel_range(
+def stokeslet_convolution_zero_kernel_range_STOKESZERORANGE(
     wid: int,
-    H1,
-    H2,
-    H3,
+    H1: pk.View3D[pk.double],
+    H2: pk.View3D[pk.double],
+    H3: pk.View3D[pk.double],
     grid_size_1: int,
-    box,
+    box: pk.View1D[pk.double],
     k1_off: int,
-    xi,
+    xi: pk.double,
     pw: int,
-    wsh,
-    ksc,
+    wsh: pk.double,
+    ksc: pk.double,
     grid: pk.View1D[int],
-    whw,
-    ups,
-    gR,
+    whw: pk.double,
+    ups: pk.View1D[pk.float64],
+    gR: pk.double,
     vico_var: int,
-    periodicity,
+    periodicity: int,
 ):
     PI: pk.double = 3.14159265358979323846264
     FOUR_PI: pk.double = 12.5663706143591729538506
@@ -601,30 +618,33 @@ def stokeslet_convolution_zero_kernel_range(
     H3[i][j][1] = SKK * H3[i][j][1] + k_dot_H_1 * k2
 
 
+# END TEMPLATE STOKESZERORANGE
+
+
 # START TEMPLATE STRESSCNV
 @pk.workunit
 def stresslet_convolution_kernel_STRESSCNV(
     team_member: pk.TeamMember,
-    H11,
-    H21,
-    H31,
-    H12,
-    H22,
-    H32,
-    H13,
-    H23,
-    H33,
+    H11: pk.View4D[pk.double],
+    H21: pk.View4D[pk.double],
+    H31: pk.View4D[pk.double],
+    H12: pk.View4D[pk.double],
+    H22: pk.View4D[pk.double],
+    H32: pk.View4D[pk.double],
+    H13: pk.View4D[pk.double],
+    H23: pk.View4D[pk.double],
+    H33: pk.View4D[pk.double],
     grid_size_1: int,
     grid_size_2: int,
-    box,
+    box: pk.View1D[pk.double],
     k1_off: int,
-    xi,
+    xi: pk.double,
     pw: int,
-    wsh,
-    ksc,
+    wsh: pk.double,
+    ksc: pk.double,
     grid: pk.View1D[int],
-    whw,
-    ups,
+    whw: pk.double,
+    ups: pk.View1D[pk.float64],
     locals: pk.View1D[int],
     num_locals: int,
     freq_range: int,
@@ -749,29 +769,30 @@ def stresslet_convolution_kernel_STRESSCNV(
 # END TEMPLATE STRESSCNV
 
 
+# START TEMPLATE STRESSRANGE
 @pk.workunit
-def stresslet_convolution_kernel_range(
+def stresslet_convolution_kernel_range_STRESSRANGE(
     wid: int,
-    H11,
-    H21,
-    H31,
-    H12,
-    H22,
-    H32,
-    H13,
-    H23,
-    H33,
+    H11: pk.View4D[pk.double],
+    H21: pk.View4D[pk.double],
+    H31: pk.View4D[pk.double],
+    H12: pk.View4D[pk.double],
+    H22: pk.View4D[pk.double],
+    H32: pk.View4D[pk.double],
+    H13: pk.View4D[pk.double],
+    H23: pk.View4D[pk.double],
+    H33: pk.View4D[pk.double],
     grid_size_1: int,
     grid_size_2: int,
-    box,
+    box: pk.View1D[pk.double],
     k1_off: int,
-    xi,
+    xi: pk.double,
     pw: int,
-    wsh,
-    ksc,
+    wsh: pk.double,
+    ksc: pk.double,
     grid: pk.View1D[int],
-    whw,
-    ups,
+    whw: pk.double,
+    ups: pk.View1D[pk.float64],
     locals: pk.View1D[int],
     num_locals: int,
 ):
@@ -880,30 +901,33 @@ def stresslet_convolution_kernel_range(
     H31[i][j][k][1] = scaling * vp3_1
 
 
+# END TEMPLATE STRESSRANGE
+
+
 # START TEMPLATE STRESSCNV0
 @pk.workunit
 def stresslet_convolution_zero_kernel_STRESSCNV0(
     team_member: pk.TeamMember,
-    H11,
-    H21,
-    H31,
-    H12,
-    H22,
-    H32,
-    H13,
-    H23,
-    H33,
+    H11: pk.View3D[pk.double],
+    H21: pk.View3D[pk.double],
+    H31: pk.View3D[pk.double],
+    H12: pk.View3D[pk.double],
+    H22: pk.View3D[pk.double],
+    H32: pk.View3D[pk.double],
+    H13: pk.View3D[pk.double],
+    H23: pk.View3D[pk.double],
+    H33: pk.View3D[pk.double],
     grid_size_1: int,
-    box,
+    box: pk.View1D[pk.double],
     k1_off: int,
-    xi,
+    xi: pk.double,
     pw: int,
-    wsh,
-    ksc,
+    wsh: pk.double,
+    ksc: pk.double,
     grid: pk.View1D[int],
-    whw,
-    ups,
-    gR,
+    whw: pk.double,
+    ups: pk.View1D[pk.float64],
+    gR: pk.double,
     vico_var: int,
     periodicity: int,
     freq_range: int,
@@ -1045,29 +1069,30 @@ def stresslet_convolution_zero_kernel_STRESSCNV0(
 # END TEMPLATE STRESSCNV0
 
 
+# START TEMPLATE STRESSZERORANGE
 @pk.workunit
-def stresslet_convolution_zero_kernel_range(
+def stresslet_convolution_zero_kernel_range_STRESSZERORANGE(
     wid: int,
-    H11,
-    H21,
-    H31,
-    H12,
-    H22,
-    H32,
-    H13,
-    H23,
-    H33,
+    H11: pk.View3D[pk.double],
+    H21: pk.View3D[pk.double],
+    H31: pk.View3D[pk.double],
+    H12: pk.View3D[pk.double],
+    H22: pk.View3D[pk.double],
+    H32: pk.View3D[pk.double],
+    H13: pk.View3D[pk.double],
+    H23: pk.View3D[pk.double],
+    H33: pk.View3D[pk.double],
     grid_size_1: int,
-    box,
+    box: pk.View1D[pk.double],
     k1_off: int,
-    xi,
+    xi: pk.double,
     pw: int,
-    wsh,
-    ksc,
+    wsh: pk.double,
+    ksc: pk.double,
     grid: pk.View1D[int],
-    whw,
-    ups,
-    gR,
+    whw: pk.double,
+    ups: pk.View1D[pk.float64],
+    gR: pk.double,
     vico_var: int,
     periodicity: int,
 ):
@@ -1197,6 +1222,9 @@ def stresslet_convolution_zero_kernel_range(
         H31[i][j][1] += 2 * scaling_H * vp3_0
 
 
+# END TEMPLATE STRESSZERORANGE
+
+
 # START APPLICATION KVEC _
 # END APPLICATION KVEC _
 
@@ -1220,3 +1248,24 @@ def stresslet_convolution_zero_kernel_range(
 
 # START APPLICATION STRESSCNV0 _
 # END APPLICATION STRESSCNV0 _
+
+# START APPLICATION STOKESRANGE _
+# END APPLICATION STOKESRANGE _
+
+# START APPLICATION SUMSLDL _
+# END APPLICATION SUMSLDL _
+
+# START APPLICATION SUMSL _
+# END APPLICATION SUMSL _
+
+# START APPLICATION SUMSLDLRANGE _
+# END APPLICATION SUMSLDLRANGE _
+
+# START APPLICATION STOKESZERORANGE _
+# END APPLICATION STOKESZERORANGE _
+
+# START APPLICATION STRESSRANGE _
+# END APPLICATION STRESSRANGE _
+
+# START APPLICATION STRESSZERORANGE _
+# END APPLICATION STRESSZERORANGE _

@@ -290,7 +290,9 @@ def p2p(
             if not device_pre.data.opt.distributed
             else 0
         ),
-        "box": device_pre.am.array(device_pre.data.opt.ghost_box),
+        "box": device_pre.am.array(
+            device_pre.data.opt.ghost_box, dtype=device_pre.am.float64
+        ),
         "xi": device_pre.data.opt.xi,
         "xi_squared": device_pre.data.opt.xi**2,
         "xi_two_inv_sqrt_pi": device_pre.data.opt.xi * 2 * 0.564189583547756286948079,
