@@ -36,4 +36,8 @@ jobs:
       - name: test
         run: |
           conda activate parki
+          if [[ "${{ matrix.os }}" == "ubuntu-22.04-arm" ]]; then
+            export LD_LIBRARY_PATH="$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          fi
+          python -c 'import pykokkos; from scipy.fft import rfftn'
           python -m pytest tests --ignore=tests/test_distributed_ewald.py
