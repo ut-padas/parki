@@ -12,12 +12,12 @@ import pykokkos as pk
 @pk.workunit
 def get_nonempty_neighbors(
     cell: int,
-    grid_area,
-    cell_grid_shape_0,
-    cell_grid_shape_1,
-    cell_grid_shape_2,
-    nonempty_cell_index,
-    nonempty_neighbors,
+    grid_area: int,
+    cell_grid_shape_0: int,
+    cell_grid_shape_1: int,
+    cell_grid_shape_2: int,
+    nonempty_cell_index: pk.View1D[int],
+    nonempty_neighbors: pk.View4D[int],
 ):
     cell_x: int = cell // grid_area
     cell_y: int = (cell % grid_area) // cell_grid_shape_2
@@ -43,7 +43,13 @@ def get_nonempty_neighbors(
 
 
 @pk.workunit
-def count_particles_fp32(i: int, counter, p, rc, box):
+def count_particles_fp32(
+    i: int,
+    counter: pk.View1D[int],
+    p: pk.View2D[pk.float],
+    rc: float,
+    box: pk.View1D[pk.float],
+):
     cell: int = _get_cell_fp32(p, i, rc, box[0], box[1], box[2])
     pk.atomic_add(counter, [cell], 1)
 
@@ -79,15 +85,15 @@ def _get_cell_fp32(
 @pk.workunit
 def reshuffle_particles_fp32(
     i: int,
-    p_list,
-    counter,
-    l2g,
-    p,
-    cell2nz,
-    rc,
-    box,
-    cell_size,
-    dp,
+    p_list: pk.View2D[pk.float],
+    counter: pk.View1D[int],
+    l2g: pk.View1D[int],
+    p: pk.View2D[pk.float],
+    cell2nz: pk.View1D[int],
+    rc: float,
+    box: pk.View1D[pk.float],
+    cell_size: int,
+    dp: int,
 ):
     cell: int = _get_cell_fp32(p, i, rc, box[0], box[1], box[2])  # read
     cell_off: int = pk.atomic_fetch_add(counter, [cell], 1)  # write
@@ -101,10 +107,10 @@ def reshuffle_particles_fp32(
 @pk.workunit
 def reshuffle_forces_fp32(
     i: int,
-    q_list,
-    l2g,
-    q,
-    dq,
+    q_list: pk.View2D[pk.float],
+    l2g: pk.View1D[int],
+    q: pk.View2D[pk.float],
+    dq: int,
 ):
     glb: int = l2g[i]
     if glb < 0:
@@ -114,7 +120,13 @@ def reshuffle_forces_fp32(
 
 
 @pk.workunit
-def count_particles_fp64(i: int, counter, p, rc, box):
+def count_particles_fp64(
+    i: int,
+    counter: pk.View1D[int],
+    p: pk.View2D[pk.double],
+    rc: float,
+    box: pk.View1D[pk.double],
+):
     cell: int = _get_cell_fp64(p, i, rc, box[0], box[1], box[2])
     pk.atomic_add(counter, [cell], 1)
 
@@ -150,15 +162,15 @@ def _get_cell_fp64(
 @pk.workunit
 def reshuffle_particles_fp64(
     i: int,
-    p_list,
-    counter,
-    l2g,
-    p,
-    cell2nz,
-    rc,
-    box,
-    cell_size,
-    dp,
+    p_list: pk.View2D[pk.double],
+    counter: pk.View1D[int],
+    l2g: pk.View1D[int],
+    p: pk.View2D[pk.double],
+    cell2nz: pk.View1D[int],
+    rc: float,
+    box: pk.View1D[pk.double],
+    cell_size: int,
+    dp: int,
 ):
     cell: int = _get_cell_fp64(p, i, rc, box[0], box[1], box[2])  # read
     cell_off: int = pk.atomic_fetch_add(counter, [cell], 1)  # write
@@ -172,10 +184,10 @@ def reshuffle_particles_fp64(
 @pk.workunit
 def reshuffle_forces_fp64(
     i: int,
-    q_list,
-    l2g,
-    q,
-    dq,
+    q_list: pk.View2D[pk.double],
+    l2g: pk.View1D[int],
+    q: pk.View2D[pk.double],
+    dq: int,
 ):
     glb: int = l2g[i]
     if glb < 0:

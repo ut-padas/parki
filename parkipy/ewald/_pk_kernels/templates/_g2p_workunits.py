@@ -5,16 +5,16 @@ import pykokkos as pk
 @pk.workunit
 def g2p_base_G2P(
     team_member: pk.TeamMember,
-    u,
-    x,
-    H,
-    H_shape,
-    window_P,
-    dim_out,
-    periodicity,
-    hhh,
-    nt,
-    threads,
+    u: pk.View2D[pk.double],
+    x: pk.View2D[pk.double],
+    H: pk.View4D[pk.double],
+    H_shape: pk.View1D[pk.int64],
+    window_P: int,
+    dim_out: int,
+    periodicity: int,
+    hhh: float,
+    nt: int,
+    threads: int,
 ):
     """
     args:
@@ -131,18 +131,18 @@ def g2p_base_G2P(
 @pk.workunit
 def g2p_target_G2P(
     team_member: pk.TeamMember,
-    u,
-    x,
-    H,
-    H_shape,
-    window_P,
-    dim_out,
-    periodicity,
-    hhh,
-    threads,
-    x_index,
-    cell_size,
-    cell_teams,
+    u: pk.View2D[pk.double],
+    x: pk.View2D[pk.double],
+    H: pk.View4D[pk.double],
+    H_shape: pk.View1D[pk.int64],
+    window_P: int,
+    dim_out: int,
+    periodicity: int,
+    hhh: float,
+    threads: int,
+    x_index: pk.View1D[int],
+    cell_size: int,
+    cell_teams: int,
 ):
     """
     args:

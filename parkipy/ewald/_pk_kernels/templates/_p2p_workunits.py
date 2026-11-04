@@ -335,7 +335,7 @@ def p2p_stokes_comb_gm1d_P2P(
     normals_list: pk.View2D[pk.double],
     sources_list: pk.View2D[pk.double],
     periodicity: int,
-    box,  # View/List of int/double
+    box: pk.View1D[pk.float64],
     xi: pk.double,
     xi_squared: pk.double,
     xi_two_inv_sqrt_pi: pk.double,
@@ -475,7 +475,7 @@ def p2p_stokes_sl_gm1d_P2P(
     forces_list: pk.View2D[pk.double],
     sources_list: pk.View2D[pk.double],
     periodicity: int,
-    box,  # View/List of int/double
+    box: pk.View1D[pk.float64],
     xi: pk.double,
     xi_squared: pk.double,
     xi_two_inv_sqrt_pi: pk.double,
@@ -618,7 +618,7 @@ def p2p_laplace_gm1d_P2P(
     forces_list: pk.View2D[pk.double],
     sources_list: pk.View2D[pk.double],
     periodicity: int,
-    box,  # View/List of int/double
+    box: pk.View1D[pk.float64],
     xi: pk.double,
     xi_squared: pk.double,
     xi_two_inv_sqrt_pi: pk.double,
@@ -717,7 +717,7 @@ def p2p_stokes_comb_gm2d_P2P(
     normals_list: pk.View2D[pk.double],
     sources_list: pk.View2D[pk.double],
     periodicity: int,
-    box,  # View/List of int/double
+    box: pk.View1D[pk.float64],
     xi: pk.double,
     xi_squared: pk.double,
     xi_two_inv_sqrt_pi: pk.double,
@@ -906,7 +906,7 @@ def p2p_stokes_comb_sm1d_P2P(
     normals_list: pk.View2D[pk.double],
     sources_list: pk.View2D[pk.double],
     periodicity: int,
-    box,  # View/List of int/double
+    box: pk.View1D[pk.float64],
     xi: pk.double,
     xi_squared: pk.double,
     xi_two_inv_sqrt_pi: pk.double,
@@ -1116,7 +1116,7 @@ def p2p_stokes_comb_sm2d_P2P(
     normals_list: pk.View2D[pk.double],
     sources_list: pk.View2D[pk.double],
     periodicity: int,
-    box,  # View/List of int/double
+    box: pk.View1D[pk.float64],
     xi: pk.double,
     xi_squared: pk.double,
     xi_two_inv_sqrt_pi: pk.double,
