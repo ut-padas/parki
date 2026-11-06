@@ -1,5 +1,6 @@
 # ParKI
 [![DOI](https://zenodo.org/badge/1098692951.svg)](https://doi.org/10.5281/zenodo.21415320)
+[![Nightly PyKokkos main](https://github.com/kennykos/parki/actions/workflows/nightly_pykokkos.yml/badge.svg?branch=main)](https://github.com/kennykos/parki/actions/workflows/nightly_pykokkos.yml)
 ```
          ____                 __  __   ______
         /\  _`\              /\ \/\ \ /\__  _\
@@ -42,6 +43,7 @@ variables, listed below:
 |----------------|---------|------------------------------------------|
 | ENV_NAME       | parki   | Name of the conda environment            |
 | PYTHON_VERSION | 3.13    | Python version of the conda environment  |
+| PYKOKKOS_BRANCH | main   | PyKokkos branch or tag to build           |
 | ENABLE_OPENMP  | ON      | Enable the Kokkos OpenMP execution space |
 | ENABLE_CUDA    | OFF     | Enable the Kokkos CUDA execution space   |
 | ENABLE_HIP     | OFF     | Enable the Kokkos HIP execution space    |
