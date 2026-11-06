@@ -64,7 +64,7 @@ mkdir external; cd external
 git clone --branch "$PYKOKKOS_BRANCH" https://github.com/kokkos/pykokkos.git
 cd pykokkos
 
-conda env update -n $ENV_NAME -f base/environment.yml
+python -m pip install -r requirements.txt
 python install_base.py install --verbose -- \
 	-DENABLE_VIEW_RANKS=4 \
 	-DENABLE_MEMORY_TRAITS=OFF \
