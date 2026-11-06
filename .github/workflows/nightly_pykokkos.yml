@@ -1,0 +1,52 @@
+name: Nightly PyKokkos main
+
+on:
+  schedule:
+    # Run daily at 08:17 UTC (overnight in America).
+    - cron: '17 8 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash -el {0}
+
+jobs:
+  test_cpu:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-22.04-arm]
+        python-version: ["3.11", "3.12", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+          python-version: ${{ matrix.python-version }}
+      - name: Build ParKI with latest PyKokkos main
+        env:
+          PYKOKKOS_BRANCH: main
+          ENABLE_OPENMP: "OFF"
+          PYTHON_VERSION: ${{ matrix.python-version }}
+        run: |
+          if [[ "${{ matrix.os }}" == "ubuntu-22.04-arm" ]]; then
+            export CMAKE_BUILD_PARALLEL_LEVEL=1
+            export PYKOKKOS_UNITY_BATCH_SIZE=1
+          fi
+          bash install.sh
+          echo "PyKokkos commit: $(git -C external/pykokkos rev-parse HEAD)"
+      - name: Run CPU test suite
+        run: |
+          conda activate parki
+          if [[ "${{ matrix.os }}" == "ubuntu-22.04-arm" ]]; then
+            export LD_LIBRARY_PATH="$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          fi
+          python -c 'import pykokkos; from scipy.fft import rfftn'
+          # Distributed tests require CUDA and MPI, unavailable on these runners.
+          python -m pytest tests --ignore=tests/test_distributed_ewald.py
