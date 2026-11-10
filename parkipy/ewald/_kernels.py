@@ -215,7 +215,7 @@ class EwaldKernel:
             threads=options.p2g_threads,
         )
         walltime["fft"] = fft(device_pre, options)
-        walltime["cnv"] = cnv(device_pre)
+        walltime["cnv"] = cnv(device_pre, threads=options.cnv_threads)
         walltime["ifft"] = ifft(device_pre, options)
         device_pre.data.communicate_ghost_grid_cells()
         walltime["g2p"] = g2p(
@@ -346,18 +346,23 @@ class EwaldOptions:
 
     p2p_threads_x: int, optional
         Number of threads per block used to parallelize over the targets in the p2p algorithm.
-        Resets to ``1`` for the OpenMP execution space.
-        The default is ``128``.
+        The default is ``128`` for device backends and ``1`` for host backends.
 
     p2p_threads_y: int, optional
-        Number of threads per block used to parallelize over the sources in the p2p algorithm.
-        Resets to ``1`` for `1D` methods and for the OpenMP execution space. The default is ``1``.
+        Number of threads per block used to parallelize over the sources in the
+        2D variants of the p2p algorithm.
 
     p2g_threads: int, optional
-        Number of threads per block used to parallelize the p2g method. The default is ``128``.
+        Number of threads per block used to parallelize the p2g method.
+        The default is ``128`` for device backends and ``1`` for host backends.
+
+    cnv_threads: int, optional
+        Number of threads per block used to parallelize the cnv method.
+        The default is ``128`` for device backends and ``1`` for host backends.
 
     g2p_threads: int, optional
-        Number of threads per block used to parallelize the g2p method. The default is ``128``.
+        Number of threads per block used to parallelize the g2p method.
+        The default is ``128`` for device backends and ``1`` for host backends.
 
     cell_size: int | None, optional
         Near field cell size. If ``None``, ``rc`` must be provided. The defaults to ``None``.
@@ -393,10 +398,11 @@ class EwaldOptions:
     g2p_method: Literal["BASE", "TARGET"] = "TARGET"
     fft_type: Literal["R2C", "C2C"] = "R2C"
     torch_fft: int = False
-    p2p_threads_x: int = 128
+    p2p_threads_x: int = None
     p2p_threads_y: int = 1
-    p2g_threads: int = 128
-    g2p_threads: int = 128
+    p2g_threads: int = None
+    cnv_threads: int = None
+    g2p_threads: int = None
     cell_size: int | None = None
     rc: float | None = None
     puncture_radius: float | None = 1e-13
@@ -468,14 +474,19 @@ class EwaldOptions:
                     "to install pytorch: https://pytorch.org/get-started/locally/."
                 ) from e
 
-        for threads in [
-            self.p2p_threads_x,
-            self.p2p_threads_y,
-            self.p2g_threads,
-            self.g2p_threads,
+        for name in [
+            "p2p_threads_x",
+            "p2p_threads_y",
+            "p2g_threads",
+            "cnv_threads",
+            "g2p_threads",
         ]:
+            threads = getattr(self, name)
+            if threads is None:
+                threads = 1 if pk.is_host_execution_space(self.execution_space) else 128
+                setattr(self, name, threads)
             if not isinstance(threads, int) or threads <= 0:
-                raise ValueError("thread count must be a positive int.")
+                raise ValueError(f"thread count must be a positive int, got {threads}")
 
         if self.cell_size is None and self.rc is None:
             raise ValueError("one of cell size or rc must be provided.")
