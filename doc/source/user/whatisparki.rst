@@ -46,8 +46,8 @@ currently available.
      - Stokes single + double layer
      - Laplace
    * - 0-periodic
-     - ✗
-     - ✗
+     - ✓
+     - ✓
      - ✗
    * - 1-periodic
      - ✓
