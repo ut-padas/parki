@@ -458,15 +458,16 @@ class DeviceData:
                 )
         else:
             self.ghost_H = self.H  # dummy variable for g2p step
+            Mx_ups = round(Mx * float(self.opt.actual_upsampling_global[0]))
             Hg_shape = (
                 self.dim_H,
-                Mx,
+                Mx_ups,
                 round(My * float(self.opt.actual_upsampling_global[-2])),
                 dim_z,
                 2,
             )
             self.fft_shape = [
-                Mx,
+                Mx_ups,
                 round(My * float(self.opt.actual_upsampling_global[-2])),
                 round(Mz * float(self.opt.actual_upsampling_global[-1])),
             ]

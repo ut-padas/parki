@@ -712,11 +712,9 @@ class SEParams:
             ]
         )
 
-        # NOTE: we only support slab distribution (no matter the periodicity),
-        #   hence the global grid shape is the same for all P (for now)
-        self.glb_grid_shape_ext = np.array(
-            [int(glb_grid_shape[0]), *self.grid_shape_ext[1:]]
-        )
+        self.glb_grid_shape_ext = self.grid_shape_ext.copy()
+        if self.distributed:
+            self.glb_grid_shape_ext[0] = int(glb_grid_shape[0])
 
         # Compute extended box shape
         self.box_ext = np.array(
@@ -725,7 +723,9 @@ class SEParams:
                 for i in range(3)
             ]
         )
-        self.glb_box_ext = np.array([self.box_dict["box"][0], *self.box_ext[1:]])
+        self.glb_box_ext = self.box_ext.copy()
+        if self.distributed:
+            self.glb_box_ext[0] = self.box_dict["box"][0]
 
         # Compute offsets in free directions
         self.box_off = [-(self.box_ext[i] - self.box[i]) / 2 for i in range(3)]
@@ -757,20 +757,28 @@ class SEParams:
 
     def _prepare_upsampling(self):
         """
-        Compute global upsampling factors for 1P, 2P and 3P.
+        Compute global upsampling factors for all periodicities.
 
         Fully periodic grids need no upsampling. For partial periodicity,
         resolve the zero and near-zero modes by padding the free directions.
         See https://github.com/joarbagge/SE_unified_v2/blob/master/SE<P>P/src/SE<P>P_check_options.m
         for reference.
         """
-        if self.periodicity not in (1, 2, 3):
+        if self.periodicity not in (0, 1, 2, 3):
             raise ValueError(
-                "SEPre only supported for periodicity 1, 2 or 3,"
+                "SEPre only supported for periodicity 0, 1, 2 or 3,"
                 f" got {self.periodicity}."
             )
         if self.periodicity == 3:
             self.actual_upsampling = np.array([1, 1, 1])
+            return
+        if self.periodicity == 0:
+            # Prevent periodic copies of the truncated free-space kernel from
+            # reaching the extended source/target box in any direction.
+            grid_ups = self.base_factor * np.ceil(
+                (self.box_ext + self.greens_truncation_R) / (self.h * self.base_factor)
+            )
+            self.actual_upsampling = grid_ups / self.grid_shape_ext
             return
 
         # Compute upsampling factor for the zero mode
@@ -861,7 +869,7 @@ def se_compute_grid_size(box, grid_res, base_factor, periodicity):
     """
     if periodicity == 0:
         # Nothing to do in 0P case
-        grid_shape = grid_res * box
+        grid_shape = grid_res * np.asarray(box)
     elif periodicity == 1:
         # Determine number of "ticks" needed
         n = np.ceil(grid_res * box[0] / base_factor)
