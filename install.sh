@@ -7,6 +7,7 @@ set -euo pipefail
 
 ENV_NAME=${ENV_NAME:-parki}
 PYTHON_VERSION=${PYTHON_VERSION:-3.13}
+PYKOKKOS_BRANCH=${PYKOKKOS_BRANCH:-main}
 
 # Execution spaces
 ENABLE_OPENMP=${ENABLE_OPENMP:-ON}
@@ -60,10 +61,10 @@ if [[ -d external ]]; then
 fi
 mkdir external; cd external
 
-git clone https://github.com/kokkos/pykokkos.git
+git clone --branch "$PYKOKKOS_BRANCH" https://github.com/kokkos/pykokkos.git
 cd pykokkos
 
-conda env update -n $ENV_NAME -f base/environment.yml
+python -m pip install -r requirements.txt
 python install_base.py install --verbose -- \
 	-DENABLE_VIEW_RANKS=4 \
 	-DENABLE_MEMORY_TRAITS=OFF \
