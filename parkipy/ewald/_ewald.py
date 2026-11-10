@@ -840,7 +840,8 @@ def _cnv_GLB(device_pre, threads):
       data (`f1`, `f2`) are present.
     - Uses `opt_sc_glob` and `opt_sc_zero` fields of `device_pre.data` for grid-specific
       spectral options.
-    - Zero-mode scaling covers the first Fourier plane (1P), line (2P), or origin (3P).
+    - Modified-kernel scaling covers all modes (0P), the first Fourier plane (1P),
+      line (2P), or origin (3P).
     """
     if pk.is_host_execution_space(device_pre.execution_space) and threads != 1:
         warnings.warn(
@@ -855,6 +856,19 @@ def _cnv_GLB(device_pre, threads):
     _cnv_global(device_pre=device_pre, threads=threads)
     # zero mode
     match device_pre.data.opt.periodicity:
+        case 0:
+            # Bagge–Tornberg (93): replace the biharmonic kernel on all modes.
+            # Apply one Fourier plane at a time to bound temporary memory.
+            am = device_pre.am
+            data = device_pre.data
+            k = [2 * am.pi * am.fft.fftfreq(n, d=data.opt.h) for n in data.fft_shape]
+            transverse_k2 = k[1][:, None] ** 2 + k[2][None, : data.Hg.shape[3]] ** 2
+            R = data.opt_sc_glob.greens_truncation_R
+            for i in range(data.Hg.shape[1]):
+                rk = R * am.sqrt(k[0][i] ** 2 + transverse_k2)
+                factor = 1 + 0.5 * am.cos(rk) - 1.5 * am.sinc(rk / am.pi)
+                data.Hg[: device_pre.dim_out, i] *= factor[None, :, :, None]
+            data.Hg[:, 0, 0, 0, :] = 0
         case 1:
             zero_mode_shape = device_pre.data.Hg.shape[2:-1]
             freq_range = int(device_pre.am.prod(device_pre.am.array(zero_mode_shape)))
@@ -964,7 +978,7 @@ def _cnv_GLB(device_pre, threads):
             device_pre.data.Hg[:, 0, 0, 0, :] = 0
         case _:
             raise NotImplementedError(
-                "CNV step is only implemented for periodicities 1, 2 and 3,"
+                "CNV step is only implemented for periodicities 0, 1, 2 and 3,"
                 f" got {device_pre.data.opt.periodicity}."
             )
 
@@ -1414,6 +1428,16 @@ def g2p(device_pre, method="TARGET", threads=128):
         case "STOKES_COMB" | "STOKES_SL":
             if device_pre.has_sl:
                 match device_pre.data.opt.periodicity:
+                    case 0:
+                        # Remove the constant flow introduced by the modified
+                        # biharmonic kernel, b_B = -1/(2R), in (95).
+                        sl_sum = device_pre.am.sum(
+                            device_pre.data.forces[:3, : device_pre.data.owned_ns],
+                            axis=1,
+                        )
+                        device_pre.far_potential += (
+                            2 * sl_sum / device_pre.data.opt_sc_glob.greens_truncation_R
+                        ).reshape(3, 1)
                     case 1:
                         sl_sum = np.empty(3, dtype=device_pre.data.dtype)
                         try:  # TODO: replace with isdevicespace
@@ -1473,7 +1497,7 @@ def g2p(device_pre, method="TARGET", threads=128):
                         pass
                     case _:
                         raise NotImplementedError(
-                            "Stokeslet adjustment is only implemented for periodicities 1, 2 and 3,"
+                            "Stokeslet adjustment is only implemented for periodicities 0, 1, 2 and 3,"
                             f" got {device_pre.data.opt.periodicity}."
                         )
         case "LAPLACE":
