@@ -30,7 +30,7 @@ The ParKI library provides a python API, ParkiPy, supporting a `CellList` class 
 |------------|---------------------|------------------------------|---------|
 | 0-periodic | ❌                  | ❌                           | ❌      |
 | 1-periodic | ✅                  | ✅                           | ❌      |
-| 2-periodic | ❌                  | ❌                           | ❌      |
+| 2-periodic | ✅                  | ✅                           | ❌      |
 | 3-periodic | ✅                  | ✅                           | ✅      |
 
 # Installing ParkiPy

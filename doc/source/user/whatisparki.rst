@@ -54,8 +54,8 @@ currently available.
      - ✓
      - ✗
    * - 2-periodic
-     - ✗
-     - ✗
+     - ✓
+     - ✓
      - ✗
    * - 3-periodic
      - ✓
