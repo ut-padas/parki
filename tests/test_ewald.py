@@ -1,10 +1,13 @@
 import time
 import argparse
+import warnings
+
 import pytest
 import numpy as np
 import parkipy
 import pykokkos as pk
-import warnings
+
+from parkipy.ewald._params import se_params_stokeslet
 
 GPU_AVAILABLE = pk.kokkos_manager.get_gpu_framework() is not None
 
@@ -28,7 +31,7 @@ DEVICE_PARAMS = [
     [
         pytest.param(0, marks=pytest.mark.xfail(reason="not yet implemented")),
         1,
-        pytest.param(2, marks=pytest.mark.xfail(reason="not yet implemented")),
+        2,
         3,
     ],
 )
@@ -75,7 +78,7 @@ class TestEwald:
         for all periodic directions in single and double
         precision arithmetic.
         """
-        if kernel == parkipy.ewald.laplace and periodicity == 1:
+        if kernel == parkipy.ewald.laplace and periodicity in (1, 2):
             pytest.xfail("not yet implemented")
         run_convergence(fun=kernel, periodicity=periodicity, dtype=dtype, device=device)
 
@@ -95,7 +98,7 @@ class TestEwald:
         kernel. This was fixed by adding a puncture radius
         to EwaldOptions that is passed into the P2P kernel
         """
-        if kernel == parkipy.ewald.laplace and periodicity == 1:
+        if kernel == parkipy.ewald.laplace and periodicity in (1, 2):
             pytest.xfail("not yet implemented")
 
         am = parkipy.utils.get_array_module(device)
@@ -194,6 +197,56 @@ def test_g2p_stokes(g2p_method, device, dtype):
     test different g2p methods for the 1-per stokes solver
     """
     run_convergence(g2p_method=g2p_method, device=device, dtype=dtype)
+
+
+@pytest.mark.parametrize("periodicity", [1, 2, 3])
+@pytest.mark.parametrize("box", [[2.0, 1.0, 1.0], [1.0, 1.5, 1.0]])
+def test_rectangular_fourier_resolution(box, periodicity):
+    """
+    Test grid sizing and Fourier resolution for rectangular periodic boxes.
+
+    Check practical grid sizes and uniform spacing in every periodic direction.
+    Decimal aspect ratios must not produce enormous grids through an exact
+    rational representation of a floating-point ratio.
+
+    Compare Stokes potentials with different cutoffs and both FFT formats.
+    Agreement checks Fourier padding in the free directions for 1P and 2P,
+    and Fourier resolution for 3P. The existing convergence tests use cubic
+    boxes, so they do not exercise these aspect-ratio-dependent errors.
+    Modest aspect ratios keep the padded 1P grids affordable for routine tests.
+    """
+    params = se_params_stokeslet(
+        {"box": box}, tolerance=1e-8, periodicity=periodicity, rc=0.4
+    )
+    assert np.max(params.grid_shape_ext) < 1000
+    np.testing.assert_allclose(
+        actual=params.grid_shape_ext[:periodicity] * params.h,
+        desired=box[:periodicity],
+        rtol=1e-14,
+        err_msg="Periodic grid spacing does not match the rectangular box",
+    )
+
+    rng = np.random.default_rng(321)
+    targets = rng.random((3, 17)) * np.array(box).reshape(3, 1)
+    sources = rng.random((3, 29)) * np.array(box).reshape(3, 1)
+    density = rng.standard_normal((3, 29))
+    potentials = []
+    for fft_type, rc in [("R2C", 0.6), ("C2C", 0.6), ("R2C", 0.9)]:
+        options = parkipy.ewald.EwaldOptions(
+            box=box,
+            periodicity=periodicity,
+            tolerance=1e-8,
+            rc=rc,
+            execution_space="CPU",
+            fft_type=fft_type,
+        )
+        potentials.append(parkipy.ewald.stokes_sl(targets, sources, density, options))
+    for potential in potentials[1:]:
+        error = TestEwald().error_rms(actual=potential, desired=potentials[0])
+        assert error < 1e-6, (
+            f"Rectangular {periodicity}P Fourier consistency error {error:.2e} "
+            "exceeds tolerance 1e-6"
+        )
 
 
 def run_convergence(
