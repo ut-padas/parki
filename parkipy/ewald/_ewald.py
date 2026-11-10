@@ -824,7 +824,7 @@ def _cnv_GLB(device_pre, threads):
     Perform both global and zero-mode Fourier-space convolution.
 
     This function calls `_cnv_global` to apply the Fourier convolution on all non-zero modes
-    and separately handles the zero-frequency mode using dedicated zero-mode convolution kernels.
+    and separately applies the periodicity-specific zero-mode scaling.
 
     Parameters
     ----------
@@ -840,7 +840,7 @@ def _cnv_GLB(device_pre, threads):
       data (`f1`, `f2`) are present.
     - Uses `opt_sc_glob` and `opt_sc_zero` fields of `device_pre.data` for grid-specific
       spectral options.
-    - The zero mode output is written into the first Fourier slice `Hg[:, 0]`.
+    - Zero-mode scaling covers the first Fourier plane (1P), line (2P), or origin (3P).
     """
     if pk.is_host_execution_space(device_pre.execution_space) and threads != 1:
         warnings.warn(
@@ -848,6 +848,9 @@ def _cnv_GLB(device_pre, threads):
             RuntimeWarning,
         )
         threads = 1
+    # Preserve the doubly periodic zero line before the global kernels overwrite it.
+    if device_pre.data.opt.periodicity == 2:
+        H0 = device_pre.data.Hg[:, 0, 0].copy()
     # global domain
     _cnv_global(device_pre=device_pre, threads=threads)
     # zero mode
@@ -857,6 +860,23 @@ def _cnv_GLB(device_pre, threads):
             freq_range = int(device_pre.am.prod(device_pre.am.array(zero_mode_shape)))
             freq_teams = math.ceil(freq_range / threads)
             shift = 0
+            zero_kwargs = {
+                "grid_size_1": device_pre.data.Hg.shape[3],
+                "box": device_pre.data.opt.glb_box_ext,
+                "k1_off": device_pre.data.opt.k1_off,
+                "xi": device_pre.data.opt.xi,
+                "pw": device_pre.data.opt_sc_zero.window_scaling_power,
+                "wsh": device_pre.data.opt_sc_zero.window_shape,
+                "ksc": device_pre.data.opt_sc_zero.kaiser_scaling,
+                "grid": device_pre.data.opt.glb_grid_shape_ext,
+                "whw": device_pre.data.opt_sc_zero.window_halfwidth,
+                "ups": device_pre.data.opt.actual_upsampling_global,
+                "gR": device_pre.data.opt_sc_zero.greens_truncation_R,
+                "vico_var": device_pre.data.opt_sc_zero.vico_var,
+                "periodicity": device_pre.data.opt.periodicity,
+                "freq_range": freq_range,
+                "threads": threads,
+            }
             # stokeslet
             if device_pre.has_sl:
                 G01 = [None] * 3
@@ -869,21 +889,7 @@ def _cnv_GLB(device_pre, threads):
                     H1=G01[0],
                     H2=G01[1],
                     H3=G01[2],
-                    grid_size_1=device_pre.data.Hg.shape[3],
-                    box=device_pre.data.opt.glb_box_ext,
-                    k1_off=device_pre.data.opt.k1_off,
-                    xi=device_pre.data.opt.xi,
-                    pw=device_pre.data.opt_sc_zero.window_scaling_power,
-                    wsh=device_pre.data.opt_sc_zero.window_shape,
-                    ksc=device_pre.data.opt_sc_zero.kaiser_scaling,
-                    grid=device_pre.data.opt.glb_grid_shape_ext,
-                    whw=device_pre.data.opt_sc_zero.window_halfwidth,
-                    ups=device_pre.data.opt.actual_upsampling_global,
-                    gR=device_pre.data.opt_sc_zero.greens_truncation_R,
-                    vico_var=device_pre.data.opt_sc_zero.vico_var,
-                    periodicity=device_pre.data.opt.periodicity,
-                    freq_range=freq_range,
-                    threads=threads,
+                    **zero_kwargs,
                 )
                 RangePop()
                 shift += 3
@@ -904,21 +910,7 @@ def _cnv_GLB(device_pre, threads):
                     H13=G02[0][2],
                     H23=G02[1][2],
                     H33=G02[2][2],
-                    grid_size_1=device_pre.data.Hg.shape[3],
-                    box=device_pre.data.opt.glb_box_ext,
-                    k1_off=device_pre.data.opt.k1_off,
-                    xi=device_pre.data.opt.xi,
-                    pw=device_pre.data.opt_sc_zero.window_scaling_power,
-                    wsh=device_pre.data.opt_sc_zero.window_shape,
-                    ksc=device_pre.data.opt_sc_zero.kaiser_scaling,
-                    grid=device_pre.data.opt.glb_grid_shape_ext,
-                    whw=device_pre.data.opt_sc_zero.window_halfwidth,
-                    ups=device_pre.data.opt.actual_upsampling_global,
-                    gR=device_pre.data.opt_sc_zero.greens_truncation_R,
-                    vico_var=device_pre.data.opt_sc_zero.vico_var,
-                    periodicity=device_pre.data.opt.periodicity,
-                    freq_range=freq_range,
-                    threads=threads,
+                    **zero_kwargs,
                 )
                 RangePop()
                 shift += 9
@@ -933,11 +925,46 @@ def _cnv_GLB(device_pre, threads):
                         "CNV summation not implemented for"
                         "stokes_sl or stokes_dl case."
                     )
+        case 2:
+            # Bagge–Tornberg (119)–(125): scale the (kx, ky) = (0, 0) line.
+            am = device_pre.am
+            data = device_pre.data
+            opt = data.opt_sc_zero
+            k = (2 * am.pi * am.fft.fftfreq(data.fft_shape[2], d=data.opt.h))[
+                : H0.shape[1]
+            ].astype(data.dtype)
+            R = opt.greens_truncation_R
+            # Sinc forms include the finite limits H_R(0) = -2*pi*R**2, Z_R(0) = 0.
+            sinc2 = am.sinc(R * k / (2 * am.pi)) ** 2
+            harmonic = 2 * am.pi * R**2 * (sinc2 - 2 * am.sinc(R * k / am.pi))
+            C = k**2 / (4 * data.opt.xi**2)
+            t = am.sqrt(opt.window_shape**2 - (k * opt.window_halfwidth) ** 2)
+            w0 = (
+                2
+                * opt.window_halfwidth
+                * am.sinh(opt.window_shape)
+                / opt.window_shape
+                * opt.kaiser_scaling
+            )
+            wz = 2 * opt.window_halfwidth * am.sinh(t) / t * opt.kaiser_scaling
+            scale = (1 + C) * am.exp(-C) / (w0**2 * wz) ** opt.window_scaling_power
+            H0 = H0.view(data.complex_dtype).reshape(data.dim_H, -1)
+            out = am.zeros((3, H0.shape[1]), dtype=data.complex_dtype)
+            if device_pre.has_sl:
+                out[:2] = 2 * harmonic * H0[:2]
+            if device_pre.has_dl:
+                F = H0[3:].reshape(3, 3, -1)
+                contraction = am.stack(
+                    (F[0, 2] + F[2, 0], F[1, 2] + F[2, 1], F[0, 0] + F[1, 1] + F[2, 2])
+                )
+                out += 4j * am.pi * R**2 * k * sinc2 * contraction
+            out *= scale
+            data.Hg[:3, 0, 0] = out.view(data.dtype).reshape(3, -1, 2)
         case 3:
             device_pre.data.Hg[:, 0, 0, 0, :] = 0
         case _:
             raise NotImplementedError(
-                "CNV step is only implemented for periodicities 1 and 3,"
+                "CNV step is only implemented for periodicities 1, 2 and 3,"
                 f" got {device_pre.data.opt.periodicity}."
             )
 
@@ -1442,11 +1469,11 @@ def g2p(device_pre, method="TARGET", threads=128):
                                 * sl_sum
                             )
                         device_pre.far_potential -= adj.reshape(3, 1)
-                    case 3:
+                    case 2 | 3:
                         pass
                     case _:
                         raise NotImplementedError(
-                            "Stokeslet adjustment is only implemented for periodicities 1 and 3,"
+                            "Stokeslet adjustment is only implemented for periodicities 1, 2 and 3,"
                             f" got {device_pre.data.opt.periodicity}."
                         )
         case "LAPLACE":
