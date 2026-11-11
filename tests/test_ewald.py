@@ -1,10 +1,13 @@
 import time
 import argparse
+import warnings
+
 import pytest
 import numpy as np
 import parkipy
 import pykokkos as pk
-import warnings
+
+from parkipy.ewald._params import se_params_stokeslet
 
 GPU_AVAILABLE = pk.kokkos_manager.get_gpu_framework() is not None
 
@@ -26,9 +29,9 @@ DEVICE_PARAMS = [
 @pytest.mark.parametrize(
     "periodicity",
     [
-        pytest.param(0, marks=pytest.mark.xfail(reason="not yet implemented")),
+        0,
         1,
-        pytest.param(2, marks=pytest.mark.xfail(reason="not yet implemented")),
+        2,
         3,
     ],
 )
@@ -75,7 +78,7 @@ class TestEwald:
         for all periodic directions in single and double
         precision arithmetic.
         """
-        if kernel == parkipy.ewald.laplace and periodicity == 1:
+        if kernel == parkipy.ewald.laplace and periodicity in (0, 1, 2):
             pytest.xfail("not yet implemented")
         run_convergence(fun=kernel, periodicity=periodicity, dtype=dtype, device=device)
 
@@ -95,7 +98,7 @@ class TestEwald:
         kernel. This was fixed by adding a puncture radius
         to EwaldOptions that is passed into the P2P kernel
         """
-        if kernel == parkipy.ewald.laplace and periodicity == 1:
+        if kernel == parkipy.ewald.laplace and periodicity in (0, 1, 2):
             pytest.xfail("not yet implemented")
 
         am = parkipy.utils.get_array_module(device)
@@ -196,6 +199,120 @@ def test_g2p_stokes(g2p_method, device, dtype):
     run_convergence(g2p_method=g2p_method, device=device, dtype=dtype)
 
 
+@pytest.mark.parametrize("periodicity", [0, 1, 2, 3])
+@pytest.mark.parametrize("box", [[2.0, 1.0, 1.0], [1.0, 1.5, 1.0]])
+def test_rectangular_fourier_resolution(box, periodicity):
+    """
+    Test grid sizing and Fourier resolution for rectangular periodic boxes.
+
+    Check practical grid sizes and uniform spacing in every periodic direction.
+    Decimal aspect ratios must not produce enormous grids through an exact
+    rational representation of a floating-point ratio.
+
+    Compare Stokes potentials with different cutoffs and both FFT formats.
+    Agreement checks Fourier padding in the free directions for 0P, 1P and 2P,
+    and Fourier resolution for 3P. The existing convergence tests use cubic
+    boxes, so they do not exercise these aspect-ratio-dependent errors.
+    Modest aspect ratios keep the padded 1P grids affordable for routine tests.
+    """
+    params = se_params_stokeslet(
+        {"box": box}, tolerance=1e-8, periodicity=periodicity, rc=0.4
+    )
+    assert np.max(params.grid_shape_ext) < 1000
+    np.testing.assert_allclose(
+        actual=params.grid_shape_ext[:periodicity] * params.h,
+        desired=box[:periodicity],
+        rtol=1e-14,
+        err_msg="Periodic grid spacing does not match the rectangular box",
+    )
+
+    rng = np.random.default_rng(321)
+    targets = rng.random((3, 17)) * np.array(box).reshape(3, 1)
+    sources = rng.random((3, 29)) * np.array(box).reshape(3, 1)
+    density = rng.standard_normal((3, 29))
+    potentials = []
+    for fft_type, rc in [("R2C", 0.6), ("C2C", 0.6), ("R2C", 0.9)]:
+        options = parkipy.ewald.EwaldOptions(
+            box=box,
+            periodicity=periodicity,
+            tolerance=1e-8,
+            rc=rc,
+            execution_space="CPU",
+            fft_type=fft_type,
+        )
+        potentials.append(parkipy.ewald.stokes_sl(targets, sources, density, options))
+    for potential in potentials[1:]:
+        error = TestEwald().error_rms(actual=potential, desired=potentials[0])
+        assert error < 1e-6, (
+            f"Rectangular {periodicity}P Fourier consistency error {error:.2e} "
+            "exceeds tolerance 1e-6"
+        )
+
+
+@pytest.mark.parametrize("kind", ["sl", "dl", "comb"])
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize("fft_type", ["R2C", "C2C"])
+@pytest.mark.parametrize("device", DEVICE_PARAMS)
+def test_stokes_free_space(kind, dtype, fft_type, device):
+    """
+    Test 0-periodic Stokes potentials against direct free-space summation.
+
+    Include a coincident source and target to check self exclusion, and points
+    near opposite box faces to detect accidental periodic images. Nonzero net
+    force checks the constant correction needed by the truncated Green's
+    function. Cover single-layer, pure double-layer and combined densities.
+    """
+    am = parkipy.utils.get_array_module(device)
+    rng = np.random.default_rng(1729)
+    sources = (0.1 + 0.8 * rng.random((3, 7))).astype(dtype)
+    targets = (0.1 + 0.8 * rng.random((3, 5))).astype(dtype)
+    sources[:, 0] = [0.05, 0.2, 0.4]
+    targets[:, 0] = sources[:, 0]
+    targets[:, 1] = [0.95, 0.2, 0.4]
+    density = rng.standard_normal((6, 7)).astype(dtype)
+    normals = rng.standard_normal((3, 7)).astype(dtype)
+    if kind == "dl":
+        density[:3] = 0
+
+    # Direct stokeslet and stresslet sums, omitting the coincident pair.
+    r = targets.astype(np.float64)[:, :, None] - sources[:, None, :]
+    distance2 = np.sum(r**2, axis=0)
+    inverse_r = np.divide(
+        1, np.sqrt(distance2), out=np.zeros_like(distance2), where=distance2 > 0
+    )
+    dot_sl = np.sum(r * density[:3, None, :], axis=0)
+    expected = np.sum(
+        density[:3, None, :] * inverse_r + r * dot_sl * inverse_r**3, axis=2
+    )
+    if kind != "sl":
+        dot_dl = np.sum(r * density[3:, None, :], axis=0)
+        dot_normal = np.sum(r * normals[:, None, :], axis=0)
+        expected -= 6 * np.sum(r * dot_dl * dot_normal * inverse_r**5, axis=2)
+
+    tolerance = 1e-4 if dtype == np.float32 else 1e-7
+    options = parkipy.ewald.EwaldOptions(
+        box=[1, 1, 1],
+        periodicity=0,
+        tolerance=tolerance / 100,
+        rc=0.8,
+        execution_space=device,
+        fft_type=fft_type,
+    )
+    args = [am.asarray(targets), am.asarray(sources)]
+    if kind == "sl":
+        potential = parkipy.ewald.stokes_sl(*args, am.asarray(density[:3]), options)
+    else:
+        potential = parkipy.ewald.stokes_comb(
+            *args, am.asarray(density), am.asarray(normals), options
+        )
+    if hasattr(potential, "get"):
+        potential = potential.get()
+    error = TestEwald().error_rms(actual=potential, desired=expected)
+    assert (
+        error < tolerance
+    ), f"Free-space Stokes error {error:.2e} exceeds tolerance {tolerance:.2e}"
+
+
 def run_convergence(
     device=None,
     p2p_method="GM-1D",
@@ -258,7 +375,8 @@ def run_convergence(
         tolvB = [1e-3, 1e-5]
     else:
         raise NotImplementedError
-    rcvB = am.linspace(0.2, 0.5, 10)
+    # Free-space padding spans all three axes; larger cutoffs bound test memory.
+    rcvB = am.linspace(0.6, 0.9, 10) if periodicity == 0 else am.linspace(0.2, 0.5, 10)
     clszvB = rcvB**3 * max(ns, nt)
     potvB = [[None] * am.size(clszvB), [None] * am.size(clszvB)]
     for j, tol in enumerate(tolvB):

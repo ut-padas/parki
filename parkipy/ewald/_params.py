@@ -712,11 +712,9 @@ class SEParams:
             ]
         )
 
-        # NOTE: we only support slab distribution (no matter the periodicity),
-        #   hence the global grid shape is the same for all P (for now)
-        self.glb_grid_shape_ext = np.array(
-            [int(glb_grid_shape[0]), *self.grid_shape_ext[1:]]
-        )
+        self.glb_grid_shape_ext = self.grid_shape_ext.copy()
+        if self.distributed:
+            self.glb_grid_shape_ext[0] = int(glb_grid_shape[0])
 
         # Compute extended box shape
         self.box_ext = np.array(
@@ -725,7 +723,9 @@ class SEParams:
                 for i in range(3)
             ]
         )
-        self.glb_box_ext = np.array([self.box_dict["box"][0], *self.box_ext[1:]])
+        self.glb_box_ext = self.box_ext.copy()
+        if self.distributed:
+            self.glb_box_ext[0] = self.box_dict["box"][0]
 
         # Compute offsets in free directions
         self.box_off = [-(self.box_ext[i] - self.box[i]) / 2 for i in range(3)]
@@ -738,16 +738,7 @@ class SEParams:
         #   self.actual_upsampling,
         #   see https://github.com/joarbagge/SE_unified_v2/blob/master/SE<P>P/src/SE<P>P_check_options.m
         #   for reference
-        match self.periodicity:
-            case 1:
-                self._prepare_1p(grid_shape, glb_grid_shape)
-            case 2 | 3:
-                self._prepare_3p(grid_shape, glb_grid_shape)
-            case _:
-                raise ValueError(
-                    "SEPre only suppored for periodicity 1 or 3,"
-                    f" got {self.periodicity}."
-                )
+        self._prepare_upsampling()
 
         # Computations for upsampled Fourier grid
         # Check that h is the same in all directions
@@ -764,18 +755,32 @@ class SEParams:
         self.window_shape = self.window_shape_factor * self.window_P
         self.kaiser_scaling = 1 / np.i0(self.window_shape)
 
-    def _prepare_3p(self, grid_shape, glb_grid_shape):
+    def _prepare_upsampling(self):
         """
-        See https://github.com/joarbagge/SE_unified_v2/blob/master/SE3P/src/SE3P_check_options.m
-        for reference
-        """
-        self.actual_upsampling = np.array([1, 1, 1])
+        Compute global upsampling factors for all periodicities.
 
-    def _prepare_1p(self, grid_shape, glb_grid_shape):
-        """
-        See https://github.com/joarbagge/SE_unified_v2/blob/master/SE1P/src/SE1P_check_options.m
+        Fully periodic grids need no upsampling. For partial periodicity,
+        resolve the zero and near-zero modes by padding the free directions.
+        See https://github.com/joarbagge/SE_unified_v2/blob/master/SE<P>P/src/SE<P>P_check_options.m
         for reference.
         """
+        if self.periodicity not in (0, 1, 2, 3):
+            raise ValueError(
+                "SEPre only supported for periodicity 0, 1, 2 or 3,"
+                f" got {self.periodicity}."
+            )
+        if self.periodicity == 3:
+            self.actual_upsampling = np.array([1, 1, 1])
+            return
+        if self.periodicity == 0:
+            # Prevent periodic copies of the truncated free-space kernel from
+            # reaching the extended source/target box in any direction.
+            grid_ups = self.base_factor * np.ceil(
+                (self.box_ext + self.greens_truncation_R) / (self.h * self.base_factor)
+            )
+            self.actual_upsampling = grid_ups / self.grid_shape_ext
+            return
+
         # Compute upsampling factor for the zero mode
         upsampling_zero = 1 + self.greens_truncation_R / np.min(
             self.box_ext[self.periodicity :]
@@ -785,10 +790,14 @@ class SEParams:
         LextOverL = np.min(
             self.box_ext[self.periodicity :] / self.box[self.periodicity :]
         )
-        A = self.A_fun(self.source_quantity, self.xi, self.box_dict["box"][0])
-        upsampling_local = (
-            1 - 1 / (2 * np.pi) * np.log(2 * self.tolerance / A)
-        ) / LextOverL
+        periodic_length = np.max(self.box_dict["box"][: self.periodicity])
+        A = self.A_fun(self.source_quantity, self.xi, periodic_length)
+        local_padding = -np.log(2 * self.tolerance / A) / (2 * np.pi)
+        # Resolve the smallest periodic wavenumber in every free direction.
+        upsampling_local = np.max(
+            (self.box[self.periodicity :] + periodic_length * local_padding)
+            / self.box_ext[self.periodicity :]
+        )
         # TODO/FIXME: This value may NOT work for a noncubic periodic box!
         local_modes_size = (
             -1 / (2 * np.pi) * np.log(2 * self.tolerance / A) / (LextOverL - 1) - 1
@@ -860,7 +869,7 @@ def se_compute_grid_size(box, grid_res, base_factor, periodicity):
     """
     if periodicity == 0:
         # Nothing to do in 0P case
-        grid_shape = grid_res * box
+        grid_shape = grid_res * np.asarray(box)
     elif periodicity == 1:
         # Determine number of "ticks" needed
         n = np.ceil(grid_res * box[0] / base_factor)
@@ -872,7 +881,7 @@ def se_compute_grid_size(box, grid_res, base_factor, periodicity):
         grid_shape = np.array([M1, grid_res * box[1], grid_res * box[2]])
     elif periodicity == 2:
         # Simplify the fraction L1/L2 = a1/a2
-        frac = Fraction(box[0] / box[1])
+        frac = Fraction(box[0] / box[1]).limit_denominator()
         a1 = frac.numerator
         a2 = frac.denominator
         # Determine number of "ticks" needed
@@ -886,12 +895,12 @@ def se_compute_grid_size(box, grid_res, base_factor, periodicity):
         grid_shape = np.array([M1, M2, grid_res * box[2]])
     elif periodicity == 3:
         # First simplify the fraction L1/L2 = c1/c2
-        frac = Fraction(box[0] / box[1])
+        frac = Fraction(box[0] / box[1]).limit_denominator()
         c1 = frac.numerator
         c2 = frac.denominator
         q = Fraction(box[0] / c1)
         # Then simplify the fraction q/L3 = b/a3
-        frac = Fraction(q / box[2])
+        frac = Fraction(q / box[2]).limit_denominator()
         b = frac.numerator
         a3 = frac.denominator
         a1 = c1 * b

@@ -26,6 +26,8 @@ jobs:
         with:
           auto-update-conda: true
           python-version: ${{ matrix.python-version }}
+          channels: conda-forge
+          conda-remove-defaults: true
       - name: install
         run: |
           if [[ "${{ matrix.os }}" == "ubuntu-22.04-arm" ]]; then

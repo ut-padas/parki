@@ -556,7 +556,7 @@ def stokes_sl(trg, src, dens, options):
     Raises
     ------
     NotImplementedError
-        If ``options.periodicity`` is not ``1`` or ``3``.
+        If ``options.periodicity`` is not ``0``, ``1``, ``2`` or ``3``.
 
     Notes
     -----
@@ -665,7 +665,7 @@ def stokes_comb(trg, src, dens, normal, options):
     Raises
     ------
     NotImplementedError
-        If ``options.periodicity`` is not ``1`` or ``3``.
+        If ``options.periodicity`` is not ``0``, ``1``, ``2`` or ``3``.
 
     Notes
     -----
