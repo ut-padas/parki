@@ -677,6 +677,8 @@ class DevicePre:
             case "LAPLACE":
                 self.dim_in = 1
                 self.dim_out = 1
+                self.has_sl = False
+                self.has_dl = False
             case "STOKES_COMB":
                 self.dim_in = 12
                 self.dim_out = 3

@@ -688,8 +688,6 @@ def p2p_laplace_gm1d_fp32(
                 # kernel dispatch
                 f1: Real3d_fp32 = Real3d_fp32()
                 f1.x = forces_list[0][s]
-                f1.y = forces_list[1][s]
-                f1.z = forces_list[2][s]
                 # update potential
                 u = laplace_ewald_fp32(u, r, f1, d2, xi)
         u_lst: List[pk.float] = [u.x, u.y, u.z]
@@ -2036,8 +2034,6 @@ def p2p_laplace_gm1d_fp64(
                 # kernel dispatch
                 f1: Real3d_fp64 = Real3d_fp64()
                 f1.x = forces_list[0][s]
-                f1.y = forces_list[1][s]
-                f1.z = forces_list[2][s]
                 # update potential
                 u = laplace_ewald_fp64(u, r, f1, d2, xi)
         u_lst: List[pk.double] = [u.x, u.y, u.z]

@@ -731,16 +731,15 @@ def laplace(trg, src, charge, options):
         \boldsymbol{u}(\boldsymbol{x}_i) = \sum_{j=1}^{N} \sum_{p \in P}
         \frac{q_j}{|\boldsymbol{x_j} - \boldsymbol{x_i} + P|}
 
-    where `P` is the specified periodicity.
-
-    We assume charge nutrality (i.e., :math:`\sum_j q_j = 0`).
-
-    .. warning:: Currently only supported for :math:`P=3`.
+    where the first `P` coordinate directions are periodic, for `P=0,1,2,3`.
+    The `P=0` case is the free-space potential. Periodic problems assume
+    charge neutrality (i.e., :math:`\sum_j q_j = 0`); no neutrality condition
+    is imposed in free space.
 
     Parameters
     ----------
     trg: ndarray
-        Array of target values :math:`\boldsymbol{x}_i` to compute the Stokes potential.
+        Array of target values :math:`\boldsymbol{x}_i` to compute the Laplace potential.
         Array should be shape ``(3,nt)`` with the default ordering (i.e., ``'C'`` ordering for
         `cupy` and ``'F'`` ordering for `numpy`.
 
@@ -749,8 +748,7 @@ def laplace(trg, src, charge, options):
 
     charge: ndarray
         Array of point charges for the source points of shape ``(ns)`` with default ordering.
-        Our error estimates assume charge neutrality, i.e., ``charges.mean < eps``, where ``eps``
-        is small.
+        For periodic problems, the charges are assumed to sum to zero.
 
     options: EwaldOptions
         Dataclass specifying Ewald parameters.
@@ -772,8 +770,9 @@ def laplace(trg, src, charge, options):
     Raises
     ------
     NotImplementedError
-        If ``options.periodicity`` is not ``3``, if ``options.p2p_method`` is not ``'GM-1D'``,
-        or if ``options.p2g_method`` is not ``'HYBRID'``.
+        If ``options.periodicity`` is not ``0``, ``1``, ``2`` or ``3``,
+        if ``options.p2p_method`` is not ``'GM-1D'``, or if
+        ``options.p2g_method`` is not ``'GRID'`` or ``'HYBRID'``.
 
     Notes
     -----
