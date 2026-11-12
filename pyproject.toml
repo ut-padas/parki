@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling >= 1.26"]
+requires = ["hatchling >= 1.26", "hatch-vcs >= 0.4"]
 build-backend = "hatchling.build"
 
 [project]
@@ -30,4 +30,8 @@ dependencies = [
 ]
 
 [tool.hatch.version]
-path = "parkipy/__init__.py"
+source = "vcs"
+tag-pattern = '^v(?P<version>\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?)$'
+
+[tool.hatch.version.raw-options]
+git_describe_command = ["git", "describe", "--dirty", "--tags", "--long", "--match", "v[0-9]*"]
