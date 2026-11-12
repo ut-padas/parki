@@ -72,7 +72,8 @@ class CellList:
             - `skip_empty_cells`: If false, every cell is treated as nonempty.
             - `periodicity`: Integer 0–3 specifying periodic boundary conditions.
               0 = no periodicity, 1 = periodic in x only, 2 = periodic in x and y,
-              3 = periodic in x, y, and z. Defaults to 0.
+              3 = periodic in x, y, and z. Each periodic axis must have at least
+              three cells at the requested cutoff. Defaults to 0.
             - `build_nonempty_neighbors`: Boolean flag to build nonempty neighbor list
 
         Cell lists are of size `self.num_nonempty_cells * self.cell_size`,
@@ -97,7 +98,7 @@ class CellList:
             0 <= self.cutoff <= self.box.min()
         ):
             raise ValueError(
-                f"cutoff expected to be a float between {(0, self.box.min())}, "
+                f"Cutoff expected to be a float between {(0, float(self.box.min()))}, "
                 f"got {self.cutoff} of type {type(cutoff)}"
             )
 
@@ -152,6 +153,14 @@ class CellList:
 
         # count particles in cells
         self._cell_grid_shape = (self.box / self.cutoff).astype(self.am.int32)
+        for axis in range(self.periodicity):
+            num_axis_cells = int(self.cell_grid_shape[axis])
+            if num_axis_cells < 3:
+                raise ValueError(
+                    f"periodic axis {axis} requires at least 3 cells for the "
+                    f"neighbor lookup, got {num_axis_cells}; reduce cutoff "
+                    f"{self.cutoff} or increase box length {self.box[axis]}"
+                )
         self._num_cells = int(self.cell_grid_shape.prod())
         self._counter = self.am.zeros(shape=self.num_cells, dtype=self.am.int32)
         cell_shape = self.box / self.cell_grid_shape
