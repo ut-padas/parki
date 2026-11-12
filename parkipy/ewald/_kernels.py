@@ -114,21 +114,7 @@ class EwaldKernel:
     def __call__(
         self,
         *args,
-        options=None,
-        cell_size=None,
-        rc=None,
-        p2p_method="GM-1D",
-        p2g_method="HYBRID",
-        g2p_method="TARGET",
-        p2p_threads_x=128,
-        p2p_threads_y=1,
-        p2g_threads=128,
-        g2p_threads=128,
-        buffer_size=None,
-        return_walltime=False,
-        return_params=False,
-        fft_type="R2C",
-        exclude_far_field=False,
+        options,
     ):
         """
         Evaluate the kernel using direct evaluation.
@@ -151,16 +137,6 @@ class EwaldKernel:
               for available execution spaces. Input is either a string
               (e.g., 'OpenMP') or a PyKokkos object (e.g., pk.OpenMP).
               Defaults to `pk.get_default_space()`
-            - `cell_size`: Real space cell size. Defaults to `None`.
-            - `p2p_method`: Must be one of `'GM-1D'`, `'GM-2D'`, `'SM-1D'`,
-              or `'SM-2D'`. Defaults to `'GM-1D'`.
-            - `p2g_method`: Must be one of `'BASE'`, `'SOURCE'`, `'GRID'`, `'HYBRID'`.
-              Defaults to `'HYBRID'`.
-            - `g2p_method`: Must be one of `'BASE'`, `'TARGET'`. Defaults to `'TARGET'`.
-            - `mpi_comm`: MPI_COMM_WORLD for distributed execution.
-            - `buffer_size`: Size of MPI buffers. Only relevant if `mpi_comm` is not `None`.
-               Defaults to `2*MPI.Allreduce(N_in, MPI.MAX)`.
-            - `time`: Flag to return `walltime` dictionary.
 
         Returns potential values at `x_out` as an array of shape
         `self.get_shape_out(N_out)`.
@@ -218,36 +194,35 @@ class EwaldKernel:
             kernel=self.kernel,
             box=box,
             tolerance=tol,
-            cell_size=cell_size,
-            rc=rc,
+            cell_size=options.cell_size,
+            rc=options.rc,
             periodicity=periodicity,
             execution_space=execution_space,
-            fft_type=fft_type,
-            kill_fourier_grid=exclude_far_field,
+            fft_type=options.fft_type,
         )
         # algorithm
         walltime = {}
         walltime["p2p"] = p2p(
             device_pre,
-            method=p2p_method,
-            threads_x=p2p_threads_x,
-            threads_y=p2p_threads_y,
+            method=options.p2p_method,
+            threads_x=options.p2p_threads_x,
+            threads_y=options.p2p_threads_y,
+            eps=options.puncture_radius,
         )
-        if exclude_far_field is False:
-            walltime["p2g"] = p2g(
-                device_pre,
-                method=p2g_method,
-                threads=p2g_threads,
-            )
-            walltime["fft"] = fft(device_pre, options)
-            walltime["cnv"] = cnv(device_pre)
-            walltime["ifft"] = ifft(device_pre, options)
-            device_pre.data.communicate_ghost_grid_cells()
-            walltime["g2p"] = g2p(
-                device_pre,
-                method=g2p_method,
-                threads=g2p_threads,
-            )
+        walltime["p2g"] = p2g(
+            device_pre,
+            method=options.p2g_method,
+            threads=options.p2g_threads,
+        )
+        walltime["fft"] = fft(device_pre, options)
+        walltime["cnv"] = cnv(device_pre, threads=options.cnv_threads)
+        walltime["ifft"] = ifft(device_pre, options)
+        device_pre.data.communicate_ghost_grid_cells()
+        walltime["g2p"] = g2p(
+            device_pre,
+            method=options.g2p_method,
+            threads=options.g2p_threads,
+        )
         val = device_pre.near_potential + device_pre.far_potential
         val = val.squeeze()
         shape = self.get_shape_out(device_pre.data.targets.shape[-1])
@@ -256,7 +231,7 @@ class EwaldKernel:
                 f"Kernel function returned wrong shape, found {val.shape}, expected {shape}."
             )
         out = [val]
-        if return_walltime:
+        if options.return_walltime:
             perf = PerfModel(
                 p2p_time=walltime["p2p"],
                 p2g_time=walltime["p2g"] if not exclude_far_field else None,
@@ -275,13 +250,13 @@ class EwaldKernel:
                 fft_dim=device_pre.data.dim_H,
                 ifft_dim=device_pre.dim_out,
                 fft_shape=device_pre.data.Hg.size / device_pre.data.dim_H,
-                cell_size=cell_size,
+                cell_size=options.cell_size,
                 window_P=device_pre.data.opt.window_P,
                 dtype=q_in.dtype,
                 execution_space=execution_space,
             )
             out.append(perf)
-        if return_params:
+        if options.return_params:
             out.append(params)
         out = tuple(out)
         if len(out) == 1:
@@ -339,8 +314,7 @@ class EwaldOptions:
 
     tolerance: float
         Tolerance for Ewald summation. Used to set internal Ewald parameters.
-
-    execution_space: `pykokkos.ExecutionSpace` | {'CUDA', 'HIP', 'OPENMP'}, optional
+    execution_space: `pykokkos.ExecutionSpace` | {'CUDA', 'HIP', 'OPENMP'}
         Device for the Kokkos backend. May be pykokkos execution space type or a string.
         Defaults to the default PyKokkos execution space.
 
@@ -380,24 +354,35 @@ class EwaldOptions:
 
     p2p_threads_x: int, optional
         Number of threads per block used to parallelize over the targets in the p2p algorithm.
-        Resets to ``1`` for the OpenMP execution space.
-        The default is ``128``.
+        The default is ``128`` for device backends and ``1`` for host backends.
 
     p2p_threads_y: int, optional
-        Number of threads per block used to parallelize over the sources in the p2p algorithm.
-        Resets to ``1`` for `1D` methods and for the OpenMP execution space. The default is ``1``.
+        Number of threads per block used to parallelize over the sources in the
+        2D variants of the p2p algorithm.
 
     p2g_threads: int, optional
-        Number of threads per block used to parallelize the p2g method. The default is ``128``.
+        Number of threads per block used to parallelize the p2g method.
+        The default is ``128`` for device backends and ``1`` for host backends.
+
+    cnv_threads: int, optional
+        Number of threads per block used to parallelize the cnv method.
+        The default is ``128`` for device backends and ``1`` for host backends.
 
     g2p_threads: int, optional
-        Number of threads per block used to parallelize the g2p method. The default is ``128``.
+        Number of threads per block used to parallelize the g2p method.
+        The default is ``128`` for device backends and ``1`` for host backends.
 
     cell_size: int | None, optional
         Near field cell size. If ``None``, ``rc`` must be provided. The defaults to ``None``.
 
     rc: float | None, optional
         Near field cutoff radius. If ``None``, ``cell_size`` must be provided. The defaults to ``None``.
+
+    puncture_radius: float, optional
+        For each target point, sources within the puncture radius
+        are treated as self interactions (i.e., if ||x-y+p||<puncture_radius).
+        This radius accounts for *finite-precision* kernel singularities
+        when sources and target arrays differ. The default is 1e-13.
 
     return_walltime: bool, optional
         Flag to return the walltime dict of Ewald stage wall-clock times. If true, the ``parkipy.ewald.PerfHistory``
@@ -421,12 +406,14 @@ class EwaldOptions:
     g2p_method: Literal["BASE", "TARGET"] = "TARGET"
     fft_type: Literal["R2C", "C2C"] = "R2C"
     torch_fft: int = False
-    p2p_threads_x: int = 128
+    p2p_threads_x: int = None
     p2p_threads_y: int = 1
-    p2g_threads: int = 128
-    g2p_threads: int = 128
+    p2g_threads: int = None
+    cnv_threads: int = None
+    g2p_threads: int = None
     cell_size: int | None = None
     rc: float | None = None
+    puncture_radius: float | None = 1e-13
     return_walltime: bool = False
     return_params: bool = False
     exclude_far_field: bool = False
@@ -496,14 +483,19 @@ class EwaldOptions:
                     "to install pytorch: https://pytorch.org/get-started/locally/."
                 ) from e
 
-        for threads in [
-            self.p2p_threads_x,
-            self.p2p_threads_y,
-            self.p2g_threads,
-            self.g2p_threads,
+        for name in [
+            "p2p_threads_x",
+            "p2p_threads_y",
+            "p2g_threads",
+            "cnv_threads",
+            "g2p_threads",
         ]:
+            threads = getattr(self, name)
+            if threads is None:
+                threads = 1 if pk.is_host_execution_space(self.execution_space) else 128
+                setattr(self, name, threads)
             if not isinstance(threads, int) or threads <= 0:
-                raise ValueError("thread count must be a positive int.")
+                raise ValueError(f"thread count must be a positive int, got {threads}")
 
         if self.cell_size is None and self.rc is None:
             raise ValueError("one of cell size or rc must be provided.")
@@ -573,7 +565,7 @@ def stokes_sl(trg, src, dens, options):
     Raises
     ------
     NotImplementedError
-        If ``options.periodicity`` is not ``1`` or ``3``.
+        If ``options.periodicity`` is not ``0``, ``1``, ``2`` or ``3``.
 
     Notes
     -----
@@ -613,8 +605,6 @@ def stokes_sl(trg, src, dens, options):
         options.tolerance,
         options.execution_space,
     ]
-    exclude = {"box", "tolerance", "periodicity", "execution_space", "torch_fft"}
-    kwargs = {k: v for k, v in options.__dict__.items() if k not in exclude}
     pot = EwaldKernel(
         name="stokes_sl",
         dim_in=3,
@@ -622,7 +612,7 @@ def stokes_sl(trg, src, dens, options):
         kernel="stokes_sl",
         takes_normals=False,
         description="Stokes single layer potential.",
-    )(*args, options=options, **kwargs)
+    )(*args, options=options)
     return pot
 
 
@@ -684,7 +674,7 @@ def stokes_comb(trg, src, dens, normal, options):
     Raises
     ------
     NotImplementedError
-        If ``options.periodicity`` is not ``1`` or ``3``.
+        If ``options.periodicity`` is not ``0``, ``1``, ``2`` or ``3``.
 
     Notes
     -----
@@ -730,8 +720,6 @@ def stokes_comb(trg, src, dens, normal, options):
         options.tolerance,
         options.execution_space,
     ]
-    exclude = {"box", "tolerance", "periodicity", "execution_space", "torch_fft"}
-    kwargs = {k: v for k, v in options.__dict__.items() if k not in exclude}
     pot = EwaldKernel(
         name="stokes_comb",
         dim_in=6,
@@ -739,7 +727,7 @@ def stokes_comb(trg, src, dens, normal, options):
         kernel="stokes_comb",
         takes_normals=True,
         description="Stokes single and double layer potential.",
-    )(*args, options=options, **kwargs)
+    )(*args, options=options)
     return pot
 
 
@@ -752,16 +740,15 @@ def laplace(trg, src, charge, options):
         \boldsymbol{u}(\boldsymbol{x}_i) = \sum_{j=1}^{N} \sum_{p \in P}
         \frac{q_j}{|\boldsymbol{x_j} - \boldsymbol{x_i} + P|}
 
-    where `P` is the specified periodicity.
-
-    We assume charge nutrality (i.e., :math:`\sum_j q_j = 0`).
-
-    .. warning:: Currently only supported for :math:`P=3`.
+    where the first `P` coordinate directions are periodic, for `P=0,1,2,3`.
+    The `P=0` case is the free-space potential. Periodic problems assume
+    charge neutrality (i.e., :math:`\sum_j q_j = 0`); no neutrality condition
+    is imposed in free space.
 
     Parameters
     ----------
     trg: ndarray
-        Array of target values :math:`\boldsymbol{x}_i` to compute the Stokes potential.
+        Array of target values :math:`\boldsymbol{x}_i` to compute the Laplace potential.
         Array should be shape ``(3,nt)`` with the default ordering (i.e., ``'C'`` ordering for
         `cupy` and ``'F'`` ordering for `numpy`.
 
@@ -770,8 +757,7 @@ def laplace(trg, src, charge, options):
 
     charge: ndarray
         Array of point charges for the source points of shape ``(ns)`` with default ordering.
-        Our error estimates assume charge neutrality, i.e., ``charges.mean < eps``, where ``eps``
-        is small.
+        For periodic problems, the charges are assumed to sum to zero.
 
     options: EwaldOptions
         Dataclass specifying Ewald parameters.
@@ -793,8 +779,9 @@ def laplace(trg, src, charge, options):
     Raises
     ------
     NotImplementedError
-        If ``options.periodicity`` is not ``3``, if ``options.p2p_method`` is not ``'GM-1D'``,
-        or if ``options.p2g_method`` is not ``'HYBRID'``.
+        If ``options.periodicity`` is not ``0``, ``1``, ``2`` or ``3``,
+        if ``options.p2p_method`` is not ``'GM-1D'``, or if
+        ``options.p2g_method`` is not ``'GRID'`` or ``'HYBRID'``.
 
     Notes
     -----
@@ -851,8 +838,6 @@ def laplace(trg, src, charge, options):
         options.tolerance,
         options.execution_space,
     ]
-    exclude = {"box", "tolerance", "periodicity", "execution_space", "torch_fft"}
-    kwargs = {k: v for k, v in options.__dict__.items() if k not in exclude}
     pot = EwaldKernel(
         "laplace",
         1,
@@ -860,5 +845,5 @@ def laplace(trg, src, charge, options):
         "laplace",
         takes_normals=False,
         description="Laplace layer potential.",
-    )(*args, options=options, **kwargs)
+    )(*args, options=options)
     return pot

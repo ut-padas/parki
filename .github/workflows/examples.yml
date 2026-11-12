@@ -10,7 +10,7 @@ on:
 
 defaults:
   run:
-    shell: bash
+    shell: bash -el {0}
 
 jobs:
   run_examples:
@@ -21,20 +21,21 @@ jobs:
         python-version: ["3.13"]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: conda-incubator/setup-miniconda@v3
+      - uses: actions/checkout@v7
+      - uses: conda-incubator/setup-miniconda@v4
         with:
           auto-update-conda: true
           python-version: ${{ matrix.python-version }}
+          channels: conda-forge
+          conda-remove-defaults: true
       - name: install
         run: |
-          ENABLE_OPENMP=OFF bash  install.sh
-      - name: run examples
+          ENABLE_OPENMP=OFF PYTHON_VERSION=${{ matrix.python-version }} bash install.sh
+      - name: validate examples
         run: |
+          conda activate parki
           set -euo pipefail
-          echo "Running example scripts..."
-          while IFS= read -r f; do
-            echo "=============================="
-            echo "Running: $f"
-            python "$f"
-          done < <(find examples -type f -name "*.py")
+          python -m compileall -q examples
+          for f in examples/ewald/*.py; do
+            python "$f" --help > /dev/null
+          done

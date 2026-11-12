@@ -18,8 +18,8 @@ boundary conditions.
 Key Features
 ------------
 
-- **Ewald summation** for the Stokes and Laplace kernels in 1- and
-  3-periodic domains via the :mod:`parkipy.ewald` module.
+- **Ewald summation** for the Stokes and Laplace kernels in free-space,
+  1-, 2- and 3-periodic domains via the :mod:`parkipy.ewald` module.
 - **Distributed Ewald summation** in slab geometries across multiple GPUs
   via the :mod:`parkipy.distributed.ewald` module.
 - **Cell list construction** for efficient local particle-interaction lookups
@@ -46,17 +46,17 @@ currently available.
      - Stokes single + double layer
      - Laplace
    * - 0-periodic
-     - ✗
-     - ✗
-     - ✗
+     - ✓
+     - ✓
+     - ✓
    * - 1-periodic
      - ✓
      - ✓
-     - ✗
+     - ✓
    * - 2-periodic
-     - ✗
-     - ✗
-     - ✗
+     - ✓
+     - ✓
+     - ✓
    * - 3-periodic
      - ✓
      - ✓

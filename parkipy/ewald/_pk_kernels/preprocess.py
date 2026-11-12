@@ -2,6 +2,7 @@
 
 import os
 import argparse
+import subprocess
 
 """
 Preprocess template files. Running this script preprocesses all
@@ -72,8 +73,21 @@ def main(args):
         if os.path.exists(output):
             os.chmod(output, 0o644)
         process_template(template, output)
+        format_with_black(output)
         os.chmod(output, 0o444)
     return 0
+
+
+def format_with_black(fname):
+    """
+    Run black on the generated file in-place so its formatting always
+    matches what CI's ``black --check`` expects, regardless of blank-line
+    quirks introduced by template concatenation.
+    """
+    print(f"  Formatting {fname!r} with black ...")
+    result = subprocess.run(["black", "-q", fname], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"black failed on {fname!r}:\n{result.stderr}")
 
 
 def process_template(template_fname, output_fname):

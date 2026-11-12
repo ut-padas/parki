@@ -34,13 +34,13 @@ def main(args):
     if args.create:
         save_solution_to_disk(solution, args)
     elif args.read:
-        test_reference_from_disk(nt_list, solution, args)
+        compare_reference_from_disk(nt_list, solution, args)
     else:
         raise ValueError("Must be one of 'create' or 'read'")
     return
 
 
-def test_reference_from_disk(nt_list, solution, args):
+def compare_reference_from_disk(nt_list, solution, args):
     am = get_array_module(args.device)
     now_str = time.strftime("%y%m%dT%H%M%S%Z")
     format_version = 1

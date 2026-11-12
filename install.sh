@@ -7,6 +7,7 @@ set -euo pipefail
 
 ENV_NAME=${ENV_NAME:-parki}
 PYTHON_VERSION=${PYTHON_VERSION:-3.13}
+PYKOKKOS_BRANCH=${PYKOKKOS_BRANCH:-main}
 
 # Execution spaces
 ENABLE_OPENMP=${ENABLE_OPENMP:-ON}
@@ -41,7 +42,7 @@ source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate "$ENV_NAME"
 conda info --envs
 
-conda install -y -c conda-forge pybind11 patchelf pandas matplotlib scipy black
+conda install -y -c conda-forge pybind11 patchelf pandas matplotlib scipy black pytest
 
 if [[ "$ENABLE_CUDA" == "ON" ]]; then
   conda install -y -c conda-forge cupy
@@ -60,10 +61,10 @@ if [[ -d external ]]; then
 fi
 mkdir external; cd external
 
-git clone https://github.com/kokkos/pykokkos.git
+git clone --branch "$PYKOKKOS_BRANCH" https://github.com/kokkos/pykokkos.git
 cd pykokkos
 
-conda env update -n $ENV_NAME -f base/environment.yml
+python -m pip install -r requirements.txt
 python install_base.py install --verbose -- \
 	-DENABLE_VIEW_RANKS=4 \
 	-DENABLE_MEMORY_TRAITS=OFF \
@@ -71,9 +72,10 @@ python install_base.py install --verbose -- \
 	-DENABLE_LAYOUTS=ON \
 	-DENABLE_CUDA=$ENABLE_CUDA \
 	-DENABLE_HIP=$ENABLE_HIP \
-	-DENABLE_OPENMP=$ENABLE_OPENMP
+	-DENABLE_OPENMP=$ENABLE_OPENMP \
+	-DCMAKE_UNITY_BUILD_BATCH_SIZE=${PYKOKKOS_UNITY_BATCH_SIZE:-8}
 
-pip install --user -e .
+python -m pip install -e .
 
 cd ../..
 
@@ -82,7 +84,7 @@ cd ../..
 ############################
 
 echo "Installing ParkiPy"
-pip install -e .
+python -m pip install -e .
 
 ############################
 # Validation

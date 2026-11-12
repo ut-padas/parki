@@ -36,8 +36,10 @@ from ._pk_kernels._g2p_workunits import (
     g2p_target_fp64,
 )
 from ._pk_kernels._cnv_workunits import (
-    convolution_sum_sl_dl,
-    convolution_sum_sl,
+    convolution_sum_sl_dl_fp32,
+    convolution_sum_sl_dl_fp64,
+    convolution_sum_sl_fp32,
+    convolution_sum_sl_fp64,
     laplace_convolution_kernel_fp64,
     laplace_convolution_kernel_fp32,
     stokeslet_convolution_kernel_fp64,
@@ -185,10 +187,13 @@ class Options:
             grid_res=params.grid_res,
             grid_shape_ext=params.grid_shape_ext,
             window_P=params.window_P,
-            actual_upsampling_global=am.array(params.actual_upsampling),
+            # Keep the view type fixed for both integer and fractional upsampling.
+            actual_upsampling_global=am.array(
+                params.actual_upsampling, dtype=am.float64
+            ),
             distributed=params.distributed,
             glb_box=am.array(params.glb_box),
-            glb_box_ext=am.array(params.glb_box_ext),
+            glb_box_ext=am.array(params.glb_box_ext, dtype=am.float64),
             glb_grid_shape_ext=am.array(params.glb_grid_shape_ext, dtype=am.int32),
         )
 
@@ -453,15 +458,16 @@ class DeviceData:
                 )
         else:
             self.ghost_H = self.H  # dummy variable for g2p step
+            Mx_ups = round(Mx * float(self.opt.actual_upsampling_global[0]))
             Hg_shape = (
                 self.dim_H,
-                Mx,
+                Mx_ups,
                 round(My * float(self.opt.actual_upsampling_global[-2])),
                 dim_z,
                 2,
             )
             self.fft_shape = [
-                Mx,
+                Mx_ups,
                 round(My * float(self.opt.actual_upsampling_global[-2])),
                 round(Mz * float(self.opt.actual_upsampling_global[-1])),
             ]
@@ -671,6 +677,8 @@ class DevicePre:
             case "LAPLACE":
                 self.dim_in = 1
                 self.dim_out = 1
+                self.has_sl = False
+                self.has_dl = False
             case "STOKES_COMB":
                 self.dim_in = 12
                 self.dim_out = 3
@@ -688,10 +696,10 @@ class DevicePre:
 
         # Choose kernel function variants based on dtype
         dtype_size = self.am.dtype(self.data.dtype).itemsize
-        self.convolution_sum_sl_dl = convolution_sum_sl_dl
-        self.convolution_sum_sl = convolution_sum_sl
         match self.data.dtype:
             case self.am.double:
+                self.convolution_sum_sl_dl = convolution_sum_sl_dl_fp64
+                self.convolution_sum_sl = convolution_sum_sl_fp64
                 self.p2g_workunit = {
                     "BASE WITH NORMALS": p2g_base_fp64,
                     "SOURCE WITH NORMALS": p2g_source_fp64,
@@ -712,6 +720,8 @@ class DevicePre:
                     stresslet_convolution_zero_kernel_fp64
                 )
             case self.am.single:
+                self.convolution_sum_sl_dl = convolution_sum_sl_dl_fp32
+                self.convolution_sum_sl = convolution_sum_sl_fp32
                 self.p2g_workunit = {
                     "BASE WITH NORMALS": p2g_base_fp32,
                     "SOURCE WITH NORMALS": p2g_source_fp32,

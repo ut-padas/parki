@@ -71,6 +71,7 @@ def p2p(
     s_per_thread: int = 32,
     cell_pad: int = 1,
     kernel=None,  # for testing purposes only
+    eps=1e-14,
 ) -> None:
     """
     Perform near-field particle-to-particle (P2P) interaction computation using a
@@ -127,6 +128,9 @@ def p2p(
         )
         threads_x = 1
     args_start = time.time()
+
+    if eps is None:
+        eps = 0
 
     # get kernel information
     kernel_flag = None
@@ -286,10 +290,13 @@ def p2p(
             if not device_pre.data.opt.distributed
             else 0
         ),
-        "box": device_pre.am.array(device_pre.data.opt.ghost_box),
+        "box": device_pre.am.array(
+            device_pre.data.opt.ghost_box, dtype=device_pre.am.float64
+        ),
         "xi": device_pre.data.opt.xi,
         "xi_squared": device_pre.data.opt.xi**2,
         "xi_two_inv_sqrt_pi": device_pre.data.opt.xi * 2 * 0.564189583547756286948079,
+        "eps2": eps * eps,
     }
 
     if device_pre.has_normals:
@@ -814,133 +821,179 @@ def cnv(device_pre, threads=128):
 
 def _cnv_GLB(device_pre, threads):
     """
-    Perform both global and zero-mode Fourier-space convolution.
+    Apply global convolution, then the periodicity-specific modified kernels.
 
-    This function calls `_cnv_global` to apply the Fourier convolution on all non-zero modes
-    and separately handles the zero-frequency mode using dedicated zero-mode convolution kernels.
-
-    Parameters
-    ----------
-    device_pre : DevicePre
-        Contains all data arrays and configuration metadata required for the convolution step.
-    threads : int
-        Number of threads per team for Kokkos execution.
-
-    Notes
-    -----
-    - Uses different convolution kernels for zero and non-zero modes.
-    - Handles both Stokeslet and Stresslet contributions if the corresponding force
-      data (`f1`, `f2`) are present.
-    - Uses `opt_sc_glob` and `opt_sc_zero` fields of `device_pre.data` for grid-specific
-      spectral options.
-    - The zero mode output is written into the first Fourier slice `Hg[:, 0]`.
+    Free space modifies every Fourier mode; 1P and 2P modify the zero plane
+    and line, respectively; 3P sets the origin to zero. The 1P Stokes path
+    uses compiled kernels, while the remaining corrections use array operations.
     """
+    data = device_pre.data
+    am = device_pre.am
+    periodicity = data.opt.periodicity
+    is_laplace = device_pre.kernel.upper() == "LAPLACE"
+    opt = data.opt_sc_glob if periodicity == 0 else data.opt_sc_zero
+    if periodicity not in (0, 1, 2, 3):
+        raise NotImplementedError(
+            "CNV step is only implemented for periodicities 0, 1, 2 and 3,"
+            f" got {periodicity}."
+        )
     if pk.is_host_execution_space(device_pre.execution_space) and threads != 1:
         warnings.warn(
             "'threads' argument is overridden to 1 in OpenMP execution space.",
             RuntimeWarning,
         )
         threads = 1
-    # global domain
+
+    # Select and preserve the zero-mode region consistently for every periodicity.
+    # In 0P only the origin needs unscaled input; other modes are modified in place.
+    zero_index = (slice(None),) + (0,) * (periodicity or 3)
+    zero_output = data.Hg[zero_index]
+    zero_source = zero_output.copy()
     _cnv_global(device_pre=device_pre, threads=threads)
-    # zero mode
-    match device_pre.data.opt.periodicity:
-        case 1:
-            zero_mode_shape = device_pre.data.Hg.shape[2:-1]
-            freq_range = int(device_pre.am.prod(device_pre.am.array(zero_mode_shape)))
-            freq_teams = math.ceil(freq_range / threads)
-            shift = 0
-            # stokeslet
-            if device_pre.has_sl:
-                G01 = [None] * 3
-                for d in range(shift, shift + len(G01)):
-                    G01[d - shift] = device_pre.data.Hg[d][0]
+
+    if periodicity == 3:
+        zero_output[...] = 0
+        return
+
+    # The 1P Stokes kernels also handle slab-distributed zero planes.
+    if periodicity == 1 and not is_laplace:
+        if not device_pre.has_sl:
+            raise NotImplementedError("CNV summation requires a Stokes single layer.")
+        freq_range = math.prod(data.Hg.shape[2:-1])
+        policy = pk.TeamPolicy(
+            device_pre.execution_space, math.ceil(freq_range / threads), threads
+        )
+        zero_kwargs = {
+            "grid_size_1": data.Hg.shape[3],
+            "box": data.opt.glb_box_ext,
+            "k1_off": data.opt.k1_off,
+            "xi": data.opt.xi,
+            "pw": opt.window_scaling_power,
+            "wsh": opt.window_shape,
+            "ksc": opt.kaiser_scaling,
+            "grid": data.opt.glb_grid_shape_ext,
+            "whw": opt.window_halfwidth,
+            "ups": data.opt.actual_upsampling_global,
+            "gR": opt.greens_truncation_R,
+            "vico_var": opt.vico_var,
+            "periodicity": periodicity,
+            "freq_range": freq_range,
+            "threads": threads,
+        }
+        layers = [
+            (True, device_pre.stokeslet_convolution_zero_kernel, ("H1", "H2", "H3")),
+            (
+                device_pre.has_dl,
+                device_pre.stresslet_convolution_zero_kernel,
+                ("H11", "H21", "H31", "H12", "H22", "H32", "H13", "H23", "H33"),
+            ),
+        ]
+        shift = 0
+        for enabled, kernel, names in layers:
+            if enabled:
+                fields = {name: zero_source[shift + d] for d, name in enumerate(names)}
                 RangePush("Sca-kernel")
-                pk.parallel_for(
-                    pk.TeamPolicy(device_pre.execution_space, freq_teams, threads),
-                    device_pre.stokeslet_convolution_zero_kernel,
-                    H1=G01[0],
-                    H2=G01[1],
-                    H3=G01[2],
-                    grid_size_1=device_pre.data.Hg.shape[3],
-                    box=device_pre.data.opt.glb_box_ext,
-                    k1_off=device_pre.data.opt.k1_off,
-                    xi=device_pre.data.opt.xi,
-                    pw=device_pre.data.opt_sc_zero.window_scaling_power,
-                    wsh=device_pre.data.opt_sc_zero.window_shape,
-                    ksc=device_pre.data.opt_sc_zero.kaiser_scaling,
-                    grid=device_pre.data.opt.glb_grid_shape_ext,
-                    whw=device_pre.data.opt_sc_zero.window_halfwidth,
-                    ups=device_pre.data.opt.actual_upsampling_global,
-                    gR=device_pre.data.opt_sc_zero.greens_truncation_R,
-                    vico_var=device_pre.data.opt_sc_zero.vico_var,
-                    periodicity=device_pre.data.opt.periodicity,
-                    freq_range=freq_range,
-                    threads=threads,
-                )
+                pk.parallel_for(policy, kernel, **fields, **zero_kwargs)
                 RangePop()
-                shift += 3
-            if device_pre.has_dl:
-                G02 = [[None for _ in range(3)] for _ in range(3)]
-                for d in range(9):
-                    G02[d % 3][d // 3] = device_pre.data.Hg[shift + d][0]
-                RangePush("Sca-kernel")
-                pk.parallel_for(
-                    pk.TeamPolicy(device_pre.execution_space, freq_teams, threads),
-                    device_pre.stresslet_convolution_zero_kernel,
-                    H11=G02[0][0],
-                    H21=G02[1][0],
-                    H31=G02[2][0],
-                    H12=G02[0][1],
-                    H22=G02[1][1],
-                    H32=G02[2][1],
-                    H13=G02[0][2],
-                    H23=G02[1][2],
-                    H33=G02[2][2],
-                    grid_size_1=device_pre.data.Hg.shape[3],
-                    box=device_pre.data.opt.glb_box_ext,
-                    k1_off=device_pre.data.opt.k1_off,
-                    xi=device_pre.data.opt.xi,
-                    pw=device_pre.data.opt_sc_zero.window_scaling_power,
-                    wsh=device_pre.data.opt_sc_zero.window_shape,
-                    ksc=device_pre.data.opt_sc_zero.kaiser_scaling,
-                    grid=device_pre.data.opt.glb_grid_shape_ext,
-                    whw=device_pre.data.opt_sc_zero.window_halfwidth,
-                    ups=device_pre.data.opt.actual_upsampling_global,
-                    gR=device_pre.data.opt_sc_zero.greens_truncation_R,
-                    vico_var=device_pre.data.opt_sc_zero.vico_var,
-                    periodicity=device_pre.data.opt.periodicity,
-                    freq_range=freq_range,
-                    threads=threads,
-                )
-                RangePop()
-                shift += 9
-            # sum
-            for d in range(device_pre.dim_out):
-                if device_pre.has_sl and device_pre.has_dl:
-                    device_pre.data.Hg[d, 0] = G01[d] + G02[d][0]
-                elif device_pre.has_sl:
-                    device_pre.data.Hg[d, 0] = G01[d]
-                else:
-                    raise NotImplementedError(
-                        "CNV summation not implemented for"
-                        "stokes_sl or stokes_dl case."
-                    )
-        case 3:
-            device_pre.data.Hg[:, 0, 0, 0, :] = 0
-        case _:
-            raise NotImplementedError(
-                "CNV step is only implemented for periodicities 1 and 3,"
-                f" got {device_pre.data.opt.periodicity}."
+                shift += len(names)
+        if device_pre.has_dl:
+            zero_source[:3] += zero_source[3:6]
+        zero_output[:3] = zero_source[:3]
+        return
+
+    # Shared wave numbers and Kaiser window normalization for array corrections.
+    R = opt.greens_truncation_R
+    w0 = (
+        2
+        * opt.window_halfwidth
+        * am.sinh(opt.window_shape)
+        / opt.window_shape
+        * opt.kaiser_scaling
+    )
+    wave_numbers = [
+        (2 * am.pi * am.fft.fftfreq(data.fft_shape[d], d=data.opt.h))[
+            : data.Hg.shape[d + 1]
+        ]
+        for d in range(periodicity, 3)
+    ]
+
+    if periodicity == 0:
+        # Modify one Fourier plane at a time to bound temporary memory.
+        kx, ky, kz = wave_numbers
+        transverse_k2 = ky[:, None] ** 2 + kz[None, :] ** 2
+        zero_output[...] = 0
+        for i in range(data.Hg.shape[1]):
+            rk = R * am.sqrt(kx[i] ** 2 + transverse_k2)
+            if is_laplace:
+                factor = 2 * am.sin(rk / 2) ** 2
+            else:
+                factor = 1 + 0.5 * am.cos(rk) - 1.5 * am.sinc(rk / am.pi)
+            data.Hg[: device_pre.dim_out, i] *= factor[None, :, :, None]
+        if is_laplace:
+            zero_output[0] = (
+                2 * am.pi * R**2 / w0 ** (3 * opt.window_scaling_power)
+            ) * zero_source[0]
+        return
+
+    # The remaining paths share the harmonic zero-mode kernel and window.
+    shape = data.Hg.shape[1 + periodicity : -1]
+    wave_dtype = am.float64 if is_laplace else data.dtype
+    kk = am.zeros(shape, dtype=wave_dtype)
+    window = am.full(shape, w0**periodicity)
+    for i, k in enumerate(wave_numbers):
+        k = k.astype(wave_dtype)
+        axis_shape = [1] * (3 - periodicity)
+        axis_shape[i] = -1
+        kk += k.reshape(axis_shape) ** 2
+        t = am.sqrt(opt.window_shape**2 - (k * opt.window_halfwidth) ** 2)
+        window *= (
+            2 * opt.window_halfwidth * am.sinh(t) / t * opt.kaiser_scaling
+        ).reshape(axis_shape)
+    rk = R * am.sqrt(kk)
+    if periodicity == 1:
+        if pk.is_host_execution_space(device_pre.execution_space):
+            from scipy import special
+        else:
+            from cupyx.scipy import special
+        harmonic = (
+            4
+            * am.pi
+            * (1 - special.j0(rk) - rk * am.log(R) * special.j1(rk))
+            / am.where(kk == 0, 1, kk)
+        )
+        harmonic[0, 0] = am.pi * R**2 * (1 - 2 * am.log(R))
+    else:
+        sinc2 = am.sinc(rk / (2 * am.pi)) ** 2
+        harmonic = 2 * am.pi * R**2 * (sinc2 - 2 * am.sinc(rk / am.pi))
+    C = kk / (4 * data.opt.xi**2)
+    scale = am.exp(-C) / window**opt.window_scaling_power
+
+    if is_laplace:
+        zero_output[0] = zero_source[0] * (harmonic * scale)[..., None]
+    else:
+        # 2P Stokes adds the tensor contractions and Hasimoto screening factor.
+        kz = wave_numbers[0].astype(data.dtype)
+        source = zero_source.view(data.complex_dtype).reshape(data.dim_H, -1)
+        out = am.zeros((3, source.shape[1]), dtype=data.complex_dtype)
+        if device_pre.has_sl:
+            out[:2] = 2 * harmonic * source[:2]
+        if device_pre.has_dl:
+            F = source[3:].reshape(3, 3, -1)
+            contraction = am.stack(
+                (F[0, 2] + F[2, 0], F[1, 2] + F[2, 1], F[0, 0] + F[1, 1] + F[2, 2])
             )
+            out += 4j * am.pi * R**2 * kz * sinc2 * contraction
+        out *= (1 + C) * scale
+        zero_output[:3] = out.view(data.dtype).reshape(3, -1, 2)
 
 
 def _cnv_global(device_pre, threads):
     """
-    Perform global Fourier-space convolution on the non-zero modes.
+    Perform standard Fourier-space convolution on the global grid.
 
     Applies convolution with the Green’s function in Fourier space for both Stokeslet
-    and Stresslet kernels on all non-zero wavevector modes using Kokkos `parallel_for`.
+    and Stresslet kernels using Kokkos `parallel_for`. Singular modes are subsequently
+    replaced by the modified-kernel corrections in `_cnv_GLB`.
 
     Parameters
     ----------
@@ -965,10 +1018,6 @@ def _cnv_global(device_pre, threads):
         threads = 1
     shift = 0
     freq_offset = device_pre.am.array([0, 0, 0], dtype=device_pre.am.int32)
-    if device_pre.data.opt.periodicity == 1:
-        # ignore zero mode in the x (periodic) direction
-        # this will be written over later
-        freq_offset[0] = 1
     freq_range = int(
         device_pre.am.prod(
             device_pre.am.array(device_pre.data.Hg.shape[1:-1]) - freq_offset
@@ -1380,6 +1429,16 @@ def g2p(device_pre, method="TARGET", threads=128):
         case "STOKES_COMB" | "STOKES_SL":
             if device_pre.has_sl:
                 match device_pre.data.opt.periodicity:
+                    case 0:
+                        # Remove the constant flow introduced by the modified
+                        # biharmonic kernel, b_B = -1/(2R), in (95).
+                        sl_sum = device_pre.am.sum(
+                            device_pre.data.forces[:3, : device_pre.data.owned_ns],
+                            axis=1,
+                        )
+                        device_pre.far_potential += (
+                            2 * sl_sum / device_pre.data.opt_sc_glob.greens_truncation_R
+                        ).reshape(3, 1)
                     case 1:
                         sl_sum = np.empty(3, dtype=device_pre.data.dtype)
                         try:  # TODO: replace with isdevicespace
@@ -1435,11 +1494,11 @@ def g2p(device_pre, method="TARGET", threads=128):
                                 * sl_sum
                             )
                         device_pre.far_potential -= adj.reshape(3, 1)
-                    case 3:
+                    case 2 | 3:
                         pass
                     case _:
                         raise NotImplementedError(
-                            "Stokeslet adjustment is only implemented for periodicities 1 and 3,"
+                            "Stokeslet adjustment is only implemented for periodicities 0, 1, 2 and 3,"
                             f" got {device_pre.data.opt.periodicity}."
                         )
         case "LAPLACE":

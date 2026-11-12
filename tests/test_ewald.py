@@ -1,9 +1,26 @@
 import time
 import argparse
+import warnings
+
 import pytest
 import numpy as np
 import pykokkos as pk
 import parkipy
+import pykokkos as pk
+
+from parkipy.ewald._params import se_params_laplace, se_params_stokeslet
+
+GPU_AVAILABLE = pk.kokkos_manager.get_gpu_framework() is not None
+
+DEVICE_PARAMS = [
+    "CPU",
+    pytest.param(
+        "GPU",
+        marks=pytest.mark.skipif(
+            not GPU_AVAILABLE, reason="no GPU framework available"
+        ),
+    ),
+]
 
 GPU_AVAILABLE = pk.kokkos_manager.get_gpu_framework() is not None
 
@@ -25,23 +42,140 @@ DEVICE_PARAMS = [
 @pytest.mark.parametrize(
     "periodicity",
     [
-        pytest.param(0, marks=pytest.mark.xfail(reason="not yet implemented")),
+        0,
         1,
-        pytest.param(2, marks=pytest.mark.xfail(reason="not yet implemented")),
+        2,
         3,
     ],
 )
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("device", DEVICE_PARAMS)
-def test_self_convergence(kernel, periodicity, dtype, device):
+class TestEwald:
     """
-    run self convergence test on all supported kernels
-    for all periodic directions in single and double
-    precision arithmetic.
+    Tests for each Ewald sum configuration in the package.
     """
-    if kernel == parkipy.ewald.laplace and periodicity == 1:
-        pytest.xfail("not yet implemented")
-    run_convergence(fun=kernel, periodicity=periodicity, dtype=dtype, device=device)
+
+    def error_rms(self, actual, desired):
+        """
+        relative rms error between `actual` and `desired`.
+
+        both arrays must have shape ``(3, n)`` (vector-valued) or ``(n,)``
+        (scalar-valued).  the pointwise vector norm is computed along axis 0,
+        then the rms is taken over the n points and normalised by the rms norm
+        of `desired`.
+
+        when ``desired`` is identically zero the denominator is zero, so the
+        absolute rms error is returned instead (and a warning is issued).
+
+        returns a dimensionless (or absolute) scalar.
+        """
+        actual = np.asarray(actual)
+        desired = np.asarray(desired)
+        pointwise_err = np.linalg.norm(actual - desired, axis=0)
+        pointwise_ref = np.linalg.norm(desired, axis=0)
+        n = pointwise_err.shape[-1] if pointwise_err.ndim > 0 else 1
+        rms_err = np.sqrt(np.sum(pointwise_err**2) / n)
+        rms_ref = np.sqrt(np.sum(pointwise_ref**2) / n)
+        if rms_ref == 0.0:
+            warnings.warn(
+                "error_rms: desired is zero; returning absolute rms error.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return rms_err
+        return rms_err / rms_ref
+
+    def test_self_convergence(self, kernel, periodicity, dtype, device):
+        """
+        run self convergence test on all supported kernels
+        for all periodic directions in single and double
+        precision arithmetic.
+        """
+        run_convergence(fun=kernel, periodicity=periodicity, dtype=dtype, device=device)
+
+    def test_periodic_translation(self, kernel, periodicity, dtype, device):
+        """
+        Test the translation-invariance of the kernels.
+        First, get a reference solution by placing a shape
+        in the center of the box, and then translate
+        the shape to the periodic edges are confirm the
+        answers agree to some finite precision.
+
+        The test data comes from a use case
+        where translation invariance initially failed.
+
+        FIX: In version 0.0.1, this test was failing
+        due to a finite-precision singularity in the P2P
+        kernel. This was fixed by adding a puncture radius
+        to EwaldOptions that is passed into the P2P kernel
+        """
+
+        am = parkipy.utils.get_array_module(device)
+
+        # TEST PARAMS
+        TOL = 1e-7
+
+        # read in test data.
+        data = np.load("tests/data/translation_test.npz")
+        centered = data["centered"]
+        offset = data[
+            "offset"
+        ]  # this is offset in the 3P case, need to correct for 1P, ...
+        normals = data["normals"]
+        box = data["box"]
+        density = data["density"]
+
+        translate = (
+            am.array(
+                [box[i] if i < periodicity else box[i] / 2 for i in range(len(box))]
+            )
+            - am.asarray(box) / 2
+        )
+        _offset = centered.copy() + translate.reshape(3, 1) + 1e-14
+        offset -= am.array(
+            [0 if i < periodicity else box[i] / 2 for i in range(len(box))]
+        ).reshape(3, 1)
+        am.testing.assert_allclose(
+            actual=_offset, desired=offset, err_msg="offset array incorrect"
+        )
+        # offset = _offset.copy()
+
+        # shared Ewald options
+        options = parkipy.ewald.EwaldOptions(
+            periodicity=periodicity,
+            box=box,
+            tolerance=1e-6,
+            execution_space=device,
+            cell_size=64,
+        )
+
+        # execute kernel on centered shape
+        args = [centered, centered]
+        match kernel:
+            case parkipy.ewald.stokes_sl:
+                args.append(density)
+            case parkipy.ewald.stokes_comb:
+                args.append(am.vstack([density, density]))
+                args.append(normals)
+            case parkipy.ewald.laplace:
+                args.append(density[0] - am.mean(density[0]))
+            case _:
+                raise NotImplementedError(f"Test for kernel {kernel} not implemented")
+        centered_potential = kernel(*args, options=options)
+
+        # reset sources/targets to the offset points
+        args[0] = offset  # % am.array(box).reshape(3,1)
+        args[0][:periodicity] = (
+            args[0][:periodicity] % am.array(box).reshape(3, 1)[:periodicity]
+        )
+        args[1] = args[0].copy()
+        offset_potential = kernel(*args, options=options)
+
+        error = self.error_rms(actual=offset_potential, desired=centered_potential)
+        if error > TOL:
+            raise AssertionError(
+                f"error '{error:.2e}' exceeds the tolerance '{TOL:.2e}'."
+            )
 
 
 @pytest.mark.parametrize("p2p_method", ["GM-1D", "GM-2D", "SM-1D", "SM-2D"])
@@ -72,6 +206,224 @@ def test_g2p_stokes(g2p_method, device, dtype):
     test different g2p methods for the 1-per stokes solver
     """
     run_convergence(g2p_method=g2p_method, device=device, dtype=dtype)
+
+
+@pytest.mark.parametrize("kernel", [parkipy.ewald.stokes_sl, parkipy.ewald.laplace])
+@pytest.mark.parametrize("periodicity", [0, 1, 2, 3])
+@pytest.mark.parametrize("box", [[2.0, 1.0, 1.0], [1.0, 1.5, 1.0]])
+def test_rectangular_fourier_resolution(box, periodicity, kernel):
+    """
+    Test grid sizing and Fourier resolution for rectangular periodic boxes.
+
+    Check practical grid sizes and uniform spacing in every periodic direction.
+    Decimal aspect ratios must not produce enormous grids through an exact
+    rational representation of a floating-point ratio.
+
+    Compare Stokes and Laplace potentials with different cutoffs and FFT formats.
+    Agreement checks Fourier padding in the free directions for 0P, 1P and 2P,
+    and Fourier resolution for 3P. The existing convergence tests use cubic
+    boxes, so they do not exercise these aspect-ratio-dependent errors.
+    Modest aspect ratios keep the padded 1P grids affordable for routine tests.
+    """
+    rng = np.random.default_rng(321)
+    targets = rng.random((3, 17)) * np.array(box).reshape(3, 1)
+    sources = rng.random((3, 29)) * np.array(box).reshape(3, 1)
+    density = rng.standard_normal((3, 29))
+    kwargs = dict(
+        box_dict={"box": box}, tolerance=1e-8, periodicity=periodicity, rc=0.4
+    )
+    if kernel == parkipy.ewald.laplace:
+        density = density[0]
+        if periodicity:
+            density -= np.mean(density)
+        params = se_params_laplace(**kwargs, f=density)
+    else:
+        params = se_params_stokeslet(**kwargs)
+    assert np.max(params.grid_shape_ext) < 1000
+    np.testing.assert_allclose(
+        actual=params.grid_shape_ext[:periodicity] * params.h,
+        desired=box[:periodicity],
+        rtol=1e-14,
+        err_msg="Periodic grid spacing does not match the rectangular box",
+    )
+
+    potentials = []
+    for fft_type, rc in [("R2C", 0.6), ("C2C", 0.6), ("R2C", 0.9)]:
+        options = parkipy.ewald.EwaldOptions(
+            box=box,
+            periodicity=periodicity,
+            tolerance=1e-8,
+            rc=rc,
+            execution_space="CPU",
+            fft_type=fft_type,
+        )
+        potentials.append(kernel(targets, sources, density, options))
+    for potential in potentials[1:]:
+        error = TestEwald().error_rms(actual=potential, desired=potentials[0])
+        assert error < 1e-6, (
+            f"Rectangular {periodicity}P Fourier consistency error {error:.2e} "
+            "exceeds tolerance 1e-6"
+        )
+
+
+@pytest.mark.parametrize("kind", ["sl", "dl", "comb"])
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize("fft_type", ["R2C", "C2C"])
+@pytest.mark.parametrize("device", DEVICE_PARAMS)
+def test_stokes_free_space(kind, dtype, fft_type, device):
+    """
+    Test 0-periodic Stokes potentials against direct free-space summation.
+
+    Include a coincident source and target to check self exclusion, and points
+    near opposite box faces to detect accidental periodic images. Nonzero net
+    force checks the constant correction needed by the truncated Green's
+    function. Cover single-layer, pure double-layer and combined densities.
+    """
+    am = parkipy.utils.get_array_module(device)
+    rng = np.random.default_rng(1729)
+    sources = (0.1 + 0.8 * rng.random((3, 7))).astype(dtype)
+    targets = (0.1 + 0.8 * rng.random((3, 5))).astype(dtype)
+    sources[:, 0] = [0.05, 0.2, 0.4]
+    targets[:, 0] = sources[:, 0]
+    targets[:, 1] = [0.95, 0.2, 0.4]
+    density = rng.standard_normal((6, 7)).astype(dtype)
+    normals = rng.standard_normal((3, 7)).astype(dtype)
+    if kind == "dl":
+        density[:3] = 0
+
+    # Direct stokeslet and stresslet sums, omitting the coincident pair.
+    r = targets.astype(np.float64)[:, :, None] - sources[:, None, :]
+    distance2 = np.sum(r**2, axis=0)
+    inverse_r = np.divide(
+        1, np.sqrt(distance2), out=np.zeros_like(distance2), where=distance2 > 0
+    )
+    dot_sl = np.sum(r * density[:3, None, :], axis=0)
+    expected = np.sum(
+        density[:3, None, :] * inverse_r + r * dot_sl * inverse_r**3, axis=2
+    )
+    if kind != "sl":
+        dot_dl = np.sum(r * density[3:, None, :], axis=0)
+        dot_normal = np.sum(r * normals[:, None, :], axis=0)
+        expected -= 6 * np.sum(r * dot_dl * dot_normal * inverse_r**5, axis=2)
+
+    tolerance = 1e-4 if dtype == np.float32 else 1e-7
+    options = parkipy.ewald.EwaldOptions(
+        box=[1, 1, 1],
+        periodicity=0,
+        tolerance=tolerance / 100,
+        rc=0.8,
+        execution_space=device,
+        fft_type=fft_type,
+    )
+    args = [am.asarray(targets), am.asarray(sources)]
+    if kind == "sl":
+        potential = parkipy.ewald.stokes_sl(*args, am.asarray(density[:3]), options)
+    else:
+        potential = parkipy.ewald.stokes_comb(
+            *args, am.asarray(density), am.asarray(normals), options
+        )
+    if hasattr(potential, "get"):
+        potential = potential.get()
+    error = TestEwald().error_rms(actual=potential, desired=expected)
+    assert (
+        error < tolerance
+    ), f"Free-space Stokes error {error:.2e} exceeds tolerance {tolerance:.2e}"
+
+
+@pytest.mark.parametrize("periodicity", [0, 1, 2, 3])
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize("fft_type", ["R2C", "C2C"])
+@pytest.mark.parametrize("device", DEVICE_PARAMS)
+def test_laplace_reference(periodicity, dtype, fft_type, device):
+    """
+    Test Laplace potentials against direct free-space and periodic image sums.
+
+    In free space, nonneutral charges check the finite Fourier origin, a
+    coincident pair checks self exclusion, and opposite-face points check that
+    periodic images are absent.
+
+    For periodic cases, diagonal charges cancel moments through degree three
+    to make image sums converge rapidly, including nontrivial 1P/2P zero modes.
+    Check reference convergence and compare potential differences to remove
+    the arbitrary additive constant. Cover both precisions and FFT formats.
+    """
+    am = parkipy.utils.get_array_module(device)
+    if periodicity == 0:
+        rng = np.random.default_rng(1729)
+        sources = (0.1 + 0.8 * rng.random((3, 7))).astype(dtype)
+        targets = (0.1 + 0.8 * rng.random((3, 5))).astype(dtype)
+        sources[:, 0] = [0.05, 0.2, 0.4]
+        targets[:, 0] = sources[:, 0]
+        targets[:, 1] = [0.95, 0.2, 0.4]
+        charge = rng.standard_normal(7).astype(dtype)
+    else:
+        # Keep exact moment cancellation in the double-precision image reference.
+        sources = 0.5 + np.array([0.08, 0.05, 0.06])[:, None] * np.arange(-2, 3)
+        targets = np.array(
+            [[0.13, 0.81, 0.48], [0.21, 0.26, 0.89], [0.12, 0.72, 0.68]],
+            dtype=dtype,
+        )
+        charge = np.array([1.0, -4.0, 6.0, -4.0, 1.0], dtype=dtype)
+    references = []
+    for n in ((32, 64) if periodicity else (0,)):
+        # Free space uses only the central cell; 3P sums one plane at a time.
+        images = np.zeros((3, (2 * n + 1) ** max(periodicity - 1, 0)))
+        if periodicity > 1:
+            images[1:periodicity] = (
+                np.indices((2 * n + 1,) * (periodicity - 1)).reshape(
+                    periodicity - 1, -1
+                )
+                - n
+            )
+        reference = np.zeros(targets.shape[1])
+        for x in range(-n, n + 1):
+            images[0] = x
+            r = (
+                targets.astype(np.float64)[:, :, None, None]
+                - sources[:, None, :, None]
+                + images[:, None, None, :]
+            )
+            distance = np.linalg.norm(r, axis=0)
+            reference += np.sum(
+                np.divide(
+                    charge[None, :, None],
+                    distance,
+                    out=np.zeros_like(distance),
+                    where=distance > 0,
+                ),
+                axis=(1, 2),
+            )
+        if periodicity:
+            reference -= reference[0]
+        references.append(reference)
+    if periodicity:
+        np.testing.assert_allclose(references[0], references[1], rtol=0, atol=1e-9)
+    expected = references[-1]
+
+    tolerance = 1e-4 if dtype == np.float32 else 1e-7
+    options = parkipy.ewald.EwaldOptions(
+        box=[1, 1, 1],
+        periodicity=periodicity,
+        tolerance=tolerance / 100,
+        rc=0.8,
+        execution_space=device,
+        fft_type=fft_type,
+    )
+    potential = parkipy.ewald.laplace(
+        am.asarray(targets),
+        am.asarray(sources, dtype=dtype),
+        am.asarray(charge),
+        options,
+    )
+    if hasattr(potential, "get"):
+        potential = potential.get()
+    if periodicity:
+        potential = potential - potential[0]
+    error = TestEwald().error_rms(actual=potential, desired=expected)
+    assert error < tolerance, (
+        f"Laplace {periodicity}P reference error {error:.2e} "
+        f"exceeds tolerance {tolerance:.2e}"
+    )
 
 
 def run_convergence(
@@ -136,7 +488,8 @@ def run_convergence(
         tolvB = [1e-3, 1e-5]
     else:
         raise NotImplementedError
-    rcvB = am.linspace(0.2, 0.5, 10)
+    # Free-space padding spans all three axes; larger cutoffs bound test memory.
+    rcvB = am.linspace(0.6, 0.9, 10) if periodicity == 0 else am.linspace(0.2, 0.5, 10)
     clszvB = rcvB**3 * max(ns, nt)
     potvB = [[None] * am.size(clszvB), [None] * am.size(clszvB)]
     for j, tol in enumerate(tolvB):
