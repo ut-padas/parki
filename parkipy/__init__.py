@@ -2,7 +2,9 @@
 Python package for performance portable Ewald summation.
 """
 
-__version__ = "0.0.1"
+from importlib.metadata import version as _distribution_version
+
+__version__ = _distribution_version("parkipy")
 
 try:
     import kokkos
