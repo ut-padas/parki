@@ -260,7 +260,7 @@ def main(args):
 
             y_labels = []
             for y in ax.get_yticks():
-                y_labels.append(round(y,2))
+                y_labels.append(round(y, 2))
             ax.set_yticklabels(y_labels, fontsize=tick_size, rotation=0)
             ax.legend(title="Device", fontsize=14, loc="upper left")
 
