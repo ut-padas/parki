@@ -21,6 +21,14 @@ DEVICE_CONSTANTS = {
         "peak flops": 33.5e3 * 1e9,
         "peak band": 3352 * 1e9,
     },
+    "mi300a": {
+        "bandwidth": 5300,
+        "gflops": 61.3e3,
+        "bandwidth shmem": np.inf,
+        "intensity": 61.3e3 / 5300,
+        "peak band": 5300 * 1e9,
+        "peak flops": 61.3e3 * 1e9,
+    },
 }
 
 
@@ -119,6 +127,11 @@ def p2g_efficiency(dev, arch, method, time, ns, P, fs_cell_size, dp_flag):
             dev_name = "h200"
         else:
             raise ValueError(f"Unknown architecture {arch}")
+    elif dev.upper() == "HIP":
+        if int(arch) == 94:
+            dev_name = "mi300a"
+    else:
+        raise ValueError(f"Unknown device {dev}")
     dev_cons = DEVICE_CONSTANTS[dev_name]
     string = ""
     p2g_intensity, p2g_flops, p2g_mops = p2g_get_counts(

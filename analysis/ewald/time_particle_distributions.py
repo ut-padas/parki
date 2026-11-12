@@ -15,12 +15,13 @@ def main(args):
     file. `args.nt` will be a list of integers, and we run `run()` with each of
     these integers as the number of targets.
     """
-    nt_list = [4000000]
+    nt_list = [4_000_752]
     repeats = 3
     all_times = dict()
     all_memory = dict()
     threads = [32, 64, 128, 256]
     distributions = [
+        "rbc-rbc",
         "uniform-uniform",
         "gaussian-gaussian",
         "gaussian-uniform",
@@ -137,7 +138,6 @@ def run(args, time_every_step=False, verbosity=0) -> None:
     # input arguments
     am = parkipy.utils.get_array_module(args.device)
     nt = args.nt
-    box = np.array([1.0, 1.0, 1.0])
 
     ns = nt * args.up
 
@@ -152,9 +152,11 @@ def run(args, time_every_step=False, verbosity=0) -> None:
             n = nt
         match dis.upper():
             case "GAUSSIAN":
+                box = np.array([1.0, 1.0, 1.0])
                 c = 0.3
                 arr = sample_gaussian(box, c, n)
             case "ELLIPSOID":
+                box = np.array([1.0, 1.0, 1.0])
                 arr = sample_unit_sphere_surface(n)
                 arr = cp.asarray(arr)
                 # scale to be inside box
@@ -162,7 +164,13 @@ def run(args, time_every_step=False, verbosity=0) -> None:
                 arr += 0.5
                 assert arr.shape[1] == n
             case "UNIFORM":
+                box = np.array([1.0, 1.0, 1.0])
                 arr = am.random.uniform(size=(3, n)) * am.array(box).reshape(3, 1)
+            case "RBC":
+                fpath = os.path.join(args.output_dir, "ncaps168_vf0.2_example.npz")
+                with np.load(fpath) as data:
+                    box = data["arr_0"]
+                    arr = cp.hstack(data["arr_1"])
             case _:
                 raise ValueError(
                     f"Distribution must be one of 'GAUSSIAN', 'ELLIPSOID', or 'UNIFORM', got '{dis.upper()}'"

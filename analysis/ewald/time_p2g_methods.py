@@ -17,7 +17,10 @@ def main(args):
     execution_space = parkipy.utils.get_execution_space(args.device)
     nt_list = [250000, 1000000, 4000000]
     _tols_s_ = [(1e-1, 160), (1e-4, 224), (1e-12, 1008)]
-    threads = [32, 64, 128, 256, 512]
+    if pk.is_host_execution_space(execution_space):
+        threads = [1]
+    else:
+        threads = [32, 64, 128, 256, 512]
     methods = ["BASE", "SOURCE", "GRID", "HYBRID"]
     repeats = 3
     all_times = dict()
@@ -77,9 +80,17 @@ def main(args):
 
                         # store params (replace A_fun with None to make picklable)
                         if nt not in all_params[key][method][cell_size][tol]:
-                            all_params[key][method][cell_size][tol][
-                                nt
-                            ] = params.__dict__
+                            if not pk.is_host_execution_space(execution_space):
+                                import cupy
+
+                                numpy_params = {
+                                    k: (v.get() if isinstance(v, cupy.ndarray) else v)
+                                    for k, v in params.__dict__.items()
+                                }
+                            else:
+                                numpy_params = params.__dict__
+                            all_params[key][method][cell_size][tol][nt] = numpy_params
+
                             all_params[key][method][cell_size][tol][nt][
                                 "A_fun"
                             ] = None  # turn off A fun to make pickleable

@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import pickle
+from parkipy.ewald import PerfModel
 
 
 plt.rc("font", family="serif")
@@ -26,30 +27,6 @@ def format_sig3(x):
         return f"{x:.{max(decimals, 0)}f}"
 
 
-OPERATION_CONSTANTS = {
-    "a100": {
-        "fadd": 2,
-        "fmul": 2,
-        "fsqrt": 29,
-        "frsqrt": 19,
-        "fdiv": 24,
-        "fexpn": 45,
-        "fsinh": 150,
-        "ferf": 86,
-    },
-    "h200": {
-        "fadd": 2,
-        "fmul": 2,
-        "fsqrt": 41,
-        "frsqrt": 30,
-        "fdiv": 35,
-        "fexpn": 50,
-        "fsinh": 361,
-        "ferf": 155,
-    },
-}
-
-
 DEVICE_CONSTANTS = {
     "a100": {
         "bandwidth": 1555,
@@ -60,7 +37,7 @@ DEVICE_CONSTANTS = {
         "peak flops": 9.7e3 * 1e9,
         "peak band": 1555 * 1e9,
     },
-    "h200": {
+    "NVIDIA GH200 120GB": {
         "bandwidth": 4000,
         "gflops": 33.5e3,
         "bandwidth shmem": 10 * 4000,
@@ -70,21 +47,6 @@ DEVICE_CONSTANTS = {
         "peak band": 4000 * 1e9,
     },
 }
-
-
-def p2p_cnt_flop(op_cons, Nt, s):
-
-    flops = 27 * Nt * s * (
-        37 * op_cons["fmul"]
-        + 17 * op_cons["fadd"]
-        + 36
-        + op_cons["frsqrt"]
-        + op_cons["fdiv"]
-        + op_cons["fexpn"]
-        + op_cons["ferf"]
-    ) * np.pi / 6 + 27 * Nt * s * (4 * op_cons["fadd"] + 4 + op_cons["fmul"])
-
-    return flops
 
 
 def p2p_cnt_mop(model, dev_cons, method, Nt, Ns, s, bt, bs, dp=True):
@@ -132,7 +94,7 @@ def p2p_model_time(dev, arch, method, time, nt, ns, s, bt, bs, dp=True, both=Fal
         if int(arch) == 80:
             dev_name = "a100"
         elif int(arch) == 90:
-            dev_name = "h200"
+            dev_name = "NVIDIA GH200 120GB"
         else:
             raise ValueError(f"Unknown architecture {arch}")
     elif dev.upper() == "HIP":
@@ -146,13 +108,12 @@ def p2p_model_time(dev, arch, method, time, nt, ns, s, bt, bs, dp=True, both=Fal
         raise ValueError(f"Unknown device {dev}")
 
     dev_cons = DEVICE_CONSTANTS[dev_name]
-    op_cons = OPERATION_CONSTANTS[dev_name]
 
     string = ""
 
     models = ["zero cache", "inf cache", "pre fetch"]
 
-    flop = p2p_cnt_flop(op_cons, nt, s)
+    flop = PerfModel.count_p2p_flops("stokes_comb", nt, s, dev_name)
 
     mops = []
     for model in models:
@@ -166,30 +127,6 @@ def p2p_model_time(dev, arch, method, time, nt, ns, s, bt, bs, dp=True, both=Fal
         string.append(intens[i])
 
     return string
-
-
-def determine_degree(P):
-    if P < 2:
-        raise ValueError("P cannot be smaller than 2")
-    elif P % 2 != 0:
-        raise ValueError("P must be even")
-    elif P <= 10:
-        return P // 2 + 1
-    else:
-        return min(P // 2 + 2, 9)
-
-
-def p2g_count_flops(op_cons, method, Ns, P):
-    if method.upper() in ["BASE", "SOURCE", "HYBRID"]:
-        return Ns * P**3 * (24 + 11 * op_cons["fmul"])
-    elif method == "GRID":
-        nu = determine_degree(P)
-        return Ns * (
-            27 * (P / 2) ** 3 * (24 + 11 * op_cons["fmul"] + 2 * op_cons["fadd"])
-            + P**3 * 3 * 2 * nu
-        )
-    else:
-        raise ValueError(f"method {method} not supported.")
 
 
 def p2g_count_mops(model, dev_cons, method, Ns, Ng, P, b_fs, dp=True):
@@ -242,7 +179,7 @@ def p2g_model_intensity(dev, arch, method, time, ns, ng, P, fs_cell_size, dp_fla
         if arch == 80:
             dev_name = "a100"
         elif arch == 90:
-            dev_name = "h200"
+            dev_name = "NVIDIA GH200 120GB"
         else:
             raise ValueError(f"Unknown architecture {arch}")
     elif dev.upper() == "HIP":
@@ -256,13 +193,12 @@ def p2g_model_intensity(dev, arch, method, time, ns, ng, P, fs_cell_size, dp_fla
         raise ValueError(f"Unknown device {dev}")
 
     dev_cons = DEVICE_CONSTANTS[dev_name]
-    op_cons = OPERATION_CONSTANTS[dev_name]
 
     string = ""
 
     models = ["zero cache", "inf cache", "pre fetch"]
 
-    flop = p2g_count_flops(op_cons, method, ns, P)
+    flop = PerfModel.count_p2g_flops("stokes_comb", method, ns, P, dev_name)
 
     mops = []
     for model in models:
@@ -278,10 +214,6 @@ def p2g_model_intensity(dev, arch, method, time, ns, ng, P, fs_cell_size, dp_fla
         string.append(intens[i])
 
     return string
-
-
-def g2p_count_flops(op_cons, Nt, P):
-    return Nt * P**3 * (2 * 3 + op_cons["fmul"])
 
 
 def g2p_count_mops(model, dev_cons, Nt, Ng, P, dp=True):
@@ -317,7 +249,7 @@ def g2p_model_intensity(dev, arch, method, time, nt, ng, P, dp_flag):
         if arch == 80:
             dev_name = "a100"
         elif arch == 90:
-            dev_name = "h200"
+            dev_name = "NVIDIA GH200 120GB"
         else:
             raise ValueError(f"Unknown architecture {arch}")
     elif dev.upper() == "HIP":
@@ -331,13 +263,12 @@ def g2p_model_intensity(dev, arch, method, time, nt, ng, P, dp_flag):
         raise ValueError(f"Unknown device {dev}")
 
     dev_cons = DEVICE_CONSTANTS[dev_name]
-    op_cons = OPERATION_CONSTANTS[dev_name]
 
     string = ""
 
     models = ["zero cache", "inf cache", "pre fetch"]
 
-    flop = g2p_count_flops(op_cons, nt, P)
+    flop = PerfModel.count_g2p_flops(3, nt, P, dev_name)
 
     mops = []
     for model in models:
@@ -368,7 +299,7 @@ def main(args):
         if int(args.arch) == 80:
             dev_name = "a100"
         elif int(args.arch) == 90:
-            dev_name = "h200"
+            dev_name = "NVIDIA GH200 120GB"
 
     kernels = ["p2p"]
     for kernel in kernels:
@@ -658,7 +589,7 @@ def plot_roofline(
     ax.set_yscale("log")
     ax.set_xlabel("Arithmetic Intensity (flop/byte)", fontsize=12)
     ax.set_ylabel("Performance (Tflop/s)", fontsize=12)
-    ax.set_title(f"Roofline Model for {dev_name.upper()}", fontsize=14)
+    ax.set_title(f"Roofline Model", fontsize=14)
     ax.set_xlim(1e-1, 1e3)
     ax.set_ylim(1e-1, 1e2)
 
@@ -666,7 +597,9 @@ def plot_roofline(
     ax.legend(loc="lower right")
 
     plt.tight_layout()
-    fname = f"intensity_plot_cell{cell_size}_n{N}_p2pM{p2p_model}_pgM{pg_model}_dev{dev_name.upper()}.pdf"
+    fname = f"intensity_plot_cell{cell_size}_n{N}_p2pM{p2p_model}_pgM{pg_model}_dev{dev_name.upper()}.pdf".replace(
+        " ", "_"
+    )
     fpath = os.path.join(args.output_dir, fname)
     plt.savefig(fpath, format="pdf", bbox_inches="tight")
 
@@ -715,8 +648,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--arch",
         dest="arch",
-        choices=("80", "90", "94", None),
-        type=str,
+        choices=(80, 90, 94, None),
+        type=int,
         help="Device compute architecture. `None` corresponds to the NVIDIA grace CPU, `80` the NVIDIA A100 GPU, `94` the NVIDIA GH200 GPU, and `94` the AMD MI300x GPU.",
     )
     parser.add_argument(

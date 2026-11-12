@@ -234,11 +234,13 @@ class EwaldKernel:
         if options.return_walltime:
             perf = PerfModel(
                 p2p_time=walltime["p2p"],
-                p2g_time=walltime["p2g"],
-                fft_time=walltime["fft"],
-                cnv_time=walltime["cnv"],
-                ifft_time=walltime["ifft"],
-                g2p_time=walltime["g2p"],
+                p2g_time=walltime["p2g"] if not exclude_far_field else None,
+                fft_time=walltime["fft"] if not exclude_far_field else None,
+                cnv_time=walltime["cnv"] if not exclude_far_field else None,
+                ifft_time=walltime["ifft"] if not exclude_far_field else None,
+                g2p_time=walltime["g2p"] if not exclude_far_field else None,
+                p2p_method=p2p_method,
+                p2g_method=p2g_method,
                 kernel=self.kernel,
                 N_out=N_out,
                 N_in=N_in,
@@ -305,10 +307,16 @@ class EwaldOptions:
         means that ``box[j:]`` represents periodic dimensions
         and ``box[:j]`` represents free space.
 
+    exclude_far_field: bool, optional
+        Only compute the P2P (i.e., near-field) interactions
+        for a given kernel. Defaults to `False`
+        (i.e., defaults to computing far-field interactions)
+
     tolerance: float
         Tolerance for Ewald summation. Used to set internal Ewald parameters.
     execution_space: `pykokkos.ExecutionSpace` | {'CUDA', 'HIP', 'OPENMP'}
         Device for the Kokkos backend. May be pykokkos execution space type or a string.
+        Defaults to the default PyKokkos execution space.
 
     p2p_method: {'GM-1D', 'GM-2D', 'SM-1D', 'SM-2D'} , optional
         The algorithmic method for `p2p`,
@@ -390,9 +398,9 @@ class EwaldOptions:
     box: List[float]
     periodicity: Literal[0, 1, 2, 3]
     tolerance: float
-    execution_space: Union[pk.ExecutionSpace, Literal["CUDA", "HIP", "OPENMP"]]
 
     # default arguments
+    execution_space: Union[pk.ExecutionSpace, Literal["CUDA", "HIP", "OPENMP"]] = None
     p2p_method: Literal["GM-1D", "GM-2D", "SM-1D", "SM-2D"] = "GM-1D"
     p2g_method: Literal["BASE", "SOURCE", "GRID", "HYBRID"] = "HYBRID"
     g2p_method: Literal["BASE", "TARGET"] = "TARGET"
@@ -408,6 +416,7 @@ class EwaldOptions:
     puncture_radius: float | None = 1e-13
     return_walltime: bool = False
     return_params: bool = False
+    exclude_far_field: bool = False
 
     def __post_init__(self):
         if not isinstance(self.box, list) and not isinstance(self.box, np.ndarray):

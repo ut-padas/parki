@@ -672,11 +672,6 @@ class SEParams:
         grid_shape, grid_res = se_compute_grid_size(
             self.box, self.grid_res, self.base_factor, self.periodicity
         )
-        """
-        glb_grid_shape, glb_grid_res = se_compute_grid_size(
-            self.box_dict["box"], self.grid_res, self.base_factor, self.periodicity
-        )
-        """
         glb_grid_shape = [grid_shape[i] for i in range(3)]
         if self.distributed:
             if self.periodicity != 1:

@@ -3,60 +3,7 @@ import argparse
 import numpy as np
 import pandas as pd
 import pickle
-
-OPERATION_CONSTANTS = {
-    "a100": {
-        "fadd": 2,
-        "fmul": 2,
-        "fsqrt": 29,
-        "frsqrt": 19,
-        "fdiv": 24,
-        "fexpn": 45,
-        "fsinh": 150,
-        "ferf": 86,
-    },
-    "h200": {
-        "fadd": 2,
-        "fmul": 2,
-        "fsqrt": 41,
-        "frsqrt": 30,
-        "fdiv": 35,
-        "fexpn": 50,
-        "fsinh": 361,
-        "ferf": 155,
-    },
-    "mi300a": {
-        "fadd": 2,
-        "fmul": 2,
-        "fsqrt": 41,
-        "frsqrt": 30,
-        "fdiv": 35,
-        "fexpn": 50,
-        "fsinh": 361,
-        "ferf": 155,
-    },
-    "grace": {
-        "fadd": 2,
-        "fmul": 2,
-        "fsqrt": 41,
-        "frsqrt": 30,
-        "fdiv": 35,
-        "fexpn": 50,
-        "fsinh": 361,
-        "ferf": 155,
-    },
-    "epyc": {
-        "fadd": 2,
-        "fmul": 2,
-        "fsqrt": 41,
-        "frsqrt": 30,
-        "fdiv": 35,
-        "fexpn": 50,
-        "fsinh": 361,
-        "ferf": 155,
-    },
-}
-
+from parkipy.ewald import PerfModel
 
 DEVICE_CONSTANTS = {
     "a100": {
@@ -67,7 +14,7 @@ DEVICE_CONSTANTS = {
         "peak flops": 9.7e3 * 1e9,
         "peak band": 1555 * 1e9,
     },
-    "h200": {
+    "NVIDIA GH200 120GB": {
         "bandwidth": 4000,
         "gflops": 33.5e3,
         "bandwidth shmem": np.inf,
@@ -92,21 +39,6 @@ DEVICE_CONSTANTS = {
         "peak band": 1000 * 1e9 / 2,
     },
 }
-
-
-def p2p_cnt_flop(op_cons, Nt, s):
-
-    flops = 27 * Nt * s * (
-        37 * op_cons["fmul"]
-        + 17 * op_cons["fadd"]
-        + 36
-        + op_cons["frsqrt"]
-        + op_cons["fdiv"]
-        + op_cons["fexpn"]
-        + op_cons["ferf"]
-    ) * np.pi / 6 + 27 * Nt * s * (4 * op_cons["fadd"] + 4 + op_cons["fmul"])
-
-    return flops
 
 
 def p2p_cnt_mop(dev_cons, variant, Nt, s, bt, bs, dp=True):
@@ -144,11 +76,9 @@ def p2p_cnt_mop(dev_cons, variant, Nt, s, bt, bs, dp=True):
     return mop
 
 
-def p2p_cnt_intns(op_cons, dev_cons, variant, Nt, s, bt, bs, dp=True):
+def p2p_cnt_intns(flops, dev_cons, variant, Nt, s, bt, bs, dp=True):
 
-    return p2p_cnt_flop(op_cons, Nt, s) / p2p_cnt_mop(
-        dev_cons, variant, Nt, s, bt, bs, dp
-    )
+    return flops / p2p_cnt_mop(dev_cons, variant, Nt, s, bt, bs, dp)
 
 
 def p2p_efficiency(dev, arch, variant, time, nt, s, bt, bs, dp=True, both=False):
@@ -157,7 +87,7 @@ def p2p_efficiency(dev, arch, variant, time, nt, s, bt, bs, dp=True, both=False)
         if int(arch) == 80:
             dev_name = "a100"
         elif int(arch) == 90:
-            dev_name = "h200"
+            dev_name = "NVIDIA GH200 120GB"
         else:
             raise ValueError(f"Unknown architecture {arch}")
     elif dev.upper() == "HIP":
@@ -171,29 +101,21 @@ def p2p_efficiency(dev, arch, variant, time, nt, s, bt, bs, dp=True, both=False)
         raise ValueError(f"Unknown device {dev}")
 
     dev_cons = DEVICE_CONSTANTS[dev_name]
-    op_cons = OPERATION_CONSTANTS[dev_name]
 
     string = ""
 
     p2p = {}
-    p2p["flop"] = p2p_cnt_flop(op_cons, nt, s)
+    p2p["flop"] = PerfModel.count_p2p_flops("stokes_comb", nt, s, dev_name)
     p2p["mop"] = p2p_cnt_mop(dev_cons, variant, nt, s, bt, bs, dp)
-    p2p["intense"] = p2p_cnt_intns(op_cons, dev_cons, variant, nt, s, bt, bs, dp)
+    p2p["intense"] = p2p_cnt_intns(p2p["flop"], dev_cons, variant, nt, s, bt, bs, dp)
 
-    print(
-        f"method: {variant} \tp2p_intensity: {p2p['intense']:.3f}",
-        f"p2p_flops: {p2p['flop']}, p2p_mops: {p2p['mop']}",
-    )
     if p2p["intense"] > dev_cons["intensity"]:
         string = f"${p2p['flop']/dev_cons['peak flops']/time:.0%}$ (flops)"
     else:
         string = f"${p2p['mop']/dev_cons['peak band']/time:.0%}$ (mops)"
-    string = string.replace("%", "\\%")
     if both:
-        string_flops = f"${p2p['flop']/dev_cons['peak flops']/time:.0%}$"
-        string_flops = string_flops.replace("%", "\\%")
-        string_mops = f"${p2p['mop']/dev_cons['peak band']/time:.0%}$"
-        string_mops = string_mops.replace("%", "\\%")
+        string_flops = rf"${p2p['flop']/dev_cons['peak flops']/time:.0%}$"
+        string_mops = rf"${p2p['mop']/dev_cons['peak band']/time:.0%}$"
         string = [string_flops, string_mops]
     return string
 

@@ -2,12 +2,8 @@ import os
 import argparse
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 import pickle
-
-# Configure matplotlib to use LaTeX for text rendering and save plots as SVG
-plt.rc("text", usetex=True)
-plt.rc("font", family="serif")
+from parkipy.ewald import PerfModel
 
 
 def format_sig3(x):
@@ -22,30 +18,6 @@ def format_sig3(x):
         return f"{x:.{max(decimals, 0)}f}"
 
 
-OPERATION_CONSTANTS = {
-    "a100": {
-        "fadd": 2,
-        "fmul": 2,
-        "fsqrt": 29,
-        "frsqrt": 19,
-        "fdiv": 24,
-        "fexpn": 45,
-        "fsinh": 150,
-        "ferf": 86,
-    },
-    "h200": {
-        "fadd": 2,
-        "fmul": 2,
-        "fsqrt": 41,
-        "frsqrt": 30,
-        "fdiv": 35,
-        "fexpn": 50,
-        "fsinh": 361,
-        "ferf": 155,
-    },
-}
-
-
 DEVICE_CONSTANTS = {
     "a100": {
         "bandwidth": 1555,
@@ -56,7 +28,7 @@ DEVICE_CONSTANTS = {
         "peak flops": 9.7e3 * 1e9,
         "peak band": 1555 * 1e9,
     },
-    "h200": {
+    "NVIDIA GH200 120GB": {
         "bandwidth": 4000,
         "gflops": 33.5e3,
         "bandwidth shmem": 10 * 4000,
@@ -66,21 +38,6 @@ DEVICE_CONSTANTS = {
         "peak band": 4000 * 1e9,
     },
 }
-
-
-def p2p_cnt_flop(op_cons, Nt, s):
-
-    flops = 27 * Nt * s * (
-        37 * op_cons["fmul"]
-        + 17 * op_cons["fadd"]
-        + 36
-        + op_cons["frsqrt"]
-        + op_cons["fdiv"]
-        + op_cons["fexpn"]
-        + op_cons["ferf"]
-    ) * np.pi / 6 + 27 * Nt * s * (4 * op_cons["fadd"] + 4 + op_cons["fmul"])
-
-    return flops
 
 
 def p2p_cnt_mop(model, dev_cons, variant, Nt, Ns, s, bt, bs, dp=True):
@@ -121,13 +78,6 @@ def p2p_cnt_mop(model, dev_cons, variant, Nt, Ns, s, bt, bs, dp=True):
     return mop
 
 
-def p2p_cnt_intns(op_cons, dev_cons, variant, Nt, Ns, s, bt, bs, dp=True):
-
-    return p2p_cnt_flop(op_cons, Nt, s) / p2p_cnt_mop(
-        dev_cons, variant, Nt, Ns, s, bt, bs, dp
-    )
-
-
 def p2p_model_time(
     dev, arch, variant, time, nt, ns, s, bt, bs, dp=True, both=False, ms_flag=True
 ):
@@ -137,7 +87,7 @@ def p2p_model_time(
         if int(arch) == 80:
             dev_name = "a100"
         elif int(arch) == 90:
-            dev_name = "h200"
+            dev_name = "NVIDIA GH200 120GB"
         else:
             raise ValueError(f"Unknown architecture {arch}")
     elif dev.upper() == "HIP":
@@ -151,13 +101,12 @@ def p2p_model_time(
         raise ValueError(f"Unknown device {dev}")
 
     dev_cons = DEVICE_CONSTANTS[dev_name]
-    op_cons = OPERATION_CONSTANTS[dev_name]
 
     string = ""
 
     models = ["zero cache", "inf cache", "pre fetch"]
 
-    flop = p2p_cnt_flop(op_cons, nt, s)
+    flop = PerfModel.count_p2p_flops("stokes_comb", nt, s, dev_name)
 
     mops = []
     for model in models:
@@ -235,7 +184,6 @@ def main(args):
             nt_exponent = int(nt_exponent)
             string += f"${nt_mantissa} \\times 10^{{{nt_exponent}}}$&"
             for k, method in enumerate(methods):
-                print("here", table.columns)
                 for i, tol in enumerate(table.columns):
                     if i == 0:
                         if k == 0:
