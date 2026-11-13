@@ -6,12 +6,12 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-from importlib.metadata import version
+from importlib.metadata import version as package_version
 
 project = "ParkiPy"
 copyright = "2025, Gabriel Kosmacher, Joar Bagge, Ziyu Du, George Biros"
 author = "Gabriel Kosmacher, Joar Bagge, Ziyu Du, George Biros"
-release = version("parkipy")
+release = version = package_version("parkipy")
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

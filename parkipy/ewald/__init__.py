@@ -44,6 +44,9 @@ Ewald Kernel Gallery
    stokes_sl
    stokes_comb
    laplace
+   prepare_stokes_sl
+   prepare_stokes_comb
+   EwaldPlan
 
 
 Ewald Kernel Support
@@ -82,6 +85,7 @@ from ._kernels import (
 
 from ._params import SEParams
 from ._perf import PerfModel
+from ._plan import EwaldPlan, prepare_stokes_comb, prepare_stokes_sl
 
 __all__ = [
     "stokes_sl",
@@ -90,4 +94,7 @@ __all__ = [
     "EwaldOptions",
     "SEParams",
     "PerfModel",
+    "EwaldPlan",
+    "prepare_stokes_comb",
+    "prepare_stokes_sl",
 ]
