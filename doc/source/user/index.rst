@@ -20,3 +20,4 @@ detailed API documentation, see :ref:`reference`.
    whatisparki
    install
    examples
+   fixed_geometry
