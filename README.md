@@ -1,6 +1,6 @@
 # ParKI
 [![DOI](https://zenodo.org/badge/1098692951.svg)](https://doi.org/10.5281/zenodo.21415320)
-[![Nightly PyKokkos main](https://github.com/kennykos/parki/actions/workflows/nightly_pykokkos.yml/badge.svg?branch=main)](https://github.com/kennykos/parki/actions/workflows/nightly_pykokkos.yml)
+[![Nightly PyKokkos main](https://github.com/ut-padas/parki/actions/workflows/nightly_pykokkos.yml/badge.svg?branch=main)](https://github.com/kennykos/parki/actions/workflows/nightly_pykokkos.yml)
 ```
          ____                 __  __   ______
         /\  _`\              /\ \/\ \ /\__  _\
