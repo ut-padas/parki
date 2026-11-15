@@ -96,6 +96,43 @@ options = parkipy.ewald.EwaldOptions(
 u = parkipy.ewald.stokes_sl(x, y, f, options)
 ```
 
+## Repeated evaluations with fixed geometry
+
+Prepare a Stokes operator once when source positions, target positions, normals,
+and Ewald options stay fixed, as in a GMRES solve:
+
+```python
+plan = parkipy.ewald.prepare_stokes_sl(x, y, options)
+u = plan.apply(f)                  # independently owned result
+plan.apply(2 * f, out=u)           # reuse an output array
+
+# Combined single/double layer: density has shape (6, Ns).
+combined = parkipy.ewald.prepare_stokes_comb(x, y, normals, options)
+u = combined.apply(density)
+```
+
+Plans own copies of geometry and options and retain sorted cell lists, buffers,
+launch policies, and PyKokkos views. Create a new plan when geometry or options
+change. Each plan has mutable workspace, so do not apply it concurrently.
+Plans return the potential only; selected parameters are in `plan.params`.
+Both float32 and float64 and periodicities 0–3 are supported for the existing
+single-device Stokes methods. Distributed plans are not provided. Laplace plans
+are deferred because parameter selection depends on the charge norm, so reuse
+needs an explicit accuracy policy for changing charges; see the
+[explanation in the guide](doc/source/user/fixed_geometry.rst#why-a-laplace-plan-is-not-supported-yet).
+
+See the [guide to repeated calls with fixed geometry](doc/source/user/fixed_geometry.rst)
+for array contracts, plan lifetime, and GMRES integration.
+
+See [the fixed-geometry GMRES example](examples/ewald/fixed_geometry_gmres.py),
+which checks the operator against the one-shot API and solves a manufactured
+second-kind system:
+
+```bash
+python examples/ewald/fixed_geometry_gmres.py --device Serial -N 64
+python examples/ewald/fixed_geometry_gmres.py --device GPU -N 512
+```
+
 # Repository Structure
 ```bash
 .

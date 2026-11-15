@@ -9,6 +9,10 @@ scripts for each example can be found in the ``examples/`` directory of the
 repository.
  
  
+For repeated evaluations inside an iterative solve, see
+:ref:`fixed-geometry` for plan setup, buffer reuse, and a GMRES example.
+
+
 Stokes Single-Layer Potential (3-periodic)
 ------------------------------------------
  
@@ -340,6 +344,7 @@ benchmarks are provided in the ``examples/`` directory of the repository:
         │       ├── stokes1p_nosort.py
         │       └── stokes1p.py
         ├── ewald
+        │   ├── fixed_geometry_gmres.py
         │   ├── laplace3p.py
         │   ├── stokes1p.py
         │   └── stokes3p.py

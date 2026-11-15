@@ -36,6 +36,7 @@ import numpy as np
 import warnings
 
 from ._utils import get_fftn, get_ifftn
+from ._execution import ParticleStage, Launch
 from parkipy.utils import get_execution_space, get_array_module
 from parkipy import CellList
 
@@ -72,6 +73,7 @@ def p2p(
     cell_pad: int = 1,
     kernel=None,  # for testing purposes only
     eps=1e-14,
+    _prepare_only=False,
 ) -> None:
     """
     Perform near-field particle-to-particle (P2P) interaction computation using a
@@ -327,6 +329,18 @@ def p2p(
             kwargs["t_cell_chunk_size"] / vector_size
         )
 
+    if _prepare_only:
+        RangePop()
+        return ParticleStage(
+            Launch(
+                policy,
+                workunit[kernel.upper()][method.upper()],
+                kwargs,
+                name=f"P2P-{kernel.upper()}-{method.upper()}",
+            ),
+            source_list=source_list,
+        )
+
     pk.parallel_for(
         f"P2P-{kernel.upper()}-{method.upper()}",
         policy,
@@ -348,6 +362,7 @@ def p2g(
     device_pre,
     method="HYBRID",
     threads=128,
+    _prepare_only=False,
 ) -> None:
     """
     Perform the particle-to-grid (P2G) spreading operation using the Spectral Ewald method.
@@ -639,6 +654,19 @@ def p2g(
         raise NotImplementedError(
             f"P2G method '{method_name}' not implemented. Available methods: '{device_pre.p2g_workunit.keys()}'"
         )
+    if _prepare_only:
+        RangePop()
+        return ParticleStage(
+            Launch(
+                policy,
+                device_pre.p2g_workunit[method_name],
+                kwargs,
+                name=f"P2G-{method.upper()}",
+            ),
+            source_list=source_list if method.upper() != "BASE" else None,
+            grid=H_view,
+        )
+
     walltime["kernel"] = time.time()
     RangePush("P2G-kernel")
     pk.parallel_for(
@@ -819,7 +847,7 @@ def cnv(device_pre, threads=128):
     return walltime
 
 
-def _cnv_GLB(device_pre, threads):
+def _cnv_GLB(device_pre, threads, _prepare_only=False):
     """
     Apply global convolution, then the periodicity-specific modified kernels.
 
@@ -848,8 +876,14 @@ def _cnv_GLB(device_pre, threads):
     # In 0P only the origin needs unscaled input; other modes are modified in place.
     zero_index = (slice(None),) + (0,) * (periodicity or 3)
     zero_output = data.Hg[zero_index]
-    zero_source = zero_output.copy()
-    _cnv_global(device_pre=device_pre, threads=threads)
+    if hasattr(device_pre, "_zero_source"):
+        zero_source = device_pre._zero_source
+        if not _prepare_only:
+            zero_source[...] = zero_output
+    else:
+        zero_source = zero_output.copy()
+    if not _prepare_only:
+        _cnv_global(device_pre=device_pre, threads=threads)
 
     if periodicity == 3:
         zero_output[...] = 0
@@ -893,9 +927,20 @@ def _cnv_GLB(device_pre, threads):
             if enabled:
                 fields = {name: zero_source[shift + d] for d, name in enumerate(names)}
                 RangePush("Sca-kernel")
-                pk.parallel_for(policy, kernel, **fields, **zero_kwargs)
+                if hasattr(device_pre, "_zero_launches"):
+                    launches = device_pre._zero_launches
+                    if kernel not in launches:
+                        launches[kernel] = Launch(
+                            policy, kernel, {**fields, **zero_kwargs}
+                        )
+                    if not _prepare_only:
+                        launches[kernel]()
+                else:
+                    pk.parallel_for(policy, kernel, **fields, **zero_kwargs)
                 RangePop()
                 shift += len(names)
+        if _prepare_only:
+            return
         if device_pre.has_dl:
             zero_source[:3] += zero_source[3:6]
         zero_output[:3] = zero_source[:3]
@@ -987,7 +1032,7 @@ def _cnv_GLB(device_pre, threads):
         zero_output[:3] = out.view(data.dtype).reshape(3, -1, 2)
 
 
-def _cnv_global(device_pre, threads):
+def _cnv_global(device_pre, threads, _prepare_only=False):
     """
     Perform standard Fourier-space convolution on the global grid.
 
@@ -1010,6 +1055,18 @@ def _cnv_global(device_pre, threads):
     - Final output for mixed kernels (both SL and DL) is summed into the first three
       channels of `Hg`.
     """
+    if not _prepare_only and hasattr(device_pre, "_cnv_launches"):
+        for launch in device_pre._cnv_launches:
+            launch()
+        return
+    launches = []
+
+    def dispatch(*args, **kwargs):
+        if _prepare_only:
+            launches.append(Launch(*args, kwargs=kwargs))
+        else:
+            pk.parallel_for(*args, **kwargs)
+
     if pk.is_host_execution_space(device_pre.execution_space) and threads != 1:
         warnings.warn(
             "'threads' argument is overridden to 1 in OpenMP execution space.",
@@ -1018,11 +1075,7 @@ def _cnv_global(device_pre, threads):
         threads = 1
     shift = 0
     freq_offset = device_pre.am.array([0, 0, 0], dtype=device_pre.am.int32)
-    freq_range = int(
-        device_pre.am.prod(
-            device_pre.am.array(device_pre.data.Hg.shape[1:-1]) - freq_offset
-        )
-    )
+    freq_range = math.prod(device_pre.data.Hg.shape[1:-1])
     freq_teams = math.ceil(freq_range / threads)
     match device_pre.kernel.upper():
         case "STOKES_COMB" | "STOKES_SL":
@@ -1032,7 +1085,7 @@ def _cnv_global(device_pre, threads):
                 for d in range(shift, shift + len(G01)):
                     G01[d - shift] = device_pre.data.Hg[d]
                 RangePush("Sca-kernel")
-                pk.parallel_for(
+                dispatch(
                     pk.TeamPolicy(device_pre.execution_space, freq_teams, threads),
                     device_pre.stokeslet_convolution_kernel,
                     H1=G01[0],
@@ -1063,7 +1116,7 @@ def _cnv_global(device_pre, threads):
                 for d in range(9):
                     G02[d % 3][d // 3] = device_pre.data.Hg[shift + d]
                 RangePush("Sca-kernel")
-                pk.parallel_for(
+                dispatch(
                     pk.TeamPolicy(device_pre.execution_space, freq_teams, threads),
                     device_pre.stresslet_convolution_kernel,
                     H11=G02[0][0],
@@ -1097,7 +1150,7 @@ def _cnv_global(device_pre, threads):
             # sum
             RangePush("Sca-kernel")
             if device_pre.has_sl and device_pre.has_dl:
-                pk.parallel_for(
+                dispatch(
                     pk.TeamPolicy(device_pre.execution_space, freq_teams * 2, threads),
                     device_pre.convolution_sum_sl_dl,
                     H1=G01[0],
@@ -1116,7 +1169,7 @@ def _cnv_global(device_pre, threads):
                     threads=threads,
                 )
             elif device_pre.has_sl and not device_pre.has_dl:
-                pk.parallel_for(
+                dispatch(
                     pk.TeamPolicy(device_pre.execution_space, freq_teams * 2, threads),
                     device_pre.convolution_sum_sl,
                     H1=G01[0],
@@ -1138,7 +1191,7 @@ def _cnv_global(device_pre, threads):
             RangePop()
         case "LAPLACE":
             RangePush("Sca-kernel")
-            pk.parallel_for(
+            dispatch(
                 pk.TeamPolicy(device_pre.execution_space, freq_teams, threads),
                 device_pre.laplace_convolution_kernel,
                 H=device_pre.data.Hg[0],
@@ -1165,6 +1218,8 @@ def _cnv_global(device_pre, threads):
                 "CNV global implemented for 'STOKES_COMB' and 'LAPLACE' kernels, "
                 f" got {device_pre.kernel.upper()}."
             )
+
+    return launches
 
 
 def ifft(device_pre, options, fftmp_buffers=None):
@@ -1261,7 +1316,7 @@ def ifft(device_pre, options, fftmp_buffers=None):
     return walltime
 
 
-def g2p(device_pre, method="TARGET", threads=128):
+def g2p(device_pre, method="TARGET", threads=128, _prepare_only=False):
     """
     Gather-to-particle (G2P) step for evaluating far-field contributions
     at particle locations from the uniform grid.
@@ -1412,6 +1467,17 @@ def g2p(device_pre, method="TARGET", threads=128):
                 f"g2p method expected to be one of 'BASE', 'TARGET', got '{method.upper()}'."
             )
 
+    if _prepare_only:
+        return ParticleStage(
+            Launch(
+                policy,
+                device_pre.g2p_workunit[method.upper()],
+                kwargs,
+                name=f"G2P-{method.upper()}",
+            ),
+            grid=H_view,
+        )
+
     walltime["kernel"] = time.time()
     RangePush("G2P-kernel")
     pk.parallel_for(
@@ -1425,6 +1491,15 @@ def g2p(device_pre, method="TARGET", threads=128):
 
     # Compute adjustment
     walltime["adj"] = time.time()
+    adjust_potential(device_pre)
+    walltime["adj"] = time.time() - walltime["adj"]
+
+    walltime["tot"] = time.time() - walltime["tot"]
+    return walltime
+
+
+def adjust_potential(device_pre):
+    """Apply the density-dependent correction after interpolation."""
     match device_pre.kernel.upper():
         case "STOKES_COMB" | "STOKES_SL":
             if device_pre.has_sl:
@@ -1440,26 +1515,22 @@ def g2p(device_pre, method="TARGET", threads=128):
                             2 * sl_sum / device_pre.data.opt_sc_glob.greens_truncation_R
                         ).reshape(3, 1)
                     case 1:
-                        sl_sum = np.empty(3, dtype=device_pre.data.dtype)
-                        try:  # TODO: replace with isdevicespace
-                            sl_sum[...] = device_pre.am.sum(
-                                device_pre.data.forces[:3, : device_pre.data.owned_ns],
-                                axis=1,
-                            ).get()
-                        except AttributeError:
-                            sl_sum[...] = device_pre.am.sum(
-                                device_pre.data.forces[:3, : device_pre.data.owned_ns],
-                                axis=1,
-                            )
+                        sl_sum = device_pre.am.sum(
+                            device_pre.data.forces[:3, : device_pre.data.owned_ns],
+                            axis=1,
+                        )
                         if device_pre.data.opt.distributed:
                             from mpi4py import MPI
 
-                            mpi_comm = MPI.COMM_WORLD
-                            sl_sum_total = np.zeros_like(sl_sum)
-                            mpi_comm.Allreduce(sl_sum, sl_sum_total, op=MPI.SUM)
-                            sl_sum = sl_sum_total
+                            host_sum = (
+                                sl_sum
+                                if isinstance(sl_sum, np.ndarray)
+                                else sl_sum.get()
+                            )
+                            total = np.empty_like(host_sum)
+                            MPI.COMM_WORLD.Allreduce(host_sum, total, op=MPI.SUM)
+                            sl_sum = device_pre.am.asarray(total)
 
-                        sl_sum = device_pre.am.asarray(sl_sum)
                         lB_out = device_pre.am.exp(
                             0
                         )  # stokeslet_k0_constant forced to 0.
@@ -1508,7 +1579,3 @@ def g2p(device_pre, method="TARGET", threads=128):
                 "G2P adjustment is only implemented for 'STOKES_COMB' and 'LAPLACE' kernels,"
                 f" got {device_pre.kernel.upper()}."
             )
-    walltime["adj"] = time.time() - walltime["adj"]
-
-    walltime["tot"] = time.time() - walltime["tot"]
-    return walltime
