@@ -22,23 +22,6 @@ DEVICE_PARAMS = [
 ]
 
 
-@pytest.fixture
-def without_fft_plan_cache(device):
-    """Keep FFT workspaces from accumulating across the tested grid shapes."""
-    if device != "GPU":
-        yield
-        return
-
-    am = parkipy.utils.get_array_module(device)
-    cache = am.fft.config.get_plan_cache()
-    original_size = cache.get_size()
-    cache.set_size(0)
-    try:
-        yield
-    finally:
-        cache.set_size(original_size)
-
-
 @pytest.mark.parametrize(
     "kernel",
     [parkipy.ewald.stokes_sl, parkipy.ewald.stokes_comb, parkipy.ewald.laplace],
@@ -89,7 +72,6 @@ class TestEwald:
             return rms_err
         return rms_err / rms_ref
 
-    @pytest.mark.usefixtures("without_fft_plan_cache")
     def test_self_convergence(self, kernel, periodicity, dtype, device):
         """
         run self convergence test on all supported kernels
@@ -180,7 +162,6 @@ class TestEwald:
 @pytest.mark.parametrize("p2p_method", ["GM-1D", "GM-2D", "SM-1D", "SM-2D"])
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("device", DEVICE_PARAMS)
-@pytest.mark.usefixtures("without_fft_plan_cache")
 def test_p2p_stokes(p2p_method, device, dtype):
     """
     test different p2p methods for the 1-per stokes solver
@@ -191,7 +172,6 @@ def test_p2p_stokes(p2p_method, device, dtype):
 @pytest.mark.parametrize("p2g_method", ["BASE", "SOURCE", "GRID", "HYBRID"])
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("device", DEVICE_PARAMS)
-@pytest.mark.usefixtures("without_fft_plan_cache")
 def test_p2g_stokes(p2g_method, device, dtype):
     """
     test different p2g method for the 1-per stokes solver
@@ -202,7 +182,6 @@ def test_p2g_stokes(p2g_method, device, dtype):
 @pytest.mark.parametrize("g2p_method", ["BASE", "TARGET"])
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("device", DEVICE_PARAMS)
-@pytest.mark.usefixtures("without_fft_plan_cache")
 def test_g2p_stokes(g2p_method, device, dtype):
     """
     test different g2p methods for the 1-per stokes solver
@@ -272,7 +251,6 @@ def test_rectangular_fourier_resolution(box, periodicity, kernel):
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("fft_type", ["R2C", "C2C"])
 @pytest.mark.parametrize("device", DEVICE_PARAMS)
-@pytest.mark.usefixtures("without_fft_plan_cache")
 def test_stokes_free_space(kind, dtype, fft_type, device):
     """
     Test 0-periodic Stokes potentials against direct free-space summation.
