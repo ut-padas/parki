@@ -22,6 +22,23 @@ DEVICE_PARAMS = [
 ]
 
 
+@pytest.fixture
+def without_fft_plan_cache(device):
+    """Keep FFT workspaces from accumulating across the tested grid shapes."""
+    if device != "GPU":
+        yield
+        return
+
+    am = parkipy.utils.get_array_module(device)
+    cache = am.fft.config.get_plan_cache()
+    original_size = cache.get_size()
+    cache.set_size(0)
+    try:
+        yield
+    finally:
+        cache.set_size(original_size)
+
+
 @pytest.mark.parametrize(
     "kernel",
     [parkipy.ewald.stokes_sl, parkipy.ewald.stokes_comb, parkipy.ewald.laplace],
@@ -72,6 +89,7 @@ class TestEwald:
             return rms_err
         return rms_err / rms_ref
 
+    @pytest.mark.usefixtures("without_fft_plan_cache")
     def test_self_convergence(self, kernel, periodicity, dtype, device):
         """
         run self convergence test on all supported kernels
@@ -102,30 +120,23 @@ class TestEwald:
         # TEST PARAMS
         TOL = 1e-7
 
-        # read in test data.
-        data = np.load("tests/data/translation_test.npz")
-        centered = data["centered"]
-        offset = data[
-            "offset"
-        ]  # this is offset in the 3P case, need to correct for 1P, ...
-        normals = data["normals"]
-        box = data["box"]
-        density = data["density"]
+        with np.load("tests/data/translation_test.npz") as data:
+            centered = am.asarray(data["centered"])
+            offset = am.asarray(data["offset"])
+            normals = am.asarray(data["normals"])
+            density = am.asarray(data["density"])
+            box = data["box"]
 
-        translate = (
-            am.array(
-                [box[i] if i < periodicity else box[i] / 2 for i in range(len(box))]
-            )
-            - am.asarray(box) / 2
-        )
-        _offset = centered.copy() + translate.reshape(3, 1) + 1e-14
-        offset -= am.array(
-            [0 if i < periodicity else box[i] / 2 for i in range(len(box))]
-        ).reshape(3, 1)
+        box_lengths = am.asarray(box).reshape(3, 1)
+        half_box = box_lengths / 2
+        translate = half_box.copy()
+        translate[periodicity:] = 0
+        expected_offset = centered + translate + 1e-14
+        # The fixture stores the offset for three periodic directions.
+        offset[periodicity:] -= half_box[periodicity:]
         am.testing.assert_allclose(
-            actual=_offset, desired=offset, err_msg="offset array incorrect"
+            actual=expected_offset, desired=offset, err_msg="offset array incorrect"
         )
-        # offset = _offset.copy()
 
         # shared Ewald options
         options = parkipy.ewald.EwaldOptions(
@@ -151,13 +162,14 @@ class TestEwald:
         centered_potential = kernel(*args, options=options)
 
         # reset sources/targets to the offset points
-        args[0] = offset  # % am.array(box).reshape(3,1)
-        args[0][:periodicity] = (
-            args[0][:periodicity] % am.array(box).reshape(3, 1)[:periodicity]
-        )
-        args[1] = args[0].copy()
+        offset[:periodicity] %= box_lengths[:periodicity]
+        args[0] = offset
+        args[1] = offset.copy()
         offset_potential = kernel(*args, options=options)
 
+        if am is not np:
+            offset_potential = am.asnumpy(offset_potential)
+            centered_potential = am.asnumpy(centered_potential)
         error = self.error_rms(actual=offset_potential, desired=centered_potential)
         if error > TOL:
             raise AssertionError(
@@ -168,6 +180,7 @@ class TestEwald:
 @pytest.mark.parametrize("p2p_method", ["GM-1D", "GM-2D", "SM-1D", "SM-2D"])
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("device", DEVICE_PARAMS)
+@pytest.mark.usefixtures("without_fft_plan_cache")
 def test_p2p_stokes(p2p_method, device, dtype):
     """
     test different p2p methods for the 1-per stokes solver
@@ -178,6 +191,7 @@ def test_p2p_stokes(p2p_method, device, dtype):
 @pytest.mark.parametrize("p2g_method", ["BASE", "SOURCE", "GRID", "HYBRID"])
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("device", DEVICE_PARAMS)
+@pytest.mark.usefixtures("without_fft_plan_cache")
 def test_p2g_stokes(p2g_method, device, dtype):
     """
     test different p2g method for the 1-per stokes solver
@@ -188,6 +202,7 @@ def test_p2g_stokes(p2g_method, device, dtype):
 @pytest.mark.parametrize("g2p_method", ["BASE", "TARGET"])
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("device", DEVICE_PARAMS)
+@pytest.mark.usefixtures("without_fft_plan_cache")
 def test_g2p_stokes(g2p_method, device, dtype):
     """
     test different g2p methods for the 1-per stokes solver
@@ -257,6 +272,7 @@ def test_rectangular_fourier_resolution(box, periodicity, kernel):
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("fft_type", ["R2C", "C2C"])
 @pytest.mark.parametrize("device", DEVICE_PARAMS)
+@pytest.mark.usefixtures("without_fft_plan_cache")
 def test_stokes_free_space(kind, dtype, fft_type, device):
     """
     Test 0-periodic Stokes potentials against direct free-space summation.
@@ -480,11 +496,22 @@ def run_convergence(
     clszvB = rcvB**3 * max(ns, nt)
     potvB = [[None] * am.size(clszvB), [None] * am.size(clszvB)]
     for j, tol in enumerate(tolvB):
-        for k, clsz in enumerate(clszvB):
-            print(f":: Test 2: Running tol={tol}, cell_size={clsz}")
+        if (
+            am is not np
+            and fun is parkipy.ewald.stokes_comb
+            and periodicity == 1
+            and tol == 1e-9
+        ):
+            # Bound the padded FFT while retaining at least four cells per axis.
+            max_rc = min(0.25, min(box) / 4)
+            sweep = [(None, float(rc)) for rc in np.linspace(0.96 * max_rc, max_rc, 10)]
+        else:
+            sweep = [(int(clsz), None) for clsz in clszvB]
+        for k, (sweep_cell_size, rc) in enumerate(sweep):
+            print(f":: Test 2: Running {tol=}, {sweep_cell_size=}, {rc=}")
             potential = run(
                 fun,
-                int(clsz),
+                sweep_cell_size,
                 tol,
                 nt,
                 ns,
@@ -499,6 +526,7 @@ def run_convergence(
                 torch_fft,
                 verbosity=0,
                 nutral=nutral,
+                rc=rc,
             )
             if len(potential.shape) == 1:
                 potential = potential.reshape(1, -1)
@@ -569,6 +597,7 @@ def run(
     torch_fft,
     verbosity=0,
     nutral=False,
+    rc=None,
 ) -> None:
     am = parkipy.utils.get_array_module(device)
     execution_space = parkipy.utils.get_execution_space(device)
@@ -590,6 +619,7 @@ def run(
         box=box,
         tolerance=tolerance,
         cell_size=cell_size,
+        rc=rc,
         p2p_method=p2p_method,
         g2p_method=g2p_method,
         p2g_method=p2g_method,
