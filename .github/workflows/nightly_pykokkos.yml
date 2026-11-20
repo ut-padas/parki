@@ -24,7 +24,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: main
           fetch-depth: 0
       - uses: conda-incubator/setup-miniconda@v4
         with:
@@ -37,11 +36,10 @@ jobs:
           PYKOKKOS_BRANCH: main
           ENABLE_OPENMP: "OFF"
           PYTHON_VERSION: ${{ matrix.python-version }}
+          # Keep peak compiler memory low on hosted runners.
+          CMAKE_BUILD_PARALLEL_LEVEL: "1"
+          PYKOKKOS_UNITY_BATCH_SIZE: "1"
         run: |
-          if [[ "${{ matrix.os }}" == "ubuntu-22.04-arm" ]]; then
-            export CMAKE_BUILD_PARALLEL_LEVEL=1
-            export PYKOKKOS_UNITY_BATCH_SIZE=1
-          fi
           bash install.sh
           echo "PyKokkos commit: $(git -C external/pykokkos rev-parse HEAD)"
       - name: Run CPU test suite
