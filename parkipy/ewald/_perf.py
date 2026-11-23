@@ -1,4 +1,8 @@
+import ast
 import pprint
+from collections import Counter
+from functools import lru_cache
+from pathlib import Path
 import warnings
 import numpy as np
 from pykokkos.interface import is_host_execution_space
@@ -35,6 +39,85 @@ OPERATION_CONSTANTS = {
         "ferf": 155,
     },
 }
+
+
+@lru_cache(maxsize=None)
+def _p2p_operation_counts(kernel):
+    """Count source-level pair-loop operations, including called helpers.
+
+    This models one in-cutoff interaction; integer address calculations,
+    comparisons, memory access and one-time work outside the loop are omitted.
+    Counts do not model compiler fusion or optimizations.
+    """
+    workunits = {
+        "stokes_sl": "p2p_stokes_sl_gm1d_fp64",
+        "stokes_comb": "p2p_stokes_comb_gm1d_fp64",
+        "stokes_dl": "p2p_stokes_comb_gm1d_fp64",
+        "laplace": "p2p_laplace_gm1d_fp64",
+    }
+    try:
+        name = workunits[kernel]
+    except KeyError:
+        raise NotImplementedError(f"P2P flop model not implemented for {kernel} kernel") from None
+    path = Path(__file__).parent / "_pk_kernels" / "_p2p_workunits.py"
+    module = ast.parse(path.read_text(), filename=str(path))
+    functions = {node.name: node for node in module.body if isinstance(node, ast.FunctionDef)}
+    loops = [node for node in ast.walk(functions[name])
+             if isinstance(node, ast.For) and isinstance(node.target, ast.Name)
+             and node.target.id == "s"]
+    if len(loops) != 1:
+        raise ValueError(f"Expected one source-particle loop in {name}; found {len(loops)}")
+    counts = Counter()
+    operators = {ast.Add: "fadd", ast.Sub: "fadd", ast.Mult: "fmul", ast.Div: "fdiv"}
+    math_functions = {"rsqrt": "frsqrt", "sqrt": "fsqrt", "exp": "fexpn",
+                      "erf": "ferf", "erfc": "ferf", "sinh": "fsinh"}
+
+    class CounterVisitor(ast.NodeVisitor):
+        def visit_BinOp(self, node):
+            operation = operators.get(type(node.op))
+            if operation is None:
+                raise ValueError(f"Unsupported pair-loop operator: {ast.dump(node.op)}")
+            counts[operation] += 1
+            self.visit(node.left)
+            self.visit(node.right)
+
+        def visit_AugAssign(self, node):
+            operation = operators.get(type(node.op))
+            if operation is None:
+                raise ValueError(f"Unsupported pair-loop operator: {ast.dump(node.op)}")
+            counts[operation] += 1
+            self.visit(node.value)
+
+        def visit_Subscript(self, node):
+            # Indices represent address arithmetic rather than floating-point work.
+            self.visit(node.value)
+
+        def visit_Call(self, node):
+            for arg in node.args:
+                self.visit(arg)
+            for keyword in node.keywords:
+                self.visit(keyword.value)
+            if isinstance(node.func, ast.Name):
+                called = node.func.id
+                if called in functions:
+                    if kernel != "stokes_dl" or called != "stokes_sl_ewald_fp64":
+                        for statement in functions[called].body:
+                            self.visit(statement)
+                elif not called.startswith("Real3d_"):
+                    raise ValueError(f"Unsupported pair-loop call: {called}")
+            elif isinstance(node.func, ast.Attribute):
+                operation = math_functions.get(node.func.attr)
+                if operation is None:
+                    raise ValueError(f"Unsupported pair-loop call: {ast.unparse(node.func)}")
+                counts[operation] += 1
+            else:
+                raise ValueError(f"Unsupported pair-loop call: {ast.dump(node.func)}")
+
+    visitor = CounterVisitor()
+    for statement in loops[0].body:
+        visitor.visit(statement)
+    return tuple(sorted(counts.items()))
+
 
 
 class PerfModel:
@@ -485,42 +568,11 @@ class PerfModel:
         return self._mop_ewald
 
     def _count_flop_p2p(self, kernel, N_out, cell_size, device_name):
-        C_stokes_ewald = (
-            14 * OPERATION_CONSTANTS[device_name]["fadd"]
-            + 1 * OPERATION_CONSTANTS[device_name]["frsqrt"]
-            + 19 * OPERATION_CONSTANTS[device_name]["fmul"]
-            + 1 * OPERATION_CONSTANTS[device_name]["fdiv"]
-            + 1 * OPERATION_CONSTANTS[device_name]["ferf"]
-            + 1 * OPERATION_CONSTANTS[device_name]["fexpn"]
-        )
-        C_sl = (
-            13 * OPERATION_CONSTANTS[device_name]["fmul"]
-            + 11 * OPERATION_CONSTANTS[device_name]["fadd"]
-        )
-        C_dl = (
-            33 * OPERATION_CONSTANTS[device_name]["fmul"]
-            + 19 * OPERATION_CONSTANTS[device_name]["fadd"]
-        )
-        match kernel:
-            case "stokes_sl":
-                C_p2p = C_stokes_ewald + C_sl
-            case "stokes_dl":
-                C_p2p = C_stokes_ewald + C_dl
-            case "stokes_comb":
-                C_p2p = C_stokes_ewald + C_sl + C_dl
-            case "laplace":
-                C_p2p = (
-                    12 * OPERATION_CONSTANTS[device_name]["fadd"]
-                    + 9 * OPERATION_CONSTANTS[device_name]["fmul"]
-                    + 1 * OPERATION_CONSTANTS[device_name]["fsqrt"]
-                    + 1 * OPERATION_CONSTANTS[device_name]["fdiv"]
-                    + 1 * OPERATION_CONSTANTS[device_name]["ferf"]
-                )
-            case _:
-                raise NotImplementedError(
-                    f"P2P flop model not implemented for {kernel} kernel"
-                )
-        return 27 * N_out * cell_size * np.pi / 6.0 * C_p2p
+        operations = _p2p_operation_counts(kernel)
+        costs = OPERATION_CONSTANTS[device_name]
+        pair_cost = sum(count * costs[operation] for operation, count in operations)
+        # A cutoff sphere of radius rc occupies 4*pi/81 of the 3*rc cube.
+        return 27 * N_out * cell_size * (4 * np.pi / 81.0) * pair_cost
 
     def _count_flop_p2g(self, kernel, N_in, window_P, device_name):
         match kernel:
