@@ -258,4 +258,3 @@ def test_cell_list_morton_order_and_padding():
     np.testing.assert_array_equal(
         cells.force_list[0, :9], values[[7, 6, 5, 4, 3, 2, 1, 0, 8]]
     )
-

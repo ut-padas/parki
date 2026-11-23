@@ -93,7 +93,9 @@ class TestEwald:
         if kernel != parkipy.ewald.stokes_comb and p2g_method in ("BASE", "SOURCE"):
             pytest.skip("P2G method requires normals")
 
-    def test_self_convergence(self, kernel, periodicity, dtype, device, p2p_method, p2g_method, g2p_method):
+    def test_self_convergence(
+        self, kernel, periodicity, dtype, device, p2p_method, p2g_method, g2p_method
+    ):
         """
         run self convergence test on all supported kernels
         for all periodic directions in single and double
@@ -101,11 +103,18 @@ class TestEwald:
         """
         self.skip_unsupported_methods(kernel, p2p_method, p2g_method)
         run_convergence(
-            fun=kernel, periodicity=periodicity, dtype=dtype, device=device,
-            p2p_method=p2p_method, p2g_method=p2g_method, g2p_method=g2p_method,
+            fun=kernel,
+            periodicity=periodicity,
+            dtype=dtype,
+            device=device,
+            p2p_method=p2p_method,
+            p2g_method=p2g_method,
+            g2p_method=g2p_method,
         )
 
-    def test_periodic_translation(self, kernel, periodicity, dtype, device, p2p_method, p2g_method, g2p_method):
+    def test_periodic_translation(
+        self, kernel, periodicity, dtype, device, p2p_method, p2g_method, g2p_method
+    ):
         """
         Test the translation-invariance of the kernels.
         First, get a reference solution by placing a shape
@@ -131,7 +140,9 @@ class TestEwald:
         # read in test data.
         data = np.load("tests/data/translation_test.npz")
         centered = am.asarray(data["centered"])
-        offset = am.asarray(data["offset"])  # this is offset in the 3P case, need to correct for 1P, ...
+        offset = am.asarray(
+            data["offset"]
+        )  # this is offset in the 3P case, need to correct for 1P, ...
         normals = am.asarray(data["normals"])
         box = data["box"]
         density = am.asarray(data["density"])

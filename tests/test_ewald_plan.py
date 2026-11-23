@@ -88,12 +88,16 @@ def test_methods(device, p2g_method, g2p_method, p2p_method, fft_type, combined)
         expected = ewald.stokes_sl(trg, src, q, options)
     if p2p_method == "MORT":
         _, _, _, _, _, baseline = make_problem(
-            device, p2g_method=p2g_method, g2p_method=g2p_method,
-            p2p_method="GM-1D", fft_type=fft_type,
+            device,
+            p2g_method=p2g_method,
+            g2p_method=g2p_method,
+            p2p_method="GM-1D",
+            fft_type=fft_type,
         )
         reference = (
             ewald.stokes_comb(trg, src, q, normals, baseline)
-            if combined else ewald.stokes_sl(trg, src, q, baseline)
+            if combined
+            else ewald.stokes_sl(trg, src, q, baseline)
         )
         am.testing.assert_allclose(expected, reference, rtol=1e-11, atol=1e-11)
     # Alternate methods have their own reset and accumulation behavior.
