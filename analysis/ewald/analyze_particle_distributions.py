@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import PercentFormatter
 from scipy.stats import gaussian_kde
 
-
 plt.rc("font", family="serif")
 
 import shutil
