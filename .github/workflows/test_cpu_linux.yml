@@ -31,12 +31,12 @@ jobs:
           channels: conda-forge
           conda-remove-defaults: true
       - name: install
-        run: |
-          if [[ "${{ matrix.os }}" == "ubuntu-22.04-arm" ]]; then
-            export CMAKE_BUILD_PARALLEL_LEVEL=1
-            export PYKOKKOS_UNITY_BATCH_SIZE=1
-          fi
-          ENABLE_OPENMP=OFF PYTHON_VERSION=${{ matrix.python-version }} bash install.sh
+        env:
+          ENABLE_OPENMP: "OFF"
+          PYTHON_VERSION: ${{ matrix.python-version }}
+          CMAKE_BUILD_PARALLEL_LEVEL: "1"
+          PYKOKKOS_UNITY_BATCH_SIZE: "1"
+        run: bash install.sh
       - name: test
         run: |
           conda activate parki

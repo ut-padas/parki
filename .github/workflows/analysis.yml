@@ -31,8 +31,12 @@ jobs:
           channels: conda-forge
           conda-remove-defaults: true
       - name: install
-        run: |
-          ENABLE_OPENMP=OFF PYTHON_VERSION=${{ matrix.python-version }} bash install.sh
+        env:
+          ENABLE_OPENMP: "OFF"
+          PYTHON_VERSION: ${{ matrix.python-version }}
+          CMAKE_BUILD_PARALLEL_LEVEL: "1"
+          PYKOKKOS_UNITY_BATCH_SIZE: "1"
+        run: bash install.sh
       - name: validate analysis scripts
         run: |
           conda activate parki
