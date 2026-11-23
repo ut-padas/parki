@@ -70,6 +70,7 @@ class EwaldPlan:
             rc=options.rc,
             execution_space=options.execution_space,
             fft_type=options.fft_type,
+            adaptive_upsampling=options.adaptive_upsampling,
         )
         self._pre = pre
         self._near = p2p(
@@ -104,13 +105,17 @@ class EwaldPlan:
                 if isinstance(values, tuple):
                     values = values[0]
                 self._density_lists.append((values, locations, indices))
-        pre._cnv_launches = _cnv_global(pre, options.cnv_threads, _prepare_only=True)
+        if not options.adaptive_upsampling:
+            pre._cnv_launches = _cnv_global(
+                pre, options.cnv_threads, _prepare_only=True
+            )
         # The 1P zero-plane input is overwritten every call, but its storage and
         # the views used by the compiled kernels stay fixed.
         index = (slice(None),) + (0,) * (options.periodicity or 3)
-        pre._zero_source = am.empty_like(pre.data.Hg[index])
-        pre._zero_launches = {}
-        if options.periodicity == 1:
+        if not options.adaptive_upsampling:
+            pre._zero_source = am.empty_like(pre.data.Hg[index])
+            pre._zero_launches = {}
+        if options.periodicity == 1 and not options.adaptive_upsampling:
             _cnv_GLB(pre, options.cnv_threads, _prepare_only=True)
         self._p2g_transposed = options.p2g_method.upper() in ("BASE", "GRID")
         self._g2p_transposed = options.g2p_method.upper() == "BASE"

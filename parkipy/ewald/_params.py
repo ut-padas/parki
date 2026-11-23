@@ -823,6 +823,9 @@ class SEParams:
         grid_ups_sg = self.base_factor * np.ceil(
             self.grid_shape_ext[self.periodicity :] * sg / self.base_factor
         )
+        self.adaptive_zero_shape = grid_ups_s0.astype(int)
+        self.adaptive_local_shape = grid_ups_sl.astype(int)
+        self.adaptive_local_modes_size = local_modes_size
         if self.distributed:
             from mpi4py import MPI
 

@@ -199,6 +199,7 @@ class EwaldKernel:
             periodicity=periodicity,
             execution_space=execution_space,
             fft_type=options.fft_type,
+            adaptive_upsampling=options.adaptive_upsampling,
         )
         # algorithm
         walltime = {}
@@ -341,6 +342,10 @@ class EwaldOptions:
     fft_type: {'R2C', 'C2C'}, optional
         The type of fft to preform. Must be one of ``'R2C'`` or ``'C2C'``. The default is ``'R2C'``.
 
+    adaptive_upsampling: bool, optional
+        Use adaptive Fourier upsampling for single-device 1-periodic Stokes
+        sums. This path uses complex FFTs and requires ``fft_type='C2C'``.
+
     torch_fft: bool, optional
         Use PyTroch for the fft and ifft stages. The default is ``False``.
 
@@ -397,6 +402,7 @@ class EwaldOptions:
     p2g_method: Literal["BASE", "SOURCE", "GRID", "HYBRID"] = "HYBRID"
     g2p_method: Literal["BASE", "TARGET"] = "TARGET"
     fft_type: Literal["R2C", "C2C"] = "R2C"
+    adaptive_upsampling: bool = False
     torch_fft: int = False
     p2p_threads_x: int = None
     p2p_threads_y: int = 1
@@ -461,6 +467,13 @@ class EwaldOptions:
         if self.fft_type.upper() not in valid_fft_types:
             raise ValueError(
                 f"the value specified for fft type must be one on {valid_fft_types}, got {self.fft_type.upper()}."
+            )
+
+        if self.adaptive_upsampling and (
+            self.periodicity != 1 or self.fft_type.upper() != "C2C" or self.torch_fft
+        ):
+            raise ValueError(
+                "adaptive upsampling requires 1-periodicity, C2C FFTs, and torch_fft=False"
             )
 
         if self.torch_fft:

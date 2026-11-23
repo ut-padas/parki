@@ -38,6 +38,78 @@ def make_problem(device="Serial", dtype=np.float64, periodicity=1, **kwargs):
 
 
 @pytest.mark.parametrize("device", DEVICES)
+@pytest.mark.parametrize("combined", [False, True])
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def test_adaptive_against_global(device, combined, dtype):
+    from copy import deepcopy
+
+    am, trg, src, normals, density, global_options = make_problem(
+        device, dtype, fft_type="C2C"
+    )
+    adaptive_options = deepcopy(global_options)
+    adaptive_options.adaptive_upsampling = True
+    if combined:
+        global_result = ewald.stokes_comb(trg, src, density, normals, global_options)
+        adaptive_result = ewald.stokes_comb(
+            trg, src, density, normals, adaptive_options
+        )
+        plan = ewald.prepare_stokes_comb(trg, src, normals, adaptive_options)
+    else:
+        density = density[:3]
+        global_result = ewald.stokes_sl(trg, src, density, global_options)
+        adaptive_result = ewald.stokes_sl(trg, src, density, adaptive_options)
+        plan = ewald.prepare_stokes_sl(trg, src, adaptive_options)
+    am.testing.assert_allclose(adaptive_result, global_result, rtol=5e-3, atol=5e-3)
+    for scale in (1, 0, -1):
+        am.testing.assert_allclose(
+            plan(scale * density), scale * adaptive_result, rtol=1e-5, atol=1e-5
+        )
+
+
+@pytest.mark.parametrize("combined", [False, True])
+def test_adaptive_local_modes_against_global(combined):
+    rng = np.random.default_rng(41)
+    src = rng.uniform(0.1, 0.9, (3, 100))
+    trg = rng.uniform(0.1, 0.9, (3, 40))
+    density = rng.normal(size=(6 if combined else 3, 100))
+    normals = rng.normal(size=(3, 100))
+    common = dict(
+        box=[1.0] * 3,
+        periodicity=1,
+        tolerance=1e-5,
+        execution_space="Serial",
+        cell_size=4,
+        fft_type="C2C",
+    )
+    global_options = ewald.EwaldOptions(**common)
+    adaptive_options = ewald.EwaldOptions(**common, adaptive_upsampling=True)
+    if combined:
+        plan = ewald.prepare_stokes_comb(trg, src, normals, adaptive_options)
+        expected = ewald.stokes_comb(trg, src, density, normals, global_options)
+    else:
+        plan = ewald.prepare_stokes_sl(trg, src, adaptive_options)
+        expected = ewald.stokes_sl(trg, src, density, global_options)
+    assert len(plan._pre.data.local_indices) > 0
+    actual = plan(density)
+    relative_error = np.linalg.norm(actual - expected) / np.linalg.norm(expected)
+    assert relative_error < 1e-5
+
+
+@pytest.mark.parametrize(
+    "periodicity,fft_type,torch_fft",
+    [(0, "C2C", False), (1, "R2C", False), (1, "C2C", True)],
+)
+def test_adaptive_unsupported_options(periodicity, fft_type, torch_fft):
+    with pytest.raises(ValueError, match="adaptive upsampling"):
+        make_problem(
+            periodicity=periodicity,
+            fft_type=fft_type,
+            torch_fft=torch_fft,
+            adaptive_upsampling=True,
+        )
+
+
+@pytest.mark.parametrize("device", DEVICES)
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("periodicity", [0, 1, 2, 3])
 @pytest.mark.parametrize("combined", [False, True])

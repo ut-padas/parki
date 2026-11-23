@@ -9,6 +9,7 @@ import os
 import math
 import time
 import warnings
+import numpy as np
 import pykokkos as pk
 from typing import Any, Literal, List
 from dataclasses import dataclass, field
@@ -791,6 +792,7 @@ class DevicePre:
         fft_type="R2C",
         distributed=False,
         kill_fourier_grid=False,
+        adaptive_upsampling=False,
     ):
         """
         Construct a `DevicePre` object from minimal input.
@@ -858,6 +860,17 @@ class DevicePre:
             distributed=distributed,
             **params_kwargs,
         )
+        if adaptive_upsampling:
+            if (
+                distributed
+                or periodicity != 1
+                or kernel.upper() not in ("STOKES_SL", "STOKES_COMB")
+                or fft_type.upper() != "C2C"
+            ):
+                raise ValueError(
+                    "adaptive upsampling supports single-device 1P Stokes with C2C FFTs"
+                )
+            params.actual_upsampling = np.ones(3)
         # setup options and parameters
         if kill_fourier_grid:
             warnings.warn(
@@ -887,5 +900,30 @@ class DevicePre:
         )
         device_pre.data.opt_sc_glob = opt_sc
         device_pre.data.opt_sc_zero = opt_sc
+
+        if adaptive_upsampling:
+            am = get_array_module(execution_space)
+            n = min(
+                params.adaptive_local_modes_size,
+                (int(params.grid_shape_ext[0]) - 1) // 2,
+            )
+            mx = int(params.grid_shape_ext[0])
+            indices = np.r_[np.arange(1, n + 1), np.arange(mx - n, mx)].astype(np.int32)
+            data.local_indices = am.array(indices)
+            data.local_shape = tuple(params.adaptive_local_shape)
+            data.zero_shape = tuple(params.adaptive_zero_shape)
+            data.local_upsampling = am.array(
+                [1, *(params.adaptive_local_shape / params.grid_shape_ext[1:])],
+                dtype=am.float64,
+            )
+            data.zero_upsampling = am.array(
+                [1, *(params.adaptive_zero_shape / params.grid_shape_ext[1:])],
+                dtype=am.float64,
+            )
+            data.Hl = am.empty(
+                (dim_H, len(indices), *data.local_shape, 2), dtype=data.dtype
+            )
+            data.H0 = am.empty((dim_H, 1, *data.zero_shape, 2), dtype=data.dtype)
+            device_pre.fs_code = "adaptive"
 
         return device_pre, params

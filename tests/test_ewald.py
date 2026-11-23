@@ -22,6 +22,18 @@ DEVICE_PARAMS = [
 ]
 
 
+@pytest.mark.parametrize("nx,local_indices", [(7, [1, 6]), (8, []), (8, [1, 2, 6, 7])])
+def test_adaptive_fft_1p_roundtrip(nx, local_indices):
+    from parkipy.ewald._adaptive_fft import fft_1p, ifft_1p
+
+    rng = np.random.default_rng(14)
+    values = rng.standard_normal((3, nx, 5, 6))
+    indices = np.asarray(local_indices, dtype=np.intp)
+    grids = fft_1p(values, indices, (5, 6), (8, 10), (10, 12), np.fft)
+    actual = ifft_1p(*grids, indices, values.shape[1:], np.fft)
+    np.testing.assert_allclose(actual, values, atol=1e-12)
+
+
 @pytest.mark.parametrize(
     "kernel",
     [parkipy.ewald.stokes_sl, parkipy.ewald.stokes_comb, parkipy.ewald.laplace],

@@ -730,18 +730,33 @@ def fft(device_pre, options, fftmp_buffers=None):
 
     Notes
     -----
-    - If `fft_up` is True, the same upsampling factor is used globally in all directions.
+    - The adaptive 1P path transforms the periodic direction first and uses
+      separate free-direction grids for global, local, and zero modes.
     - If the execution space is OpenMP, the number of threads is set via `OMP_NUM_THREADS`.
     - The FFT is computed along axes (1, 2, 3), assuming the input has shape (channels, x, y, z).
     - The result is reshaped into the target layout (`Hg_real_shape`) after the FFT.
 
-    Raises
-    ------
-    NotImplementedError
-        If `fft_up` is False. Directional/local upsampling has not yet been implemented.
     """
     fft_start = time.time()
-    if device_pre.data.opt.distributed:
+    if device_pre.fs_code == "adaptive":
+        from ._adaptive_fft import fft_1p
+
+        if pk.is_host_execution_space(device_pre.execution_space):
+            from scipy import fft as fft_module
+        else:
+            from cupyx.scipy import fft as fft_module
+        data = device_pre.data
+        grids = fft_1p(
+            data.H,
+            data.local_indices,
+            tuple(data.fft_shape[1:]),
+            data.local_shape,
+            data.zero_shape,
+            fft_module,
+        )
+        for output, values in zip((data.Hg, data.Hl, data.H0), grids):
+            output[...] = values.view(data.dtype).reshape(output.shape)
+    elif device_pre.data.opt.distributed:
         if fftmp_buffers is None:
             raise ValueError(
                 "fftmp_buffers must be passed into fft for distributed execution."
@@ -822,7 +837,7 @@ def cnv(device_pre, threads=128):
     Apply the Fourier-space convolution kernel in the Spectral Ewald method.
 
     This function dispatches the convolution procedure depending on the Fourier-space code
-    specified in `device_pre.fs_code`. Only the 'global' implementation is currently supported.
+    specified in `device_pre.fs_code`, including the 1P adaptive path.
 
     Parameters
     ----------
@@ -839,9 +854,33 @@ def cnv(device_pre, threads=128):
     cnv_start = time.time()
     if device_pre.fs_code == "global":
         _cnv_GLB(device_pre=device_pre, threads=threads)
+    elif device_pre.fs_code == "adaptive":
+        data = device_pre.data
+        original_grid, original_ups, original_shape = (
+            data.Hg,
+            data.opt.actual_upsampling_global,
+            data.fft_shape,
+        )
+        try:
+            _cnv_global(device_pre, threads)
+            if data.Hl.shape[1]:
+                data.Hg = data.Hl
+                data.opt.actual_upsampling_global = data.local_upsampling
+                _cnv_global(device_pre, threads, locals=data.local_indices)
+            data.Hg = data.H0
+            data.opt.actual_upsampling_global = data.zero_upsampling
+            data.fft_shape = [1, *data.zero_shape]
+            _cnv_GLB(device_pre, threads)
+        finally:
+            data.Hg, data.opt.actual_upsampling_global, data.fft_shape = (
+                original_grid,
+                original_ups,
+                original_shape,
+            )
     else:
-        raise NotImplementedError("APT Scaling not yet implemented.")
-        _cnv_APT(device_pre=device_pre)
+        raise NotImplementedError(
+            f"Unknown Fourier scaling mode {device_pre.fs_code!r}."
+        )
     cnv_end = time.time()
     walltime = {"tot": cnv_end - cnv_start}
     return walltime
@@ -1032,7 +1071,7 @@ def _cnv_GLB(device_pre, threads, _prepare_only=False):
         zero_output[:3] = out.view(data.dtype).reshape(3, -1, 2)
 
 
-def _cnv_global(device_pre, threads, _prepare_only=False):
+def _cnv_global(device_pre, threads, _prepare_only=False, locals=None):
     """
     Perform standard Fourier-space convolution on the global grid.
 
@@ -1075,6 +1114,11 @@ def _cnv_global(device_pre, threads, _prepare_only=False):
         threads = 1
     shift = 0
     freq_offset = device_pre.am.array([0, 0, 0], dtype=device_pre.am.int32)
+    if locals is None:
+        locals = device_pre.am.zeros(1, dtype=device_pre.am.int32)
+        num_locals = 0
+    else:
+        num_locals = len(locals)
     freq_range = math.prod(device_pre.data.Hg.shape[1:-1])
     freq_teams = math.ceil(freq_range / threads)
     match device_pre.kernel.upper():
@@ -1102,8 +1146,8 @@ def _cnv_global(device_pre, threads, _prepare_only=False):
                     grid=device_pre.data.opt.glb_grid_shape_ext,
                     whw=device_pre.data.opt_sc_glob.window_halfwidth,
                     ups=device_pre.data.opt.actual_upsampling_global,
-                    locals=device_pre.am.zeros(1, dtype=device_pre.am.int32),
-                    num_locals=0,
+                    locals=locals,
+                    num_locals=num_locals,
                     freq_range=freq_range,
                     freq_offset=freq_offset,
                     threads=threads,
@@ -1139,8 +1183,8 @@ def _cnv_global(device_pre, threads, _prepare_only=False):
                     grid=device_pre.data.opt.glb_grid_shape_ext,
                     whw=device_pre.data.opt_sc_glob.window_halfwidth,
                     ups=device_pre.data.opt.actual_upsampling_global,
-                    locals=device_pre.am.zeros(1, dtype=device_pre.am.int32),
-                    num_locals=0,
+                    locals=locals,
+                    num_locals=num_locals,
                     freq_range=freq_range,
                     freq_offset=freq_offset,
                     threads=threads,
@@ -1228,7 +1272,8 @@ def ifft(device_pre, options, fftmp_buffers=None):
 
     This function applies an inverse real FFT (irfftn) to the output of the convolution step
     stored in `device_pre.data.Hg`, reshaping and truncating the result to match the original
-    physical grid shape. Only the case with uniform upsampling is currently supported.
+    physical grid shape. The adaptive 1P path reconstructs the periodic-mode
+    groups from separately transformed free-direction grids.
 
     Parameters
     ----------
@@ -1242,12 +1287,6 @@ def ifft(device_pre, options, fftmp_buffers=None):
     walltime : dict
         Dictionary with timing information for the IFFT kernel, under the key 'kernel'.
 
-    Raises
-    ------
-    NotImplementedError
-        If local or zero-mode-specific IFFT logic is required (i.e., `Hl` or `H0` are not None),
-        a `NotImplementedError` is raised as this path is not yet supported.
-
     Notes
     -----
     - The IFFT is performed using a backend-specific FFT function (`get_irfftn`).
@@ -1255,7 +1294,22 @@ def ifft(device_pre, options, fftmp_buffers=None):
     - The output is stored in `device_pre.data.H` and truncated to the original grid shape.
     """
     ifft_start = time.time()
-    if device_pre.data.opt.distributed:
+    if device_pre.fs_code == "adaptive":
+        from ._adaptive_fft import ifft_1p
+
+        if pk.is_host_execution_space(device_pre.execution_space):
+            from scipy import fft as fft_module
+        else:
+            from cupyx.scipy import fft as fft_module
+        data = device_pre.data
+        grids = [
+            a[: device_pre.dim_out].view(data.complex_dtype).squeeze(-1)
+            for a in (data.Hg, data.Hl, data.H0)
+        ]
+        data.H[: device_pre.dim_out] = ifft_1p(
+            *grids, data.local_indices, data.H.shape[1:], fft_module
+        ).real
+    elif device_pre.data.opt.distributed:
         if fftmp_buffers is None:
             raise ValueError(
                 "fftmp_buffers must be passed into fft for distributed execution."
