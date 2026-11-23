@@ -36,22 +36,22 @@ import numpy as np
 import warnings
 
 from ._utils import get_fftn, get_ifftn
-from ._execution import ParticleStage, Launch
+from ._execution import ParticleStage, Launch, p2p_vector_width
 from parkipy.utils import get_execution_space, get_array_module
 from parkipy import CellList
 
 # import P2P kernels
 from ._pk_kernels._p2p_workunits import (
+    p2p_morton_fp32,
+    p2p_morton_fp64,
     p2p_stokes_sl_gm1d_fp32,
     p2p_stokes_sl_gm1d_fp64,
     p2p_stokes_comb_gm1d_fp32,
     p2p_stokes_comb_gm1d_fp64,
     p2p_stokes_comb_gm2d_fp32,
     p2p_stokes_comb_gm2d_fp64,
-    p2p_stokes_comb_sm1d_fp32,
-    p2p_stokes_comb_sm1d_fp64,
-    p2p_stokes_comb_sm2d_fp32,
-    p2p_stokes_comb_sm2d_fp64,
+    p2p_stokes_comb_sm_fp32,
+    p2p_stokes_comb_sm_fp64,
     p2p_laplace_gm1d_fp32,
     p2p_laplace_gm1d_fp64,
 )
@@ -74,6 +74,11 @@ def p2p(
     kernel=None,  # for testing purposes only
     eps=1e-14,
     _prepare_only=False,
+    _morton_order=None,
+    _morton_pack_sources=None,
+    _morton_register_targets=None,
+    _morton_warp_scan=False,
+    _morton_distance_product=True,
 ) -> None:
     """
     Perform near-field particle-to-particle (P2P) interaction computation using a
@@ -91,15 +96,17 @@ def p2p(
     method : str
         String of the form "<mem>-<blk>", where `<mem>` is either "SM" (shared memory)
         or "GM" (global memory), and `<blk>` is "1D" or "2D" for the thread block shape.
-        Defaults to `'GM-1D'`.
+        Defaults to `'GM-1D'`. Use `'MORT'` for Morton target tiles and source culling.
     threads : int, default=32
         Number of threads per team (CUDA block or OpenMP group).
     t_per_thread : int, default=1
         Number of target particles processed per thread.
     s_per_thread : int, default=32
         Number of source particles processed per thread (1D kernels).
+        For MORT, this sets the number of sources per tile.
     threads_y : int, default=2
-        Thread count per dimension for 2D kernels (i.e., total threads = threads_y²).
+        Source vector width for 2D GPU kernels, rounded down to a power of two
+        and capped at 32. Host kernels use one source lane.
     cell_pad : int, default=1
         Padding applied to neighboring cells for interaction range.
 
@@ -166,9 +173,13 @@ def p2p(
             )
 
     # get method information
-    vector_size, method_flag = (None, None)
+    method = method.strip().upper()
+    use_morton_kernel = method == "MORT"
+    if _morton_order is None:
+        _morton_order = use_morton_kernel
+    vector_size = 1
     try:
-        mem, blk = method.strip().upper().split("-")
+        mem, blk = ("GM", "1D") if use_morton_kernel else method.split("-")
     except ValueError:
         raise ValueError(
             "method expected to be in the for `<mem>-<blk>`,"
@@ -177,21 +188,19 @@ def p2p(
             f" got {method}."
         )
     if mem == "GM":
-        method_flag = 0
         if blk == "1D":
             vector_size = 1
         elif blk == "2D":
-            vector_size = threads_y  # TODO change based off execution space
+            vector_size = threads_y
         else:
             raise ValueError(
                 "P2P block dimensions must be '1D' or '2D'," f" got {blk}."
             )
     elif mem == "SM":
-        method_flag = 2
         if blk == "1D":
             vector_size = 1
         elif blk == "2D":
-            vector_size = threads_y  # TODO change based off execution space
+            vector_size = threads_y
         else:
             raise ValueError(
                 "P2P block dimensions must be '1D' or '2D'," f" got {blk}."
@@ -200,6 +209,14 @@ def p2p(
         raise ValueError("P2P memory model must be 'GM' or 'SM'," f" got {mem}.")
 
     # set up workunit selector
+    if blk == "2D":
+        vector_size = p2p_vector_width(vector_size, device_pre.execution_space)
+
+    shared_workunit = (
+        p2p_stokes_comb_sm_fp64
+        if device_pre.data.dtype == np.float64
+        else p2p_stokes_comb_sm_fp32
+    )
     workunit = {
         "STOKES_COMB": {
             "GM-1D": (
@@ -212,16 +229,8 @@ def p2p(
                 if device_pre.data.dtype == np.float64
                 else p2p_stokes_comb_gm2d_fp32
             ),
-            "SM-1D": (
-                p2p_stokes_comb_sm1d_fp64
-                if device_pre.data.dtype == np.float64
-                else p2p_stokes_comb_sm1d_fp32
-            ),
-            "SM-2D": (
-                p2p_stokes_comb_sm2d_fp64
-                if device_pre.data.dtype == np.float64
-                else p2p_stokes_comb_sm2d_fp32
-            ),
+            "SM-1D": shared_workunit,
+            "SM-2D": shared_workunit,
         },
         "STOKES_SL": {
             "GM-1D": (
@@ -258,6 +267,7 @@ def p2p(
         device_pre.data.opt.ghost_box,
         execution_space=device_pre.execution_space,
         build_nonempty_neighbors=False,
+        morton_order=_morton_order,
     )
     # call kokkos executable
     kernel_start = sort_end = time.time()
@@ -265,13 +275,27 @@ def p2p(
     # set up kernel call
     target_threads = math.ceil(threads_x / vector_size)
     target_chunk_size = target_threads * t_per_thread
+    if use_morton_kernel:
+        if s_per_thread <= 0:
+            raise ValueError("MORT source tile size must be positive")
+        target_chunk_size = 32
+        target_threads = min(target_threads, target_chunk_size)
     target_cell_chunks = math.ceil(target_list.cell_size / target_chunk_size)
     teams = target_list.num_nonempty_cells * target_cell_chunks
-    policy = pk.TeamPolicy(
-        device_pre.execution_space,
-        teams,
-        target_threads,
+    full_cuda_tile = (
+        use_morton_kernel
+        and device_pre.execution_space == pk.ExecutionSpace.Cuda
+        and target_threads == target_chunk_size
     )
+    warp_scan = full_cuda_tile and _morton_warp_scan
+    if warp_scan:
+        policy = pk.TeamPolicy(device_pre.execution_space, teams, 1, 32)
+    elif blk == "2D":
+        policy = pk.TeamPolicy(
+            device_pre.execution_space, teams, target_threads, vector_size
+        )
+    else:
+        policy = pk.TeamPolicy(device_pre.execution_space, teams, target_threads)
     kwargs = {
         "t_cell_chunk_size": target_chunk_size,
         "t_list2global": target_list.particle_index,
@@ -307,44 +331,64 @@ def p2p(
     else:
         kwargs["forces_list"] = source_list.force_list
 
+    if use_morton_kernel:
+        if _morton_pack_sources is None:
+            _morton_pack_sources = full_cuda_tile and s_per_thread == 32
+        if _morton_register_targets is None:
+            _morton_register_targets = full_cuda_tile
+        kernel_kind = {"LAPLACE": 0, "STOKES_SL": 1, "STOKES_COMB": 2}[kernel.upper()]
+        workunit_fn = (
+            p2p_morton_fp64 if device_pre.data.dtype == np.float64 else p2p_morton_fp32
+        )
+        launch_name = "MORT"
+        kwargs.pop("nnz_t_cells")
+        kwargs.update(
+            s_cell_chunk_size=s_per_thread,
+            t_cell_chunks=target_cell_chunks,
+            t_counter=target_list.counter,
+            kernel_kind=kernel_kind,
+            source_width=(4, 6, 12)[kernel_kind] if _morton_pack_sources else 0,
+            register_targets=(
+                _morton_register_targets and target_threads == target_chunk_size
+            ),
+            warp_scan=warp_scan,
+            distance_product=_morton_distance_product,
+        )
+        # The scalar and single-layer variants never access this argument.
+        kwargs.setdefault("normals_list", kwargs["forces_list"])
+    else:
+        workunit_fn = workunit[kernel.upper()][method]
+        launch_name = f"P2P-{kernel.upper()}-{method}"
+
     if method.upper() in ["GM-2D", "SM-1D", "SM-2D"]:
         kwargs["t_cell_chunks"] = math.ceil(
             target_list.cell_size / kwargs["t_cell_chunk_size"]
         )
         kwargs["t_counter"] = target_list.counter
-    if method.upper() in ["GM-2D", "SM-2D"]:
+    if method in ["GM-2D", "SM-1D", "SM-2D"]:
         kwargs["vector_size"] = vector_size
     if method.upper() in ["SM-1D", "SM-2D"]:
         kwargs["s_cell_chunk_size"] = vector_size * s_per_thread
-        kwargs["s_cell_chunks"] = math.ceil(
-            source_list.cell_size / kwargs["s_cell_chunk_size"]
-        )
+        kwargs["register_targets"] = target_chunk_size == target_threads
     if method.upper() == "GM-2D":
         kwargs["s_cell_threads"] = math.ceil(source_list.cell_size / vector_size)
-    if method.upper() == "SM-2D":
-        kwargs["s_cell_chunk_threads"] = math.ceil(
-            kwargs["s_cell_chunk_size"] / vector_size
-        )
-        kwargs["t_cell_chunk_threads"] = math.ceil(
-            kwargs["t_cell_chunk_size"] / vector_size
-        )
 
     if _prepare_only:
         RangePop()
         return ParticleStage(
             Launch(
                 policy,
-                workunit[kernel.upper()][method.upper()],
+                workunit_fn,
                 kwargs,
-                name=f"P2P-{kernel.upper()}-{method.upper()}",
+                name=launch_name,
             ),
             source_list=source_list,
         )
 
     pk.parallel_for(
-        f"P2P-{kernel.upper()}-{method.upper()}",
+        launch_name,
         policy,
-        workunit[kernel.upper()][method.upper()],
+        workunit_fn,
         **kwargs,
     )
     RangePop()

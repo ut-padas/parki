@@ -151,7 +151,7 @@ class EwaldKernel:
               Defaults to `pk.get_default_space()`
             - `cell_size`: Real space cell size. Defaults to `None`.
             - `p2p_method`: Must be one of `'GM-1D'`, `'GM-2D'`, `'SM-1D'`,
-              or `'SM-2D'`. Defaults to `'GM-1D'`.
+              `'SM-2D'`, or `'MORT'`. Defaults to `'GM-1D'`.
             - `p2g_method`: Must be one of `'BASE'`, `'SOURCE'`, `'GRID'`, `'HYBRID'`.
               Defaults to `'HYBRID'`.
             - `g2p_method`: Must be one of `'BASE'`, `'TARGET'`. Defaults to `'TARGET'`.

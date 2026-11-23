@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Literal, List, Union
 
 from parkipy.utils import get_array_module, get_execution_space
+from ._execution import p2p_vector_width
 from ._ewald import p2p, p2g, fft, cnv, ifft, g2p
 from ._prepare import DevicePre
 from ._params import SEParams
@@ -232,6 +233,15 @@ class EwaldKernel:
             )
         out = [val]
         if options.return_walltime:
+            cell_size = options.cell_size
+            if cell_size is None:
+                cell_size = (
+                    N_in
+                    / np.floor(
+                        np.asarray(device_pre.data.opt.ghost_box)
+                        / device_pre.data.opt.rc
+                    ).prod()
+                )
             perf = PerfModel(
                 p2p_time=walltime["p2p"],
                 p2g_time=walltime["p2g"],
@@ -248,10 +258,14 @@ class EwaldKernel:
                 fft_dim=device_pre.data.dim_H,
                 ifft_dim=device_pre.dim_out,
                 fft_shape=device_pre.data.Hg.size / device_pre.data.dim_H,
-                cell_size=options.cell_size,
+                cell_size=cell_size,
                 window_P=device_pre.data.opt.window_P,
                 dtype=q_in.dtype,
                 execution_space=execution_space,
+                p2p_method=options.p2p_method,
+                p2p_vector_size=p2p_vector_width(
+                    options.p2p_threads_y, device_pre.execution_space
+                ),
             )
             out.append(perf)
         if options.return_params:
@@ -310,11 +324,11 @@ class EwaldOptions:
     execution_space: `pykokkos.ExecutionSpace` | {'CUDA', 'HIP', 'OPENMP'}
         Device for the Kokkos backend. May be pykokkos execution space type or a string.
 
-    p2p_method: {'GM-1D', 'GM-2D', 'SM-1D', 'SM-2D'} , optional
+    p2p_method: {'GM-1D', 'GM-2D', 'SM-1D', 'SM-2D', 'MORT'}, optional
         The algorithmic method for `p2p`,
-        one of ``'GM-1D'``, ``'GM-2D'``, ``'SM-1D'``, or ``'SM-2D'``.
-        All methods read both sources and targets in :class:`parkipy.CellList`
-        ordering.
+        one of ``'GM-1D'``, ``'GM-2D'``, ``'SM-1D'``, ``'SM-2D'``, or ``'MORT'``.
+        ``'MORT'`` sorts targets within each cell and culls sources against
+        each 32-target tile. It uses at most 32 threads per team.
         ``'GM'``/``'SM'`` determines if the sources are read from
         global-memory/shared-memory, while ``'1D'``/``'2D'`` determines
         whether parallelisation is soley over the targets (1D)
@@ -349,8 +363,8 @@ class EwaldOptions:
         The default is ``128`` for device backends and ``1`` for host backends.
 
     p2p_threads_y: int, optional
-        Number of threads per block used to parallelize over the sources in the
-        2D variants of the p2p algorithm.
+        Source vector width in the 2D GPU variants. Rounded down to a power
+        of two and capped at 32. Host execution uses one source lane.
 
     p2g_threads: int, optional
         Number of threads per block used to parallelize the p2g method.
@@ -393,7 +407,7 @@ class EwaldOptions:
     execution_space: Union[pk.ExecutionSpace, Literal["CUDA", "HIP", "OPENMP"]]
 
     # default arguments
-    p2p_method: Literal["GM-1D", "GM-2D", "SM-1D", "SM-2D"] = "GM-1D"
+    p2p_method: Literal["GM-1D", "GM-2D", "SM-1D", "SM-2D", "MORT"] = "GM-1D"
     p2g_method: Literal["BASE", "SOURCE", "GRID", "HYBRID"] = "HYBRID"
     g2p_method: Literal["BASE", "TARGET"] = "TARGET"
     fft_type: Literal["R2C", "C2C"] = "R2C"
@@ -433,7 +447,7 @@ class EwaldOptions:
                     f"the execution space must be one of {valid_execution_spaces}."
                 )
 
-        valid_p2p_methods = ["GM-1D", "GM-2D", "SM-1D", "SM-2D"]
+        valid_p2p_methods = ["GM-1D", "GM-2D", "SM-1D", "SM-2D", "MORT"]
         if self.p2p_method is None:
             self.p2p_method = "GM-1D"
         if self.p2p_method.upper() not in valid_p2p_methods:
@@ -771,7 +785,7 @@ def laplace(trg, src, charge, options):
     ------
     NotImplementedError
         If ``options.periodicity`` is not ``0``, ``1``, ``2`` or ``3``,
-        if ``options.p2p_method`` is not ``'GM-1D'``, or if
+        if ``options.p2p_method`` is neither ``'GM-1D'`` nor ``'MORT'``, or if
         ``options.p2g_method`` is not ``'GRID'`` or ``'HYBRID'``.
 
     Notes
@@ -808,7 +822,7 @@ def laplace(trg, src, charge, options):
             f"laplace only supports periodicities {valid_periodicities}, got {options.periodicity}."
         )
 
-    valid_p2p_methods = ["GM-1D"]
+    valid_p2p_methods = ["GM-1D", "MORT"]
     if options.p2p_method.upper() not in valid_p2p_methods:
         raise NotImplementedError(
             f"laplace only supports p2p methods {valid_p2p_methods}, got {options.p2p_method.upper()}."

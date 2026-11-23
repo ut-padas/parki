@@ -235,3 +235,27 @@ def test_celllist_batched(Nx=773, Ny=312, box=[1, 1, 1], cutoff=0.1, r=3, k=2):
     u_cl = cell_list_batched(x, y, q, cutoff, box)
 
     np.testing.assert_allclose(u_cl, u_ref, rtol=1e-13, atol=1e-26)
+
+
+def test_cell_list_morton_order_and_padding():
+    points = np.array(
+        [[0.1 + 0.3 * ((i >> axis) & 1) for i in range(8)] for axis in range(3)]
+    )
+    points = np.hstack((points[:, ::-1], [[0.7], [0.1], [0.1]]))
+    values = np.arange(points.shape[1], dtype=float)
+    cells = parkipy.CellList(
+        points,
+        0.49,
+        np.ones(3),
+        execution_space="Serial",
+        forces=values,
+        padding_factor=4,
+        morton_order=True,
+    )
+    np.testing.assert_array_equal(
+        cells.particle_index, [7, 6, 5, 4, 3, 2, 1, 0, 8] + [-1] * 7
+    )
+    np.testing.assert_array_equal(
+        cells.force_list[0, :9], values[[7, 6, 5, 4, 3, 2, 1, 0, 8]]
+    )
+

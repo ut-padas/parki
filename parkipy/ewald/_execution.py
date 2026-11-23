@@ -5,6 +5,13 @@ import numpy as np
 import pykokkos as pk
 
 
+def p2p_vector_width(threads_y, execution_space):
+    """Return the physical source-lane width of a 2D P2P launch."""
+    if pk.is_host_execution_space(execution_space):
+        return 1
+    return 1 << (int(min(threads_y, 32)).bit_length() - 1)
+
+
 class Launch:
     """Keep array owners and their zero-copy PyKokkos views alive together."""
 

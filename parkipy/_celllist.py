@@ -45,6 +45,7 @@ class CellList:
         skip_empty_cells=True,
         periodicity=0,
         build_nonempty_neighbors=True,
+        morton_order=False,
     ):
         """
         Creates a new CellList object.
@@ -74,6 +75,7 @@ class CellList:
               0 = no periodicity, 1 = periodic in x only, 2 = periodic in x and y,
               3 = periodic in x, y, and z. Defaults to 0.
             - `build_nonempty_neighbors`: Boolean flag to build nonempty neighbor list
+            - `morton_order`: Pack particles in Morton order within each cell.
 
         Cell lists are of size `self.num_nonempty_cells * self.cell_size`,
         where the *nonempty* cell index ranges the slowest and the particles
@@ -191,21 +193,44 @@ class CellList:
         )
 
         # reshuffle particles
-        self._counter[:] = 0
-        pk.parallel_for(
-            "reshuffle particles into cells",
-            pk.RangePolicy(self.execution_space, 0, n),
-            reshuffle_particles_workunit,
-            p_list=self._particle_list,
-            counter=self._counter,
-            l2g=self._particle_index,
-            p=self.particles,
-            cell2nz=self.nonempty_cell_index,
-            rc=self.cutoff,
-            box=self.box,
-            cell_size=self.cell_size,
-            dp=d,
-        )
+        if morton_order:
+            # SCTL also packs particles by Morton key. Here the existing uniform
+            # cell ID stays the primary key. Only the order within a cell changes.
+            # https://github.com/blackwer/SCTL/blob/19860ea8098190a4e1b016a4a22d46435b775123/include/sctl/tree.txx#L965-L997
+            coords = (cell_x, cell_y, cell_z)
+            code = self.am.zeros(n, dtype=self.am.uint32)
+            for axis, grid_coord in enumerate(coords):
+                local = particles[axis] / cell_shape[axis] - grid_coord
+                quantized = self.am.clip(local * 1024, 0, 1023).astype(self.am.uint32)
+                # Spread ten bits so that two zero bits follow each input bit.
+                quantized = (quantized | (quantized << 16)) & 0x030000FF
+                quantized = (quantized | (quantized << 8)) & 0x0300F00F
+                quantized = (quantized | (quantized << 4)) & 0x030C30C3
+                quantized = (quantized | (quantized << 2)) & 0x09249249
+                code |= quantized << axis
+            key = (cell.astype(self.am.uint64) << 30) | code
+            order = self.am.argsort(key)
+            starts = self._counter.cumsum(dtype=self.am.int64) - self._counter
+            sorted_cells = cell[order]
+            offset = self.am.arange(n) - starts[sorted_cells]
+            slots = self.nonempty_cell_index[sorted_cells] * self.cell_size + offset
+            self._particle_list[:, slots] = self.particles[:, order]
+            self._particle_index[slots] = order
+        else:
+            self._counter[:] = 0
+            pk.parallel_for(
+                "reshuffle particles into cells",
+                pk.RangePolicy(self.execution_space, 0, n),
+                reshuffle_particles_workunit,
+                p_list=self._particle_list,
+                counter=self._counter,
+                l2g=self._particle_index,
+                p=self.particles,
+                cell2nz=self.nonempty_cell_index,
+                cells=cell,
+                cell_size=self.cell_size,
+                dp=d,
+            )
         mask = self.particle_index >= 0
         if (
             not pk.is_host_execution_space(self.execution_space)

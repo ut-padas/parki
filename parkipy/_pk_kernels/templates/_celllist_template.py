@@ -96,12 +96,13 @@ def reshuffle_particles_RP(
     l2g: pk.View1D[int],
     p: pk.View2D[pk.double],
     cell2nz: pk.View1D[int],
-    rc: float,
-    box: pk.View1D[pk.double],
+    cells: pk.View1D[int],
     cell_size: int,
     dp: int,
 ):
-    cell: int = _get_cell_fp64(p, i, rc, box[0], box[1], box[2])  # read
+    # Reuse the cell ID used for counting. Recomputing box / cutoff in
+    # kernel precision can round to a different grid shape.
+    cell: int = cells[i]
     cell_off: int = pk.atomic_fetch_add(counter, [cell], 1)  # write
     nz: int = cell2nz[cell]  # read
     l_idx: int = nz * cell_size + cell_off
