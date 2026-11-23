@@ -96,6 +96,8 @@ def get_execution_space(
                     execution_space = pk.kokkos_manager.get_gpu_framework()
                 case "CUDA":
                     execution_space = pk.ExecutionSpace.Cuda
+                case "HIP":
+                    execution_space = pk.ExecutionSpace.HIP
                 case "HOST" | "CPU":
                     execution_space = pk.Serial
                     for s in pk.kokkos_manager.get_available_execution_spaces():

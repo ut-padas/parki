@@ -1,7 +1,37 @@
 import pprint
 import warnings
+import platform
 import numpy as np
 from pykokkos.interface import is_host_execution_space
+
+DEVICE_CONSTANTS = {
+    "a100": {
+        "bandwidth": 1555,
+        "gflops": 9.7e3,
+        "bandwidth shmem": 20e3,
+    },
+    "NVIDIA GH200 120GB": {
+        "bandwidth": 4000,
+        "gflops": 33.5e3,
+        "bandwidth shmem": np.inf,
+    },
+    "mi300a": {
+        "bandwidth": 5300,
+        "gflops": 61.3e3,
+        "bandwidth shmem": np.inf,
+    },
+    "grace": {
+        "bandwidth": 1000 / 2,
+        "gflops": 7.1e3 / 2,
+        "bandwidth shmem": np.inf,
+    },
+    "epyc": {
+        "bandwidth": 204.8 * 2,
+        "gflops": 5e3,
+        "bandwidth shmem": np.inf,
+    },
+}
+
 
 OPERATION_CONSTANTS = {
     None: {
@@ -25,6 +55,36 @@ OPERATION_CONSTANTS = {
         "ferf": 86,
     },
     "NVIDIA GH200 120GB": {
+        "fadd": 2,
+        "fmul": 2,
+        "fsqrt": 41,
+        "frsqrt": 30,
+        "fdiv": 35,
+        "fexpn": 50,
+        "fsinh": 361,
+        "ferf": 155,
+    },
+    "mi300a": {
+        "fadd": 2,
+        "fmul": 2,
+        "fsqrt": 41,
+        "frsqrt": 30,
+        "fdiv": 35,
+        "fexpn": 50,
+        "fsinh": 361,
+        "ferf": 155,
+    },
+    "grace": {
+        "fadd": 2,
+        "fmul": 2,
+        "fsqrt": 41,
+        "frsqrt": 30,
+        "fdiv": 35,
+        "fexpn": 50,
+        "fsinh": 361,
+        "ferf": 155,
+    },
+    "epyc": {
         "fadd": 2,
         "fmul": 2,
         "fsqrt": 41,
@@ -115,6 +175,8 @@ class PerfModel:
         cnv_time,
         ifft_time,
         g2p_time,
+        p2p_method,
+        p2g_method,
         kernel,
         N_out,
         N_in,
@@ -129,11 +191,14 @@ class PerfModel:
         dtype,
         execution_space,
     ):
-        device_name = None
+        # get the device name
         if not is_host_execution_space(execution_space):
             import cupy as cp
 
             device_name = cp.cuda.runtime.getDeviceProperties(0)["name"].decode()
+        else:
+            device_name = platform.platform()
+
         if device_name not in OPERATION_CONSTANTS.keys():
             warnings.warn(
                 f"flop constants for device {device_name} not implemented, "
@@ -155,25 +220,30 @@ class PerfModel:
         self._time_cnv = cnv_time
         self._time_ifft = ifft_time
         self._time_g2p = g2p_time
-        self._time_ewald = (
-            self.time_p2p["tot"]
-            + self.time_p2g["tot"]
-            + self.time_fft["tot"]
-            + self.time_cnv["tot"]
-            + self.time_ifft["tot"]
-            + self.time_g2p["tot"]
-        )
-        self._time_cell_list = (
-            self.time_p2p["sort"] + self.time_p2g["sort"] + self.time_g2p["sort"]
-        )
+        self._time_ewald = 0
+        self._time_cell_list = 0
+        for time in [
+            self.time_p2p,
+            self.time_p2g,
+            self.time_fft,
+            self.time_cnv,
+            self.time_ifft,
+            self.time_g2p,
+        ]:
+            if time is not None:
+                self._time_ewald += time["tot"]
+                if "sort" in time.keys():
+                    self._time_cell_list += time["sort"]
 
         # count flop
-        self._flop_p2p = self._count_flop_p2p(kernel, N_out, cell_size, device_name)
-        self._flop_p2g = self._count_flop_p2g(kernel, N_in, window_P, device_name)
+        self._flop_p2p = self.count_p2p_flops(kernel, N_out, cell_size, device_name)
+        self._flop_p2g = self.count_p2g_flops(
+            kernel, p2g_method, N_in, window_P, device_name
+        )
         self._flop_fft = self._count_flop_fft(fft_dim, fft_shape)
         self._flop_cnv = self._count_flop_cnv(kernel, fft_shape, device_name)
         self._flop_ifft = self._count_flop_ifft(ifft_dim, fft_shape)
-        self._flop_g2p = self._count_flop_g2p(ifft_dim, N_out, window_P, device_name)
+        self._flop_g2p = self.count_g2p_flops(ifft_dim, N_out, window_P, device_name)
         self._flop_ewald = (
             self.flop_p2p
             + self.flop_p2g
@@ -187,7 +257,9 @@ class PerfModel:
         N_fft = np.array(fft_shape).prod()
         d_fft = fft_dim
         d_ifft = ifft_dim
-        self._mop_p2p = self._count_mop_p2p(N_out, N_in, d_out, d_in, dtype.itemsize)
+        self._mop_p2p = self.count_p2p_mops(
+            kernel, p2p_method, N_out, cell_size, dtype.itemsize
+        )
         self._mop_p2g = self._count_mop_p2g(N_in, d_in, N_fft, d_fft, dtype.itemsize)
         self._mop_fft = self._count_mop_fft(N_fft, d_fft, 2 * dtype.itemsize)
         self._mop_cnv = self._count_mop_cnv(N_fft, d_fft, 2 * dtype.itemsize)
@@ -484,7 +556,8 @@ class PerfModel:
         """
         return self._mop_ewald
 
-    def _count_flop_p2p(self, kernel, N_out, cell_size, device_name):
+    @staticmethod
+    def count_p2p_flops(kernel, N_out, cell_size, device_name):
         C_stokes_ewald = (
             14 * OPERATION_CONSTANTS[device_name]["fadd"]
             + 1 * OPERATION_CONSTANTS[device_name]["frsqrt"]
@@ -520,9 +593,15 @@ class PerfModel:
                 raise NotImplementedError(
                     f"P2P flop model not implemented for {kernel} kernel"
                 )
-        return 27 * N_out * cell_size * np.pi / 6.0 * C_p2p
+        # cost of checking if the point is in bounds, kernel independent
+        C_dot = (
+            6 * OPERATION_CONSTANTS[device_name]["fadd"]
+            + 3 * OPERATION_CONSTANTS[device_name]["fmul"]
+        )
+        return 27 * N_out * cell_size * (np.pi * (4 / 81) * C_p2p + C_dot)
 
-    def _count_flop_p2g(self, kernel, N_in, window_P, device_name):
+    @staticmethod
+    def count_p2g_flops(kernel, method, N_in, window_P, device_name):
         match kernel:
             case "stokes_sl":
                 C_p2g = (
@@ -543,7 +622,12 @@ class PerfModel:
                 raise NotImplementedError(
                     f"P2G flop model not implemented for {kernel} kernel"
                 )
-        return N_in * window_P**3 * C_p2g
+        if method.upper() == "GRID":
+            nu = min(window_P // 2 + 1, 9)  # polynomial degree
+            f = N_in * (27 * (window_P // 2) ** 3 * (C_p2g) + window_P**3 * 2 * nu)
+        else:
+            f = N_in * window_P**3 * C_p2g
+        return f
 
     def _count_flop_fft(self, fft_dim, fft_shape):
         fft_size = np.array(fft_shape).prod()
@@ -600,7 +684,8 @@ class PerfModel:
         fft_size = np.array(fft_shape).prod()
         return 5 * ifft_dim * fft_size * np.log2(fft_size)
 
-    def _count_flop_g2p(self, ifft_dim, N_out, window_P, device_name):
+    @staticmethod
+    def count_g2p_flops(ifft_dim, N_out, window_P, device_name):
         return (
             N_out
             * window_P**3
@@ -614,8 +699,31 @@ class PerfModel:
             )
         )
 
-    def _count_mop_p2p(self, N_out, N_in, d_out, d_in, real_bytes):
-        return real_bytes * (N_out * d_out + N_in * d_in)
+    @staticmethod
+    def count_p2p_mops(kernel, method, N_out, cell_size, real_bytes):
+        match kernel:
+            case "stokes_comb":
+                d_out = 3
+                d_in = 9
+            case "stokes_sl":
+                d_in = 3
+                d_out = 3
+            case "laplace":
+                d_in = 1
+                d_out = 1
+            case _:
+                raise NotImplementedError(
+                    f"P2P mop count not implemented for kernel {kernel}"
+                )
+        match method.upper():
+            case "GM-1D":
+                # forall x, x + 27*s(y+f(y)+q(y)+n(y)) + u
+                mop = N_out * (3 + 27 * cell_size * (3 + d_in) + d_out) * real_bytes
+            case _:
+                raise NotImplementedError(
+                    f"P2P mop count not implemented for method {method}"
+                )
+        return mop
 
     def _count_mop_p2g(self, N_in, d_in, N_fft, d_fft, real_bytes):
         return real_bytes * (N_in * d_in + N_fft * d_fft)
@@ -631,3 +739,27 @@ class PerfModel:
 
     def _count_mop_g2p(self, N_ifft, d_ifft, N_out, d_out, real_bytes):
         return real_bytes * (N_out * d_out + N_ifft * d_ifft)
+
+    @staticmethod
+    def device_intensity(device):
+        """
+        The ratio between the peak throughput
+        and the peak bandwidth of a given device
+        """
+        return (
+            DEVICE_CONSTANTS[device]["gflops"] / DEVICE_CONSTANTS[device]["bandwidth"]
+        )
+
+    @staticmethod
+    def device_bandwidth(device):
+        """
+        The device bandwidth in bytes-per-second
+        """
+        return DEVICE_CONSTANTS[device]["bandwidth"] * 1e9
+
+    @staticmethod
+    def device_throughput(device):
+        """
+        The device throughput in flops-per-second
+        """
+        return DEVICE_CONSTANTS[device]["gflops"] * 1e9

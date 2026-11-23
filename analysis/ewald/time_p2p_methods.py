@@ -4,6 +4,9 @@ import argparse
 import numpy as np
 import pykokkos as pk
 import pickle
+import platform
+import re
+import subprocess
 
 import parkipy
 
@@ -21,7 +24,8 @@ def main(args):
         (1e-4, 256),
         (1e-4, 512),
     ]  # tol is irrelevant for p2p, we only care about cell size
-    methods = ["GM-1D", "GM-2D", "SM-1D", "SM-2D"]
+    # methods = ["GM-1D", "GM-2D", "SM-1D", "SM-2D"]
+    methods = ["GM-1D"]
     repeats = 3
     all_times = dict()
     all_params = dict()
@@ -100,9 +104,22 @@ def main(args):
 
                             # store params (replace A_fun with None to make picklable)
                             if nt not in all_params[key][method][cell_size][tol]:
+                                if not pk.is_host_execution_space(execution_space):
+                                    import cupy
+
+                                    numpy_params = {
+                                        k: (
+                                            v.get()
+                                            if isinstance(v, cupy.ndarray)
+                                            else v
+                                        )
+                                        for k, v in params.__dict__.items()
+                                    }
+                                else:
+                                    numpy_params = params.__dict__
                                 all_params[key][method][cell_size][tol][
                                     nt
-                                ] = params.__dict__
+                                ] = numpy_params
                                 all_params[key][method][cell_size][tol][nt][
                                     "A_fun"
                                 ] = None  # turn off A fun to make pickleable
@@ -120,7 +137,40 @@ def save_times_to_disk(nt, repeats, times, params, args):
 
         arch = cp.cuda.Device(0).compute_capability
     else:
-        arch = None
+        machine = platform.machine().lower()
+
+        if machine in ("x86_64", "amd64", "i386", "i686"):
+            try:
+                txt = Path("/proc/cpuinfo").read_text(
+                    encoding="utf-8", errors="replace"
+                )
+            except OSError:
+                raise NotImplementedError
+
+            model = None
+            for line in txt.splitlines():
+                if ":" not in line:
+                    continue
+                k, v = [s.strip() for s in line.split(":", 1)]
+                if k.lower() == "model name" and v:
+                    model = v
+                    break
+
+            if model is None:
+                raise NotImplementedError
+
+            arch = model.replace(" ", "_").replace("-", "_")
+
+        elif machine in ("aarch64", "arm64", "armv7l", "armv8l"):
+            out = subprocess.check_output(["lscpu"], text=True)
+            match = re.search(r"Model name:\s*(.+)", out)
+            if match:
+                arch = match.group(1).strip().replace(" ", "_").replace("-", "_")
+            else:
+                raise NotImplementedError
+
+        else:
+            raise NotImplementedError
 
     fname_base = (
         f"p2p_timing_result_up{args.up}"
@@ -181,6 +231,7 @@ def run(args, time_every_step=False, verbosity=0) -> None:
         p2p_method=args.method,
         p2p_threads_x=args.threads_x,
         p2p_threads_y=args.threads_y,
+        exclude_far_field=True,
     )
     pot, walltime, params = parkipy.ewald.stokes_comb(trg, src, dens, norms, options)
     runtimes = {"p2p": walltime.time_p2p["kernel"]}

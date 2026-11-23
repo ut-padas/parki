@@ -4,10 +4,23 @@ import warnings
 
 import pytest
 import numpy as np
+import pykokkos as pk
 import parkipy
 import pykokkos as pk
 
 from parkipy.ewald._params import se_params_laplace, se_params_stokeslet
+
+GPU_AVAILABLE = pk.kokkos_manager.get_gpu_framework() is not None
+
+DEVICE_PARAMS = [
+    "CPU",
+    pytest.param(
+        "GPU",
+        marks=pytest.mark.skipif(
+            not GPU_AVAILABLE, reason="no GPU framework available"
+        ),
+    ),
+]
 
 GPU_AVAILABLE = pk.kokkos_manager.get_gpu_framework() is not None
 

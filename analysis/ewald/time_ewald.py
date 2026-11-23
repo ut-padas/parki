@@ -14,6 +14,7 @@ import time
 import argparse
 import numpy as np
 import pickle
+import pykokkos as pk
 
 import parkipy
 
@@ -28,7 +29,8 @@ def main(args):
     repeats = 3
     all_times = dict()
     all_memory = dict()
-    if args.device.upper() == "OPENMP":
+    execution_space = parkipy.utils.get_execution_space(args.device)
+    if pk.is_host_execution_space(execution_space):
         threads = [1]
     else:
         threads = [32, 64, 128, 256, 512]

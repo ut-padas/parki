@@ -266,9 +266,11 @@ def get_dicts_for_method(METHOD):
             if method != METHOD:
                 continue
             for cell_size in df_times[method].keys():
+                if cell_size != args.cell_size:
+                    continue
                 for tol in df_times[method][cell_size].keys():
-                    args.tolerance = tol
-                    args.cell_size = cell_size
+                    if args.tolerance != tol:
+                        continue
                     threads_list = list(df_times[method][cell_size][tol].keys())
                     num_threads = len(threads_list)
                     a = np.empty(shape=(num_threads, len(nss)))
@@ -432,9 +434,10 @@ def main(args):
             ax.legend(title="Device", fontsize=14, loc="upper left")
 
     plt.tight_layout()
-    fname = f"p2g_portability_plot_cell{args.cell_size}_method{'_'.join(args.p2g_methods)}.pdf"
+    fname = f"p2g_portability_plot_tol{args.tolerance}_cell{args.cell_size}_method{'_'.join(args.p2g_methods)}.pdf"
     fpath = os.path.join(args.output_dir, fname)
     plt.savefig(fpath, format="pdf", bbox_inches="tight")
+    print(f"Figure saved to {fpath}")
 
 
 def load_times_from_disk(args, timestamp="latest", version=1):
@@ -445,19 +448,21 @@ def load_times_from_disk(args, timestamp="latest", version=1):
     fpath = os.path.join(args.input_dir, fname)
     try:
         with open(fpath, "rb") as f:
-            try:
-                data_dict = pickle.load(f)
-            except Exception as e:
-                raise RuntimeError(
-                    "This file contains GPU arrays and requires a compatible CUDA installation to read. "
-                    "Please ensure your CUDA driver is up to date and supports the required CUDA runtime version."
-                ) from e
+            data_dict = pickle.load(f)
     except FileNotFoundError as e:
         raise FileNotFoundError(
             str(e)
             + f"\n please run 'analysis/ewald/time_p2g_methods.py' "
             + f"on a {args.device} arch {args.arch} device "
             + "with proper flags to generate the file"
+        )
+    except ModuleNotFoundError as e:
+        raise ModuleNotFoundError(
+            str(e)
+            + "\nAn old pickle was saved storing cupy data, "
+            + f"\n please run 'analysis/ewald/time_p2g_methods.py' "
+            + f"on a {args.device} arch {args.arch} device "
+            + "to generate an updated numpy-only pickle"
         )
     return data_dict
 
@@ -504,13 +509,13 @@ if __name__ == "__main__":
         help="p2g method",
     )
     parser.add_argument(
-        "--cell_size", dest="cell_size", type=str, default=256, help="p2g cell size"
+        "--cell_size", dest="cell_size", type=str, default=224, help="p2g cell size"
     )
     parser.add_argument(
-        "--tol", dest="tol", type=str, default=1e-4, help="ewald tolerance"
+        "--tolerance", dest="tolerance", type=str, default=1e-4, help="ewald tolerance"
     )
     parser.add_argument(
-        "--ylim", dest="ylim", default=[30e6, 1.9e6], help="matplotlib ylim for graph"
+        "--ylim", dest="ylim", default=[130e6, 3.5e6], help="matplotlib ylim for graph"
     )
 
     args = parser.parse_args()
