@@ -17,3 +17,9 @@ If the model cannot be verified, use `Co-authored-by: Codex <codex@openai.com>`.
 Prefer extending existing tests with parameters and adding coverage to existing
 test files before creating a new test or test file. When a new test is needed,
 make it parameterized where practical so future cases can extend it.
+
+# Formatting
+
+Before committing Python changes, run Black using the version pinned in
+`.github/workflows/formatting.yml`, then run `black --diff --check .` from the
+repository root to match the formatting CI.

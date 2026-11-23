@@ -58,19 +58,35 @@ def _p2p_operation_counts(kernel):
     try:
         name = workunits[kernel]
     except KeyError:
-        raise NotImplementedError(f"P2P flop model not implemented for {kernel} kernel") from None
+        raise NotImplementedError(
+            f"P2P flop model not implemented for {kernel} kernel"
+        ) from None
     path = Path(__file__).parent / "_pk_kernels" / "_p2p_workunits.py"
     module = ast.parse(path.read_text(), filename=str(path))
-    functions = {node.name: node for node in module.body if isinstance(node, ast.FunctionDef)}
-    loops = [node for node in ast.walk(functions[name])
-             if isinstance(node, ast.For) and isinstance(node.target, ast.Name)
-             and node.target.id == "s"]
+    functions = {
+        node.name: node for node in module.body if isinstance(node, ast.FunctionDef)
+    }
+    loops = [
+        node
+        for node in ast.walk(functions[name])
+        if isinstance(node, ast.For)
+        and isinstance(node.target, ast.Name)
+        and node.target.id == "s"
+    ]
     if len(loops) != 1:
-        raise ValueError(f"Expected one source-particle loop in {name}; found {len(loops)}")
+        raise ValueError(
+            f"Expected one source-particle loop in {name}; found {len(loops)}"
+        )
     counts = Counter()
     operators = {ast.Add: "fadd", ast.Sub: "fadd", ast.Mult: "fmul", ast.Div: "fdiv"}
-    math_functions = {"rsqrt": "frsqrt", "sqrt": "fsqrt", "exp": "fexpn",
-                      "erf": "ferf", "erfc": "ferf", "sinh": "fsinh"}
+    math_functions = {
+        "rsqrt": "frsqrt",
+        "sqrt": "fsqrt",
+        "exp": "fexpn",
+        "erf": "ferf",
+        "erfc": "ferf",
+        "sinh": "fsinh",
+    }
 
     class CounterVisitor(ast.NodeVisitor):
         def visit_BinOp(self, node):
@@ -108,7 +124,9 @@ def _p2p_operation_counts(kernel):
             elif isinstance(node.func, ast.Attribute):
                 operation = math_functions.get(node.func.attr)
                 if operation is None:
-                    raise ValueError(f"Unsupported pair-loop call: {ast.unparse(node.func)}")
+                    raise ValueError(
+                        f"Unsupported pair-loop call: {ast.unparse(node.func)}"
+                    )
                 counts[operation] += 1
             else:
                 raise ValueError(f"Unsupported pair-loop call: {ast.dump(node.func)}")
@@ -117,7 +135,6 @@ def _p2p_operation_counts(kernel):
     for statement in loops[0].body:
         visitor.visit(statement)
     return tuple(sorted(counts.items()))
-
 
 
 class PerfModel:
