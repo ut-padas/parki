@@ -10,7 +10,9 @@ def fft_1p(values, local_indices, global_shape, local_shape, zero_shape, fft):
     """Transform a physical grid into global, local, and zero-mode grids."""
     periodic = fft.fft(values, axis=1)
     global_grid = fft.fftn(periodic, s=global_shape, axes=(2, 3))
-    local_grid = fft.fftn(periodic[:, local_indices], s=local_shape, axes=(2, 3))
+    local_grid = None
+    if len(local_indices):
+        local_grid = fft.fftn(periodic[:, local_indices], s=local_shape, axes=(2, 3))
     zero_grid = fft.fftn(periodic[:, :1], s=zero_shape, axes=(2, 3))
     return global_grid, local_grid, zero_grid
 

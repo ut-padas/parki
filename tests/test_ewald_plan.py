@@ -66,18 +66,20 @@ def test_adaptive_against_global(device, combined, dtype):
         )
 
 
+@pytest.mark.parametrize("device", DEVICES)
 @pytest.mark.parametrize("combined", [False, True])
-def test_adaptive_local_modes_against_global(combined):
+def test_adaptive_local_modes_against_global(combined, device):
     rng = np.random.default_rng(41)
-    src = rng.uniform(0.1, 0.9, (3, 100))
-    trg = rng.uniform(0.1, 0.9, (3, 40))
-    density = rng.normal(size=(6 if combined else 3, 100))
-    normals = rng.normal(size=(3, 100))
+    am = get_array_module(device)
+    src = am.asarray(rng.uniform(0.1, 0.9, (3, 100)))
+    trg = am.asarray(rng.uniform(0.1, 0.9, (3, 40)))
+    density = am.asarray(rng.normal(size=(6 if combined else 3, 100)))
+    normals = am.asarray(rng.normal(size=(3, 100)))
     common = dict(
         box=[1.0] * 3,
         periodicity=1,
         tolerance=1e-5,
-        execution_space="Serial",
+        execution_space=device,
         cell_size=4,
         fft_type="C2C",
     )
@@ -91,8 +93,8 @@ def test_adaptive_local_modes_against_global(combined):
         expected = ewald.stokes_sl(trg, src, density, global_options)
     assert len(plan._pre.data.local_indices) > 0
     actual = plan(density)
-    relative_error = np.linalg.norm(actual - expected) / np.linalg.norm(expected)
-    assert relative_error < 1e-5
+    relative_error = am.linalg.norm(actual - expected) / am.linalg.norm(expected)
+    assert float(relative_error) < 1e-5
 
 
 @pytest.mark.parametrize(

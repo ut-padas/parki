@@ -755,7 +755,8 @@ def fft(device_pre, options, fftmp_buffers=None):
             fft_module,
         )
         for output, values in zip((data.Hg, data.Hl, data.H0), grids):
-            output[...] = values.view(data.dtype).reshape(output.shape)
+            if values is not None:
+                output[...] = values.view(data.dtype).reshape(output.shape)
     elif device_pre.data.opt.distributed:
         if fftmp_buffers is None:
             raise ValueError(

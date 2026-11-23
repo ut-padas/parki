@@ -26,11 +26,22 @@ DEVICE_PARAMS = [
 def test_adaptive_fft_1p_roundtrip(nx, local_indices):
     from parkipy.ewald._adaptive_fft import fft_1p, ifft_1p
 
+    class FFTWithoutEmptyInputs:
+        fft = staticmethod(np.fft.fft)
+        ifft = staticmethod(np.fft.ifft)
+        ifftn = staticmethod(np.fft.ifftn)
+
+        @staticmethod
+        def fftn(values, **kwargs):
+            assert all(size > 0 for size in values.shape)
+            return np.fft.fftn(values, **kwargs)
+
     rng = np.random.default_rng(14)
     values = rng.standard_normal((3, nx, 5, 6))
     indices = np.asarray(local_indices, dtype=np.intp)
-    grids = fft_1p(values, indices, (5, 6), (8, 10), (10, 12), np.fft)
-    actual = ifft_1p(*grids, indices, values.shape[1:], np.fft)
+    grids = fft_1p(values, indices, (5, 6), (8, 10), (10, 12), FFTWithoutEmptyInputs)
+    assert (grids[1] is None) == (len(indices) == 0)
+    actual = ifft_1p(*grids, indices, values.shape[1:], FFTWithoutEmptyInputs)
     np.testing.assert_allclose(actual, values, atol=1e-12)
 
 

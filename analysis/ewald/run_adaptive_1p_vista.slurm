@@ -10,5 +10,5 @@ source "$WORK/setup_sphcaps.sh"
 cd "$SLURM_SUBMIT_DIR"
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 printf 'Commit: %s\n' "$(git rev-parse HEAD)"
-python -m pytest -q tests/test_ewald_plan.py -k 'adaptive_against_global and GPU'
+python -m pytest -q tests/test_ewald_plan.py -k 'GPU and (adaptive_against_global or adaptive_local_modes_against_global)'
 python -u analysis/ewald/time_adaptive_1p.py --sizes 10000 30000 100000 300000 --repeats 3 --tolerance 0.0001
