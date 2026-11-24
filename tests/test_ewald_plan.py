@@ -130,10 +130,29 @@ def test_owned_geometry_and_options():
     am.testing.assert_allclose(plan(q), expected, rtol=1e-11, atol=1e-11)
 
 
-def test_no_repeated_preparation_or_view_wrapping(monkeypatch):
-    _, trg, src, normals, q, options = make_problem()
+@pytest.mark.parametrize(
+    "periodicity,adaptive_upsampling,ns,tolerance",
+    [
+        pytest.param(1, False, 15, 1e-3, id="1P-global"),
+        pytest.param(1, None, 15, 1e-3, id="1P-default"),
+        pytest.param(1, True, 100, 1e-5, id="1P-local-modes"),
+        pytest.param(2, True, 100, 1e-5, id="2P-local-modes"),
+    ],
+)
+def test_no_repeated_preparation_or_view_wrapping(
+    monkeypatch, periodicity, adaptive_upsampling, ns, tolerance
+):
+    _, trg, src, normals, q, options = make_problem(
+        periodicity=periodicity,
+        adaptive_upsampling=adaptive_upsampling,
+        ns=ns,
+        tolerance=tolerance,
+    )
     plan = ewald.prepare_stokes_comb(trg, src, normals, options)
-    plan(q)  # Warm up runtime dispatch before checking the repeated-call path.
+    if adaptive_upsampling:
+        assert plan._pre.data.local_modes.size > 0
+    # Warm up runtime dispatch before checking the repeated-call path.
+    expected = plan(q)
     import parkipy.ewald._ewald as stages
     from parkipy.ewald._prepare import DevicePre
 
@@ -143,7 +162,7 @@ def test_no_repeated_preparation_or_view_wrapping(monkeypatch):
     monkeypatch.setattr(stages, "CellList", fail)
     monkeypatch.setattr(DevicePre, "from_particles", fail)
     monkeypatch.setattr(pk.View, "__init__", fail)
-    plan(q)
+    np.testing.assert_array_equal(plan(q), expected)
 
 
 def test_validation_and_aliasing():

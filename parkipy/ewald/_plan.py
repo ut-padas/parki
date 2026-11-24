@@ -13,8 +13,9 @@ from ._ewald import (
     ifft,
     g2p,
     adjust_potential,
-    _cnv_global,
+    _cnv_adaptive,
     _cnv_GLB,
+    _cnv_modes,
 )
 
 
@@ -107,18 +108,18 @@ class EwaldPlan:
                 if isinstance(values, tuple):
                     values = values[0]
                 self._density_lists.append((values, locations, indices))
-        if pre.fs_code != "adaptive":
-            pre._cnv_launches = _cnv_global(
+        pre._zero_launches = {}
+        if pre.fs_code == "adaptive":
+            pre._cnv_launches = _cnv_adaptive(
                 pre, options.cnv_threads, _prepare_only=True
             )
-        # The 1P zero-plane input is overwritten every call, but its storage and
-        # the views used by the compiled kernels stay fixed.
-        index = (slice(None),) + (0,) * (options.periodicity or 3)
-        if pre.fs_code != "adaptive":
+        else:
+            pre._cnv_launches = _cnv_modes(pre, options.cnv_threads, _prepare_only=True)
+            # Retain the unscaled zero-mode input across the global scaling launch.
+            index = (slice(None),) + (0,) * (options.periodicity or 3)
             pre._zero_source = am.empty_like(pre.data.Hg[index])
-            pre._zero_launches = {}
-        if options.periodicity == 1 and pre.fs_code != "adaptive":
-            _cnv_GLB(pre, options.cnv_threads, _prepare_only=True)
+            if options.periodicity == 1:
+                _cnv_GLB(pre, options.cnv_threads, _prepare_only=True)
         self._p2g_transposed = options.p2g_method.upper() in ("BASE", "GRID")
         self._g2p_transposed = options.g2p_method.upper() == "BASE"
 

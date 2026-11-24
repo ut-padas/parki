@@ -855,22 +855,7 @@ def cnv(device_pre, threads=128):
     if device_pre.fs_code == "global":
         _cnv_GLB(device_pre=device_pre, threads=threads)
     elif device_pre.fs_code == "adaptive":
-        data = device_pre.data
-        threads = _cnv_threads(device_pre, threads)
-        _cnv_global(device_pre, threads)
-        if data.Hl.shape[1]:
-            _cnv_global(
-                device_pre,
-                threads,
-                spectrum=data.Hl,
-                upsampling=data.local_upsampling,
-                locals=data.local_modes,
-            )
-        periodicity = data.opt.periodicity
-        zero = data.H0[(slice(None),) + (0,) * periodicity]
-        _cnv_zero(
-            device_pre, threads, zero, zero, data.zero_upsampling, data.zero_shape
-        )
+        _cnv_adaptive(device_pre, threads)
     else:
         raise NotImplementedError(
             f"Unknown Fourier scaling mode {device_pre.fs_code!r}."
@@ -878,6 +863,25 @@ def cnv(device_pre, threads=128):
     cnv_end = time.time()
     walltime = {"tot": cnv_end - cnv_start}
     return walltime
+
+
+def _cnv_adaptive(device_pre, threads, _prepare_only=False):
+    data = device_pre.data
+    threads = _cnv_threads(device_pre, threads)
+    launches = _cnv_modes(device_pre, threads, _prepare_only)
+    periodicity = data.opt.periodicity
+    if not _prepare_only or periodicity == 1:
+        zero = data.H0[(slice(None),) + (0,) * periodicity]
+        _cnv_zero(
+            device_pre,
+            threads,
+            zero,
+            zero,
+            data.zero_upsampling,
+            data.zero_shape,
+            _prepare_only,
+        )
+    return launches
 
 
 def _cnv_GLB(device_pre, threads, _prepare_only=False):
@@ -903,7 +907,7 @@ def _cnv_GLB(device_pre, threads, _prepare_only=False):
     else:
         zero_source = zero_output.copy()
     if not _prepare_only:
-        _cnv_global(device_pre=device_pre, threads=threads)
+        _cnv_modes(device_pre, threads)
 
     _cnv_zero(
         device_pre,
@@ -1091,6 +1095,29 @@ def _cnv_zero(
         zero_output[:3] = out.view(data.dtype).reshape(3, -1, 2)
 
 
+def _cnv_modes(device_pre, threads, _prepare_only=False):
+    """Apply or prepare scaling for the bulk grid and any local modes."""
+    if not _prepare_only and hasattr(device_pre, "_cnv_launches"):
+        for launch in device_pre._cnv_launches:
+            launch()
+        return
+
+    data = device_pre.data
+    launches = _cnv_global(device_pre, threads, _prepare_only)
+    if device_pre.fs_code == "adaptive" and data.Hl.shape[1]:
+        launches.extend(
+            _cnv_global(
+                device_pre,
+                threads,
+                _prepare_only,
+                spectrum=data.Hl,
+                upsampling=data.local_upsampling,
+                locals=data.local_modes,
+            )
+        )
+    return launches
+
+
 def _cnv_global(
     device_pre,
     threads,
@@ -1122,10 +1149,6 @@ def _cnv_global(
     - Final output for mixed kernels (both SL and DL) is summed into the first three
       channels of `Hg`.
     """
-    if not _prepare_only and hasattr(device_pre, "_cnv_launches"):
-        for launch in device_pre._cnv_launches:
-            launch()
-        return
     launches = []
 
     def dispatch(*args, **kwargs):
