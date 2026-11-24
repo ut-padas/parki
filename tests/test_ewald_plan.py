@@ -41,11 +41,19 @@ def make_problem(
 
 @pytest.mark.parametrize("device", DEVICES)
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
-@pytest.mark.parametrize("periodicity", [0, 1, 2, 3])
-@pytest.mark.parametrize("combined", [False, True])
 @pytest.mark.parametrize(
-    "adaptive_upsampling", [False, None], ids=["global", "default"]
+    "periodicity,adaptive_upsampling",
+    [
+        (0, None),
+        (1, False),
+        (1, None),
+        (2, False),
+        (2, None),
+        (3, None),
+    ],
+    ids=["0P", "1P-global", "1P-default", "2P-global", "2P-default", "3P"],
 )
+@pytest.mark.parametrize("combined", [False, True])
 def test_repeated_densities(device, dtype, periodicity, combined, adaptive_upsampling):
     am, trg, src, normals, density, options = make_problem(
         device, dtype, periodicity, adaptive_upsampling=adaptive_upsampling
@@ -59,6 +67,9 @@ def test_repeated_densities(device, dtype, periodicity, combined, adaptive_upsam
         reference = lambda q: ewald.stokes_sl(trg, src, q, options)
     use_adaptive = adaptive_upsampling is None and periodicity in (1, 2)
     assert plan._pre.fs_code == ("adaptive" if use_adaptive else "global")
+    if use_adaptive:
+        # The FFT backend must accept a solve with no local modes.
+        assert plan._pre.data.local_modes.size == 0
     expected = reference(density)
     tolerance = 2e-5 if dtype == np.float32 else 1e-11
     # Zero between nonzero calls catches stale grid, padded density and output.

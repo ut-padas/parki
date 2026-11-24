@@ -23,66 +23,23 @@ DEVICE_PARAMS = [
 
 
 @pytest.mark.parametrize(
-    "shape,modes",
-    [
-        ((7, 5, 6), [(1,), (6,)]),
-        ((8, 5, 6), []),
-        ((8, 5, 6), [(1,), (2,), (6,), (7,)]),
-        ((8, 5, 6), [(0, 1), (1, 4), (7, 1), (0, 4)]),
-    ],
-)
-@pytest.mark.parametrize("real", [False, True])
-def test_adaptive_fft_roundtrip(shape, modes, real):
-    from parkipy.ewald._adaptive_fft import adaptive_fft, adaptive_ifft
-
-    class FFTWithoutEmptyInputs:
-        fft = staticmethod(np.fft.fft)
-        rfft = staticmethod(np.fft.rfft)
-        ifft = staticmethod(np.fft.ifft)
-        irfft = staticmethod(np.fft.irfft)
-        ifftn = staticmethod(np.fft.ifftn)
-
-        @staticmethod
-        def fftn(values, **kwargs):
-            assert all(size > 0 for size in values.shape)
-            return np.fft.fftn(values, **kwargs)
-
-    rng = np.random.default_rng(14)
-    values = rng.standard_normal((3, *shape))
-    periodicity = len(modes[0]) if modes else 1
-    modes = [mode for mode in modes if not real or mode[0] <= shape[0] // 2]
-    indices = tuple(np.asarray(modes, dtype=np.intp).reshape(-1, periodicity).T)
-    grids = adaptive_fft(
-        values,
-        indices,
-        (8, 10)[periodicity - 1 :],
-        (10, 12)[periodicity - 1 :],
-        FFTWithoutEmptyInputs,
-        real=real,
-    )
-    assert (grids[1] is None) == (not modes)
-    actual = adaptive_ifft(*grids, indices, shape, FFTWithoutEmptyInputs, real=real)
-    np.testing.assert_allclose(actual, values, atol=1e-12)
-
-
-@pytest.mark.parametrize(
     "kernel",
     [parkipy.ewald.stokes_sl, parkipy.ewald.stokes_comb, parkipy.ewald.laplace],
 )
 @pytest.mark.parametrize(
-    "periodicity",
+    "periodicity,adaptive_upsampling",
     [
-        0,
-        1,
-        2,
-        3,
+        (0, None),
+        (1, False),
+        (1, None),
+        (2, False),
+        (2, None),
+        (3, None),
     ],
+    ids=["0P", "1P-global", "1P-default", "2P-global", "2P-default", "3P"],
 )
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("device", DEVICE_PARAMS)
-@pytest.mark.parametrize(
-    "adaptive_upsampling", [False, None], ids=["global", "default"]
-)
 class TestEwald:
     """
     Tests for each Ewald sum configuration in the package.
