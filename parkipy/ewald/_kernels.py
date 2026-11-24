@@ -345,9 +345,10 @@ class EwaldOptions:
         The type of fft to preform. Must be one of ``'R2C'`` or ``'C2C'``. The default is ``'R2C'``.
 
     adaptive_upsampling: bool or None, optional
-        By default, use adaptive upsampling for single-device 1-periodic
-        Stokes sums, except when using PyTorch FFTs. Set False for global
-        upsampling, or True to require adaptive upsampling.
+        By default, use adaptive upsampling for single-device 1- and 2-periodic
+        sums. Set False for global padding. Free space uses one padded grid
+        and 3-periodic sums use an unpadded grid in either mode. PyTorch
+        FFTs use global padding.
 
     torch_fft: bool, optional
         Use PyTroch for the fft and ifft stages. The default is ``False``.
@@ -472,10 +473,8 @@ class EwaldOptions:
                 f"the value specified for fft type must be one on {valid_fft_types}, got {self.fft_type.upper()}."
             )
 
-        if self.adaptive_upsampling and (self.periodicity != 1 or self.torch_fft):
-            raise ValueError(
-                "adaptive upsampling requires 1-periodicity and torch_fft=False"
-            )
+        if self.adaptive_upsampling and self.torch_fft:
+            raise ValueError("adaptive upsampling requires torch_fft=False")
 
         if self.torch_fft:
             try:

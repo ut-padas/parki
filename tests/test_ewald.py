@@ -22,10 +22,18 @@ DEVICE_PARAMS = [
 ]
 
 
-@pytest.mark.parametrize("nx,local_indices", [(7, [1, 6]), (8, []), (8, [1, 2, 6, 7])])
+@pytest.mark.parametrize(
+    "shape,modes",
+    [
+        ((7, 5, 6), [(1,), (6,)]),
+        ((8, 5, 6), []),
+        ((8, 5, 6), [(1,), (2,), (6,), (7,)]),
+        ((8, 5, 6), [(0, 1), (1, 4), (7, 1), (0, 4)]),
+    ],
+)
 @pytest.mark.parametrize("real", [False, True])
-def test_adaptive_fft_1p_roundtrip(nx, local_indices, real):
-    from parkipy.ewald._adaptive_fft import fft_1p, ifft_1p
+def test_adaptive_fft_roundtrip(shape, modes, real):
+    from parkipy.ewald._adaptive_fft import adaptive_fft, adaptive_ifft
 
     class FFTWithoutEmptyInputs:
         fft = staticmethod(np.fft.fft)
@@ -40,17 +48,20 @@ def test_adaptive_fft_1p_roundtrip(nx, local_indices, real):
             return np.fft.fftn(values, **kwargs)
 
     rng = np.random.default_rng(14)
-    values = rng.standard_normal((3, nx, 5, 6))
-    indices = np.asarray(
-        [i for i in local_indices if not real or i <= (nx - 1) // 2], dtype=np.intp
+    values = rng.standard_normal((3, *shape))
+    periodicity = len(modes[0]) if modes else 1
+    modes = [mode for mode in modes if not real or mode[0] <= shape[0] // 2]
+    indices = tuple(np.asarray(modes, dtype=np.intp).reshape(-1, periodicity).T)
+    grids = adaptive_fft(
+        values,
+        indices,
+        (8, 10)[periodicity - 1 :],
+        (10, 12)[periodicity - 1 :],
+        FFTWithoutEmptyInputs,
+        real=real,
     )
-    grids = fft_1p(
-        values, indices, (5, 6), (8, 10), (10, 12), FFTWithoutEmptyInputs, real=real
-    )
-    assert (grids[1] is None) == (len(indices) == 0)
-    actual = ifft_1p(
-        *grids, indices, values.shape[1:], FFTWithoutEmptyInputs, real=real
-    )
+    assert (grids[1] is None) == (not modes)
+    actual = adaptive_ifft(*grids, indices, shape, FFTWithoutEmptyInputs, real=real)
     np.testing.assert_allclose(actual, values, atol=1e-12)
 
 
@@ -59,16 +70,12 @@ def test_adaptive_scaling_failure_propagates(monkeypatch):
     from parkipy.ewald import _ewald
 
     original_grid = object()
-    original_upsampling = object()
-    original_shape = [8, 10, 12]
     data = SimpleNamespace(
         Hg=original_grid,
         Hl=SimpleNamespace(shape=(1, 1)),
         H0=object(),
-        opt=SimpleNamespace(actual_upsampling_global=original_upsampling),
-        fft_shape=original_shape,
         local_upsampling=object(),
-        local_indices=np.array([1]),
+        local_modes=np.array([1]),
     )
 
     def fail_local(pre, threads, **kwargs):
@@ -77,10 +84,13 @@ def test_adaptive_scaling_failure_propagates(monkeypatch):
 
     monkeypatch.setattr(_ewald, "_cnv_global", fail_local)
     with pytest.raises(RuntimeError, match="scaling failed"):
-        _ewald.cnv(SimpleNamespace(fs_code="adaptive", data=data), threads=1)
+        _ewald.cnv(
+            SimpleNamespace(
+                fs_code="adaptive", data=data, execution_space=pk.ExecutionSpace.Serial
+            ),
+            threads=1,
+        )
     assert data.Hg is original_grid
-    assert data.opt.actual_upsampling_global is original_upsampling
-    assert data.fft_shape is original_shape
 
 
 @pytest.mark.parametrize(
@@ -98,6 +108,9 @@ def test_adaptive_scaling_failure_propagates(monkeypatch):
 )
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("device", DEVICE_PARAMS)
+@pytest.mark.parametrize(
+    "adaptive_upsampling", [False, None], ids=["global", "default"]
+)
 class TestEwald:
     """
     Tests for each Ewald sum configuration in the package.
@@ -133,15 +146,25 @@ class TestEwald:
             return rms_err
         return rms_err / rms_ref
 
-    def test_self_convergence(self, kernel, periodicity, dtype, device):
+    def test_self_convergence(
+        self, kernel, periodicity, dtype, device, adaptive_upsampling
+    ):
         """
         run self convergence test on all supported kernels
         for all periodic directions in single and double
         precision arithmetic.
         """
-        run_convergence(fun=kernel, periodicity=periodicity, dtype=dtype, device=device)
+        run_convergence(
+            fun=kernel,
+            periodicity=periodicity,
+            dtype=dtype,
+            device=device,
+            adaptive_upsampling=adaptive_upsampling,
+        )
 
-    def test_periodic_translation(self, kernel, periodicity, dtype, device):
+    def test_periodic_translation(
+        self, kernel, periodicity, dtype, device, adaptive_upsampling
+    ):
         """
         Test the translation-invariance of the kernels.
         First, get a reference solution by placing a shape
@@ -195,6 +218,7 @@ class TestEwald:
             tolerance=1e-6,
             execution_space=device,
             cell_size=64,
+            adaptive_upsampling=adaptive_upsampling,
         )
 
         # execute kernel on centered shape
@@ -296,7 +320,12 @@ def test_rectangular_fourier_resolution(box, periodicity, kernel):
     )
 
     potentials = []
-    for fft_type, rc in [("R2C", 0.6), ("C2C", 0.6), ("R2C", 0.9)]:
+    for fft_type, rc, adaptive in [
+        ("R2C", 0.6, False),
+        ("R2C", 0.6, True),
+        ("C2C", 0.6, True),
+        ("R2C", 0.9, True),
+    ]:
         options = parkipy.ewald.EwaldOptions(
             box=box,
             periodicity=periodicity,
@@ -304,6 +333,7 @@ def test_rectangular_fourier_resolution(box, periodicity, kernel):
             rc=rc,
             execution_space="CPU",
             fft_type=fft_type,
+            adaptive_upsampling=adaptive,
         )
         potentials.append(kernel(targets, sources, density, options))
     for potential in potentials[1:]:
@@ -489,6 +519,7 @@ def run_convergence(
     nutral=False,
     fft_type="R2C",
     torch_fft=False,
+    adaptive_upsampling=None,
 ):
     """
     Test (1) self-convergence and (2) consistency
@@ -522,6 +553,7 @@ def run_convergence(
             torch_fft,
             verbosity=0,
             nutral=nutral,
+            adaptive_upsampling=adaptive_upsampling,
         )
         if len(potential.shape) == 1:
             potential = potential.reshape(1, -1)
@@ -560,6 +592,7 @@ def run_convergence(
                 torch_fft,
                 verbosity=0,
                 nutral=nutral,
+                adaptive_upsampling=adaptive_upsampling,
             )
             if len(potential.shape) == 1:
                 potential = potential.reshape(1, -1)
@@ -630,6 +663,7 @@ def run(
     torch_fft,
     verbosity=0,
     nutral=False,
+    adaptive_upsampling=None,
 ) -> None:
     am = parkipy.utils.get_array_module(device)
     execution_space = parkipy.utils.get_execution_space(device)
@@ -657,6 +691,7 @@ def run(
         fft_type=fft_type,
         execution_space=execution_space,
         torch_fft=torch_fft,
+        adaptive_upsampling=adaptive_upsampling,
     )
     if fun == parkipy.ewald.stokes_comb:
         dens_sl = rng.random(size=(3, ns), dtype=dtype)

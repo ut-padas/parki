@@ -787,10 +787,8 @@ class SEParams:
         )
         upsampling_zero = np.ceil(upsampling_zero * 10) / 10  # round up slightly
         # Compute upsampling factor for the local (near-zero) modes
-        LextOverL = np.min(
-            self.box_ext[self.periodicity :] / self.box[self.periodicity :]
-        )
-        periodic_length = np.max(self.box_dict["box"][: self.periodicity])
+        periodic_lengths = np.asarray(self.box_dict["box"][: self.periodicity])
+        periodic_length = np.max(periodic_lengths)
         A = self.A_fun(self.source_quantity, self.xi, periodic_length)
         local_padding = -np.log(2 * self.tolerance / A) / (2 * np.pi)
         # Resolve the smallest periodic wavenumber in every free direction.
@@ -798,12 +796,12 @@ class SEParams:
             (self.box[self.periodicity :] + periodic_length * local_padding)
             / self.box_ext[self.periodicity :]
         )
-        # TODO/FIXME: This value may NOT work for a noncubic periodic box!
-        local_modes_size = (
-            -1 / (2 * np.pi) * np.log(2 * self.tolerance / A) / (LextOverL - 1) - 1
-        )
-        # TODO/FIXME: This value may NOT work for a noncubic periodic box!
-        local_modes_size = int(np.ceil(np.maximum(local_modes_size, 0)))  # round up
+        # Unpadded image errors decay with the periodic wavenumber and the
+        # shortest free-direction gap between the physical box and an image.
+        gap = np.min(self.box_ext[self.periodicity :] - self.box[self.periodicity :])
+        local_modes_size = np.ceil(
+            np.maximum(periodic_lengths * local_padding / gap - 1, 0)
+        ).astype(int)
         # Take maximum for global upsampling factor
         upsampling = np.maximum(upsampling_zero, upsampling_local)
         # Upsampling factors cannot be below 1

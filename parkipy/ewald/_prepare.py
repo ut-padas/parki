@@ -863,19 +863,18 @@ class DevicePre:
             distributed=distributed,
             **params_kwargs,
         )
-        if adaptive_upsampling is None:
-            adaptive_upsampling = (
-                not distributed
-                and periodicity == 1
-                and kernel.upper() in ("STOKES_SL", "STOKES_COMB")
+        if adaptive_upsampling and distributed:
+            raise ValueError(
+                "adaptive upsampling is not supported for distributed Ewald"
             )
+        # In 0P there is only a zero-mode grid. In 3P there are no free axes.
+        adaptive_upsampling = (
+            adaptive_upsampling is not False
+            and not distributed
+            and not kill_fourier_grid
+            and periodicity in (1, 2)
+        )
         if adaptive_upsampling:
-            if (
-                distributed
-                or periodicity != 1
-                or kernel.upper() not in ("STOKES_SL", "STOKES_COMB")
-            ):
-                raise ValueError("adaptive upsampling supports single-device 1P Stokes")
             params.actual_upsampling = np.ones(3)
         # setup options and parameters
         if kill_fourier_grid:
@@ -910,29 +909,43 @@ class DevicePre:
 
         if adaptive_upsampling:
             am = get_array_module(execution_space)
-            n = min(
-                params.adaptive_local_modes_size,
-                (int(params.grid_shape_ext[0]) - 1) // 2,
-            )
-            mx = int(params.grid_shape_ext[0])
-            indices = np.arange(1, n + 1, dtype=np.int32)
-            if fft_type.upper() == "C2C":
-                indices = np.r_[indices, np.arange(mx - n, mx)].astype(np.int32)
-            data.local_indices = am.array(indices)
-            data.local_shape = tuple(params.adaptive_local_shape)
-            data.zero_shape = tuple(params.adaptive_zero_shape)
-            data.local_upsampling = am.array(
-                [1, *(params.adaptive_local_shape / params.grid_shape_ext[1:])],
+            periodic_shape = params.grid_shape_ext[:periodicity]
+            mode_indices = []
+            for axis, (size, limit) in enumerate(
+                zip(periodic_shape, params.adaptive_local_modes_size)
+            ):
+                mode = np.arange(size)
+                if axis == 0 and fft_type.upper() == "R2C":
+                    mode = mode[: size // 2 + 1]
+                mode_indices.append(mode[np.minimum(mode, size - mode) <= limit])
+
+            local = np.meshgrid(*mode_indices, indexing="ij")
+            nonzero = np.logical_or.reduce(local)
+            local = tuple(indices[nonzero] for indices in local)
+            data.local_indices = tuple(am.asarray(indices) for indices in local)
+            # Pack the original periodic coordinates into a single kernel index.
+            packed = local[0] * params.grid_shape_ext[1]
+            if periodicity == 2:
+                packed += local[1]
+            data.local_modes = am.asarray(packed, dtype=am.int32)
+            data.local_shape = tuple(map(int, params.adaptive_local_shape))
+            data.zero_shape = tuple(map(int, params.adaptive_zero_shape))
+            free_shape = params.grid_shape_ext[periodicity:]
+            data.local_upsampling = am.asarray(
+                [*np.ones(periodicity), *(params.adaptive_local_shape / free_shape)],
                 dtype=am.float64,
             )
-            data.zero_upsampling = am.array(
-                [1, *(params.adaptive_zero_shape / params.grid_shape_ext[1:])],
+            data.zero_upsampling = am.asarray(
+                [*np.ones(periodicity), *(params.adaptive_zero_shape / free_shape)],
                 dtype=am.float64,
             )
             data.Hl = am.empty(
-                (dim_H, len(indices), *data.local_shape, 2), dtype=data.dtype
+                (dim_H, len(packed), *(1,) * (periodicity - 1), *data.local_shape, 2),
+                dtype=data.dtype,
             )
-            data.H0 = am.empty((dim_H, 1, *data.zero_shape, 2), dtype=data.dtype)
+            data.H0 = am.empty(
+                (dim_H, *(1,) * periodicity, *data.zero_shape, 2), dtype=data.dtype
+            )
             device_pre.fs_code = "adaptive"
 
         return device_pre, params

@@ -40,81 +40,16 @@ def make_problem(
 
 
 @pytest.mark.parametrize("device", DEVICES)
-@pytest.mark.parametrize("combined", [False, True])
-@pytest.mark.parametrize("dtype", [np.float32, np.float64])
-@pytest.mark.parametrize("fft_type", ["R2C", "C2C"])
-@pytest.mark.parametrize("ns,tolerance", [(15, 1e-3), (100, 1e-5)])
-def test_adaptive_against_global(device, combined, dtype, fft_type, ns, tolerance):
-    from copy import deepcopy
-
-    am, trg, src, normals, density, global_options = make_problem(
-        device,
-        dtype,
-        ns=ns,
-        tolerance=tolerance,
-        fft_type=fft_type,
-        adaptive_upsampling=False,
-    )
-    adaptive_options = deepcopy(global_options)
-    adaptive_options.adaptive_upsampling = None
-    if combined:
-        global_result = ewald.stokes_comb(trg, src, density, normals, global_options)
-        adaptive_result = ewald.stokes_comb(
-            trg, src, density, normals, adaptive_options
-        )
-        plan = ewald.prepare_stokes_comb(trg, src, normals, adaptive_options)
-    else:
-        density = density[:3]
-        global_result = ewald.stokes_sl(trg, src, density, global_options)
-        adaptive_result = ewald.stokes_sl(trg, src, density, adaptive_options)
-        plan = ewald.prepare_stokes_sl(trg, src, adaptive_options)
-    assert plan._pre.fs_code == "adaptive"
-    if ns == 100:
-        assert len(plan._pre.data.local_indices) > 0
-    error = float(
-        am.linalg.norm(adaptive_result - global_result) / am.linalg.norm(global_result)
-    )
-    assert error < max(5 * tolerance, 2e-5 if dtype == np.float32 else 0)
-    if fft_type == "R2C":
-        complex_options = deepcopy(adaptive_options)
-        complex_options.fft_type = "C2C"
-        if combined:
-            complex_result = ewald.stokes_comb(
-                trg, src, density, normals, complex_options
-            )
-        else:
-            complex_result = ewald.stokes_sl(trg, src, density, complex_options)
-        difference = float(
-            am.linalg.norm(adaptive_result - complex_result)
-            / am.linalg.norm(complex_result)
-        )
-        assert difference < max(5 * tolerance, 2e-5 if dtype == np.float32 else 0)
-    for scale in (1, 0, -1):
-        am.testing.assert_allclose(
-            plan(scale * density), scale * adaptive_result, rtol=1e-5, atol=1e-5
-        )
-
-
-@pytest.mark.parametrize(
-    "periodicity,fft_type,torch_fft",
-    [(0, "C2C", False), (1, "C2C", True)],
-)
-def test_adaptive_unsupported_options(periodicity, fft_type, torch_fft):
-    with pytest.raises(ValueError, match="adaptive upsampling"):
-        make_problem(
-            periodicity=periodicity,
-            fft_type=fft_type,
-            torch_fft=torch_fft,
-            adaptive_upsampling=True,
-        )
-
-
-@pytest.mark.parametrize("device", DEVICES)
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("periodicity", [0, 1, 2, 3])
 @pytest.mark.parametrize("combined", [False, True])
-def test_repeated_densities(device, dtype, periodicity, combined):
-    am, trg, src, normals, density, options = make_problem(device, dtype, periodicity)
+@pytest.mark.parametrize(
+    "adaptive_upsampling", [False, None], ids=["global", "default"]
+)
+def test_repeated_densities(device, dtype, periodicity, combined, adaptive_upsampling):
+    am, trg, src, normals, density, options = make_problem(
+        device, dtype, periodicity, adaptive_upsampling=adaptive_upsampling
+    )
     if combined:
         plan = ewald.prepare_stokes_comb(trg, src, normals, options)
         reference = lambda q: ewald.stokes_comb(trg, src, q, normals, options)
@@ -122,6 +57,8 @@ def test_repeated_densities(device, dtype, periodicity, combined):
         density = density[:3]
         plan = ewald.prepare_stokes_sl(trg, src, options)
         reference = lambda q: ewald.stokes_sl(trg, src, q, options)
+    use_adaptive = adaptive_upsampling is None and periodicity in (1, 2)
+    assert plan._pre.fs_code == ("adaptive" if use_adaptive else "global")
     expected = reference(density)
     tolerance = 2e-5 if dtype == np.float32 else 1e-11
     # Zero between nonzero calls catches stale grid, padded density and output.
