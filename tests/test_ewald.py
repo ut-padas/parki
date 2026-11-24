@@ -54,6 +54,35 @@ def test_adaptive_fft_1p_roundtrip(nx, local_indices, real):
     np.testing.assert_allclose(actual, values, atol=1e-12)
 
 
+def test_adaptive_scaling_failure_propagates(monkeypatch):
+    from types import SimpleNamespace
+    from parkipy.ewald import _ewald
+
+    original_grid = object()
+    original_upsampling = object()
+    original_shape = [8, 10, 12]
+    data = SimpleNamespace(
+        Hg=original_grid,
+        Hl=SimpleNamespace(shape=(1, 1)),
+        H0=object(),
+        opt=SimpleNamespace(actual_upsampling_global=original_upsampling),
+        fft_shape=original_shape,
+        local_upsampling=object(),
+        local_indices=np.array([1]),
+    )
+
+    def fail_local(pre, threads, **kwargs):
+        if kwargs:
+            raise RuntimeError("scaling failed")
+
+    monkeypatch.setattr(_ewald, "_cnv_global", fail_local)
+    with pytest.raises(RuntimeError, match="scaling failed"):
+        _ewald.cnv(SimpleNamespace(fs_code="adaptive", data=data), threads=1)
+    assert data.Hg is original_grid
+    assert data.opt.actual_upsampling_global is original_upsampling
+    assert data.fft_shape is original_shape
+
+
 @pytest.mark.parametrize(
     "kernel",
     [parkipy.ewald.stokes_sl, parkipy.ewald.stokes_comb, parkipy.ewald.laplace],
