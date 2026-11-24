@@ -12,8 +12,7 @@ from importlib.metadata import version as _distribution_version
 project = "ParkiPy"
 copyright = "2025, Gabriel Kosmacher, Joar Bagge, Ziyu Du, George Biros"
 author = "Gabriel Kosmacher, Joar Bagge, Ziyu Du, George Biros"
-# Omit the local Git hash while retaining development and prerelease markers.
-release = _distribution_version("parkipy").split("+", 1)[0]
+release = _distribution_version("parkipy")
 version = release
 
 # -- General configuration ---------------------------------------------------
