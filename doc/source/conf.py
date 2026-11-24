@@ -8,7 +8,6 @@
 
 from importlib.metadata import version as _distribution_version
 
-
 project = "ParkiPy"
 copyright = "2025, Gabriel Kosmacher, Joar Bagge, Ziyu Du, George Biros"
 author = "Gabriel Kosmacher, Joar Bagge, Ziyu Du, George Biros"
