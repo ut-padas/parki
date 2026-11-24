@@ -3,6 +3,7 @@ name: Deploy documentation to GitHub Pages
 on:
   push:
     branches: ["main"]
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
@@ -25,7 +26,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
+          ref: main
           fetch-depth: 0
+
+      - name: Check out latest tagged release
+        shell: bash
+        run: |
+          latest_tag=$(git tag --merged origin/main | { grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V | tail -n 1)
+          if [ -z "$latest_tag" ]; then
+            echo "No tagged release found on main" >&2
+            exit 1
+          fi
+          echo "Building documentation for $latest_tag"
+          git checkout --detach "$latest_tag"
 
       - name: Set up Python
         uses: actions/setup-python@v7
