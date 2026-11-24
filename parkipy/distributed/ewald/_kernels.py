@@ -310,6 +310,13 @@ class DistributedEwaldOptions(EwaldOptions):
 
     scatter: bool = True
 
+    def __post_init__(self):
+        super().__post_init__()
+        if self.adaptive_upsampling:
+            raise ValueError(
+                "adaptive upsampling is not supported for distributed Ewald"
+            )
+
 
 ## Implementations of specific kernels ##
 

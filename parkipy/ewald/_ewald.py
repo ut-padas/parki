@@ -36,6 +36,7 @@ import numpy as np
 import warnings
 
 from ._utils import get_fftn, get_ifftn
+from ._adaptive_fft import fft_1p, ifft_1p
 from ._execution import ParticleStage, Launch
 from parkipy.utils import get_execution_space, get_array_module
 from parkipy import CellList
@@ -739,8 +740,6 @@ def fft(device_pre, options, fftmp_buffers=None):
     """
     fft_start = time.time()
     if device_pre.fs_code == "adaptive":
-        from ._adaptive_fft import fft_1p
-
         if pk.is_host_execution_space(device_pre.execution_space):
             from scipy import fft as fft_module
         else:
@@ -753,6 +752,7 @@ def fft(device_pre, options, fftmp_buffers=None):
             data.local_shape,
             data.zero_shape,
             fft_module,
+            real=data.fft_type.upper() == "R2C",
         )
         for output, values in zip((data.Hg, data.Hl, data.H0), grids):
             if values is not None:
@@ -862,6 +862,7 @@ def cnv(device_pre, threads=128):
             data.opt.actual_upsampling_global,
             data.fft_shape,
         )
+        # Restore the shared workspace metadata even if a scaling launch fails.
         try:
             _cnv_global(device_pre, threads)
             if data.Hl.shape[1]:
@@ -1296,8 +1297,6 @@ def ifft(device_pre, options, fftmp_buffers=None):
     """
     ifft_start = time.time()
     if device_pre.fs_code == "adaptive":
-        from ._adaptive_fft import ifft_1p
-
         if pk.is_host_execution_space(device_pre.execution_space):
             from scipy import fft as fft_module
         else:
@@ -1308,7 +1307,11 @@ def ifft(device_pre, options, fftmp_buffers=None):
             for a in (data.Hg, data.Hl, data.H0)
         ]
         data.H[: device_pre.dim_out] = ifft_1p(
-            *grids, data.local_indices, data.H.shape[1:], fft_module
+            *grids,
+            data.local_indices,
+            data.H.shape[1:],
+            fft_module,
+            real=data.fft_type.upper() == "R2C",
         ).real
     elif device_pre.data.opt.distributed:
         if fftmp_buffers is None:

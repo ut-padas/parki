@@ -330,6 +330,7 @@ class DeviceData:
     mpi_buffer_size: int = None
     box_dict: dict = None
     mpi_buffers: Any = None
+    adaptive_upsampling: bool = False
 
     # Fields initialized in __post_init__
     dtype: Any = field(init=False)
@@ -472,6 +473,8 @@ class DeviceData:
                 round(My * float(self.opt.actual_upsampling_global[-2])),
                 round(Mz * float(self.opt.actual_upsampling_global[-1])),
             ]
+        if self.adaptive_upsampling and self.fft_type.upper() == "R2C":
+            Hg_shape = (self.dim_H, Mx // 2 + 1, My, Mz, 2)
         if not self.H.flags["C_CONTIGUOUS"]:
             raise TypeError("Expected H to be C_CONTIGUOUS!")
 
@@ -860,16 +863,19 @@ class DevicePre:
             distributed=distributed,
             **params_kwargs,
         )
+        if adaptive_upsampling is None:
+            adaptive_upsampling = (
+                not distributed
+                and periodicity == 1
+                and kernel.upper() in ("STOKES_SL", "STOKES_COMB")
+            )
         if adaptive_upsampling:
             if (
                 distributed
                 or periodicity != 1
                 or kernel.upper() not in ("STOKES_SL", "STOKES_COMB")
-                or fft_type.upper() != "C2C"
             ):
-                raise ValueError(
-                    "adaptive upsampling supports single-device 1P Stokes with C2C FFTs"
-                )
+                raise ValueError("adaptive upsampling supports single-device 1P Stokes")
             params.actual_upsampling = np.ones(3)
         # setup options and parameters
         if kill_fourier_grid:
@@ -893,6 +899,7 @@ class DevicePre:
             fft_type=fft_type,
             execution_space=execution_space,
             box_dict=box_dict,
+            adaptive_upsampling=adaptive_upsampling,
         )
         device_pre = cls(
             data=data,
@@ -908,7 +915,9 @@ class DevicePre:
                 (int(params.grid_shape_ext[0]) - 1) // 2,
             )
             mx = int(params.grid_shape_ext[0])
-            indices = np.r_[np.arange(1, n + 1), np.arange(mx - n, mx)].astype(np.int32)
+            indices = np.arange(1, n + 1, dtype=np.int32)
+            if fft_type.upper() == "C2C":
+                indices = np.r_[indices, np.arange(mx - n, mx)].astype(np.int32)
             data.local_indices = am.array(indices)
             data.local_shape = tuple(params.adaptive_local_shape)
             data.zero_shape = tuple(params.adaptive_zero_shape)

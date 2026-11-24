@@ -23,12 +23,15 @@ DEVICE_PARAMS = [
 
 
 @pytest.mark.parametrize("nx,local_indices", [(7, [1, 6]), (8, []), (8, [1, 2, 6, 7])])
-def test_adaptive_fft_1p_roundtrip(nx, local_indices):
+@pytest.mark.parametrize("real", [False, True])
+def test_adaptive_fft_1p_roundtrip(nx, local_indices, real):
     from parkipy.ewald._adaptive_fft import fft_1p, ifft_1p
 
     class FFTWithoutEmptyInputs:
         fft = staticmethod(np.fft.fft)
+        rfft = staticmethod(np.fft.rfft)
         ifft = staticmethod(np.fft.ifft)
+        irfft = staticmethod(np.fft.irfft)
         ifftn = staticmethod(np.fft.ifftn)
 
         @staticmethod
@@ -38,10 +41,16 @@ def test_adaptive_fft_1p_roundtrip(nx, local_indices):
 
     rng = np.random.default_rng(14)
     values = rng.standard_normal((3, nx, 5, 6))
-    indices = np.asarray(local_indices, dtype=np.intp)
-    grids = fft_1p(values, indices, (5, 6), (8, 10), (10, 12), FFTWithoutEmptyInputs)
+    indices = np.asarray(
+        [i for i in local_indices if not real or i <= (nx - 1) // 2], dtype=np.intp
+    )
+    grids = fft_1p(
+        values, indices, (5, 6), (8, 10), (10, 12), FFTWithoutEmptyInputs, real=real
+    )
     assert (grids[1] is None) == (len(indices) == 0)
-    actual = ifft_1p(*grids, indices, values.shape[1:], FFTWithoutEmptyInputs)
+    actual = ifft_1p(
+        *grids, indices, values.shape[1:], FFTWithoutEmptyInputs, real=real
+    )
     np.testing.assert_allclose(actual, values, atol=1e-12)
 
 
