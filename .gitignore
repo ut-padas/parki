@@ -222,3 +222,6 @@ pk_cpp/
 
 # act
 artifacts
+
+# SLURM submission scripts
+*.slurm

@@ -102,14 +102,13 @@ def laplace_convolution_kernel_fp32(
         k: int = wid % grid_size_2 + freq_offset[2]
 
         # compute k-vector
-        k0: pk.float = 0.0
-        if num_locals == 0:
-            k0 = _k_vector_fp32(grid[0], box[0], ups[0], i)
-        else:
-            k0 = _k_vector_fp32(grid[0], box[0], ups[0], locals[i])
-        k1: pk.float = _k_vector_fp32(
-            grid[1], box[1], ups[1], j + k1_off
-        )  # free direction
+        mode_x: int = i
+        mode_y: int = j + k1_off
+        if num_locals != 0:
+            mode_x = locals[i] // grid[1]
+            mode_y += locals[i] % grid[1]
+        k0: pk.float = _k_vector_fp32(grid[0], box[0], ups[0], mode_x)
+        k1: pk.float = _k_vector_fp32(grid[1], box[1], ups[1], mode_y)
         k2: pk.float = _k_vector_fp32(grid[2], box[2], ups[2], k)  # free direction
         kk: pk.float = k0 * k0 + k1 * k1 + k2 * k2
 
@@ -168,14 +167,13 @@ def stokeslet_convolution_kernel_fp32(
         k: int = wid % grid_size_2 + freq_offset[2]
 
         # compute k-vector
-        k0: pk.float = 0.0
-        if num_locals == 0:
-            k0 = _k_vector_fp32(grid[0], box[0], ups[0], i)
-        else:
-            k0 = _k_vector_fp32(grid[0], box[0], ups[0], locals[i])
-        k1: pk.float = _k_vector_fp32(
-            grid[1], box[1], ups[1], j + k1_off
-        )  # free direction
+        mode_x: int = i
+        mode_y: int = j + k1_off
+        if num_locals != 0:
+            mode_x = locals[i] // grid[1]
+            mode_y += locals[i] % grid[1]
+        k0: pk.float = _k_vector_fp32(grid[0], box[0], ups[0], mode_x)
+        k1: pk.float = _k_vector_fp32(grid[1], box[1], ups[1], mode_y)
         k2: pk.float = _k_vector_fp32(grid[2], box[2], ups[2], k)  # free direction
         kk: pk.float = k0 * k0 + k1 * k1 + k2 * k2
 
@@ -348,14 +346,13 @@ def stresslet_convolution_kernel_fp32(
         k: int = wid % grid_size_2 + freq_offset[2]
 
         # compute k-vector
-        k0: pk.float = 0.0
-        if num_locals == 0:
-            k0 = _k_vector_fp32(grid[0], box[0], ups[0], i)
-        else:
-            k0 = _k_vector_fp32(grid[0], box[0], ups[0], locals[i])
-        k1: pk.float = _k_vector_fp32(
-            grid[1], box[1], ups[1], j + k1_off
-        )  # free direction
+        mode_x: int = i
+        mode_y: int = j + k1_off
+        if num_locals != 0:
+            mode_x = locals[i] // grid[1]
+            mode_y += locals[i] % grid[1]
+        k0: pk.float = _k_vector_fp32(grid[0], box[0], ups[0], mode_x)
+        k1: pk.float = _k_vector_fp32(grid[1], box[1], ups[1], mode_y)
         k2: pk.float = _k_vector_fp32(grid[2], box[2], ups[2], k)  # free direction
         kk: pk.float = k0 * k0 + k1 * k1 + k2 * k2
 
@@ -1258,14 +1255,13 @@ def laplace_convolution_kernel_fp64(
         k: int = wid % grid_size_2 + freq_offset[2]
 
         # compute k-vector
-        k0: pk.double = 0.0
-        if num_locals == 0:
-            k0 = _k_vector_fp64(grid[0], box[0], ups[0], i)
-        else:
-            k0 = _k_vector_fp64(grid[0], box[0], ups[0], locals[i])
-        k1: pk.double = _k_vector_fp64(
-            grid[1], box[1], ups[1], j + k1_off
-        )  # free direction
+        mode_x: int = i
+        mode_y: int = j + k1_off
+        if num_locals != 0:
+            mode_x = locals[i] // grid[1]
+            mode_y += locals[i] % grid[1]
+        k0: pk.double = _k_vector_fp64(grid[0], box[0], ups[0], mode_x)
+        k1: pk.double = _k_vector_fp64(grid[1], box[1], ups[1], mode_y)
         k2: pk.double = _k_vector_fp64(grid[2], box[2], ups[2], k)  # free direction
         kk: pk.double = k0 * k0 + k1 * k1 + k2 * k2
 
@@ -1324,14 +1320,13 @@ def stokeslet_convolution_kernel_fp64(
         k: int = wid % grid_size_2 + freq_offset[2]
 
         # compute k-vector
-        k0: pk.double = 0.0
-        if num_locals == 0:
-            k0 = _k_vector_fp64(grid[0], box[0], ups[0], i)
-        else:
-            k0 = _k_vector_fp64(grid[0], box[0], ups[0], locals[i])
-        k1: pk.double = _k_vector_fp64(
-            grid[1], box[1], ups[1], j + k1_off
-        )  # free direction
+        mode_x: int = i
+        mode_y: int = j + k1_off
+        if num_locals != 0:
+            mode_x = locals[i] // grid[1]
+            mode_y += locals[i] % grid[1]
+        k0: pk.double = _k_vector_fp64(grid[0], box[0], ups[0], mode_x)
+        k1: pk.double = _k_vector_fp64(grid[1], box[1], ups[1], mode_y)
         k2: pk.double = _k_vector_fp64(grid[2], box[2], ups[2], k)  # free direction
         kk: pk.double = k0 * k0 + k1 * k1 + k2 * k2
 
@@ -1504,14 +1499,13 @@ def stresslet_convolution_kernel_fp64(
         k: int = wid % grid_size_2 + freq_offset[2]
 
         # compute k-vector
-        k0: pk.double = 0.0
-        if num_locals == 0:
-            k0 = _k_vector_fp64(grid[0], box[0], ups[0], i)
-        else:
-            k0 = _k_vector_fp64(grid[0], box[0], ups[0], locals[i])
-        k1: pk.double = _k_vector_fp64(
-            grid[1], box[1], ups[1], j + k1_off
-        )  # free direction
+        mode_x: int = i
+        mode_y: int = j + k1_off
+        if num_locals != 0:
+            mode_x = locals[i] // grid[1]
+            mode_y += locals[i] % grid[1]
+        k0: pk.double = _k_vector_fp64(grid[0], box[0], ups[0], mode_x)
+        k1: pk.double = _k_vector_fp64(grid[1], box[1], ups[1], mode_y)
         k2: pk.double = _k_vector_fp64(grid[2], box[2], ups[2], k)  # free direction
         kk: pk.double = k0 * k0 + k1 * k1 + k2 * k2
 

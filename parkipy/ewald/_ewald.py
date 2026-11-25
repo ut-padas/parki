@@ -36,6 +36,7 @@ import numpy as np
 import warnings
 
 from ._utils import get_fftn, get_ifftn
+from ._adaptive_fft import adaptive_fft, adaptive_ifft
 from ._execution import ParticleStage, Launch
 from parkipy.utils import get_execution_space, get_array_module
 from parkipy import CellList
@@ -730,18 +731,32 @@ def fft(device_pre, options, fftmp_buffers=None):
 
     Notes
     -----
-    - If `fft_up` is True, the same upsampling factor is used globally in all directions.
+    - The adaptive path transforms the periodic direction first and uses
+      separate free-direction grids for global, local, and zero modes.
     - If the execution space is OpenMP, the number of threads is set via `OMP_NUM_THREADS`.
     - The FFT is computed along axes (1, 2, 3), assuming the input has shape (channels, x, y, z).
     - The result is reshaped into the target layout (`Hg_real_shape`) after the FFT.
 
-    Raises
-    ------
-    NotImplementedError
-        If `fft_up` is False. Directional/local upsampling has not yet been implemented.
     """
     fft_start = time.time()
-    if device_pre.data.opt.distributed:
+    if device_pre.fs_code == "adaptive":
+        if pk.is_host_execution_space(device_pre.execution_space):
+            from scipy import fft as fft_module
+        else:
+            from cupyx.scipy import fft as fft_module
+        data = device_pre.data
+        grids = adaptive_fft(
+            data.H,
+            data.local_indices,
+            data.local_shape,
+            data.zero_shape,
+            fft_module,
+            real=data.fft_type.upper() == "R2C",
+        )
+        for output, values in zip((data.Hg, data.Hl, data.H0), grids):
+            if values is not None:
+                output.view(data.complex_dtype).squeeze(-1)[...] = values
+    elif device_pre.data.opt.distributed:
         if fftmp_buffers is None:
             raise ValueError(
                 "fftmp_buffers must be passed into fft for distributed execution."
@@ -822,7 +837,7 @@ def cnv(device_pre, threads=128):
     Apply the Fourier-space convolution kernel in the Spectral Ewald method.
 
     This function dispatches the convolution procedure depending on the Fourier-space code
-    specified in `device_pre.fs_code`. Only the 'global' implementation is currently supported.
+    specified in `device_pre.fs_code`, including the adaptive path.
 
     Parameters
     ----------
@@ -839,12 +854,34 @@ def cnv(device_pre, threads=128):
     cnv_start = time.time()
     if device_pre.fs_code == "global":
         _cnv_GLB(device_pre=device_pre, threads=threads)
+    elif device_pre.fs_code == "adaptive":
+        _cnv_adaptive(device_pre, threads)
     else:
-        raise NotImplementedError("APT Scaling not yet implemented.")
-        _cnv_APT(device_pre=device_pre)
+        raise NotImplementedError(
+            f"Unknown Fourier scaling mode {device_pre.fs_code!r}."
+        )
     cnv_end = time.time()
     walltime = {"tot": cnv_end - cnv_start}
     return walltime
+
+
+def _cnv_adaptive(device_pre, threads, _prepare_only=False):
+    data = device_pre.data
+    threads = _cnv_threads(device_pre, threads)
+    launches = _cnv_modes(device_pre, threads, _prepare_only)
+    periodicity = data.opt.periodicity
+    if not _prepare_only or periodicity == 1:
+        zero = data.H0[(slice(None),) + (0,) * periodicity]
+        _cnv_zero(
+            device_pre,
+            threads,
+            zero,
+            zero,
+            data.zero_upsampling,
+            data.zero_shape,
+            _prepare_only,
+        )
+    return launches
 
 
 def _cnv_GLB(device_pre, threads, _prepare_only=False):
@@ -856,21 +893,8 @@ def _cnv_GLB(device_pre, threads, _prepare_only=False):
     uses compiled kernels, while the remaining corrections use array operations.
     """
     data = device_pre.data
-    am = device_pre.am
     periodicity = data.opt.periodicity
-    is_laplace = device_pre.kernel.upper() == "LAPLACE"
-    opt = data.opt_sc_glob if periodicity == 0 else data.opt_sc_zero
-    if periodicity not in (0, 1, 2, 3):
-        raise NotImplementedError(
-            "CNV step is only implemented for periodicities 0, 1, 2 and 3,"
-            f" got {periodicity}."
-        )
-    if pk.is_host_execution_space(device_pre.execution_space) and threads != 1:
-        warnings.warn(
-            "'threads' argument is overridden to 1 in OpenMP execution space.",
-            RuntimeWarning,
-        )
-        threads = 1
+    threads = _cnv_threads(device_pre, threads)
 
     # Select and preserve the zero-mode region consistently for every periodicity.
     # In 0P only the origin needs unscaled input; other modes are modified in place.
@@ -883,8 +907,43 @@ def _cnv_GLB(device_pre, threads, _prepare_only=False):
     else:
         zero_source = zero_output.copy()
     if not _prepare_only:
-        _cnv_global(device_pre=device_pre, threads=threads)
+        _cnv_modes(device_pre, threads)
 
+    _cnv_zero(
+        device_pre,
+        threads,
+        zero_output,
+        zero_source,
+        data.opt.actual_upsampling_global,
+        data.fft_shape[periodicity:],
+        _prepare_only,
+    )
+
+
+def _cnv_threads(device_pre, threads):
+    if pk.is_host_execution_space(device_pre.execution_space) and threads != 1:
+        warnings.warn(
+            "'threads' argument is overridden to 1 in OpenMP execution space.",
+            RuntimeWarning,
+        )
+        return 1
+    return threads
+
+
+def _cnv_zero(
+    device_pre,
+    threads,
+    zero_output,
+    zero_source,
+    upsampling,
+    free_shape,
+    _prepare_only=False,
+):
+    data = device_pre.data
+    am = device_pre.am
+    periodicity = data.opt.periodicity
+    is_laplace = device_pre.kernel.upper() == "LAPLACE"
+    opt = data.opt_sc_glob if periodicity == 0 else data.opt_sc_zero
     if periodicity == 3:
         zero_output[...] = 0
         return
@@ -893,12 +952,12 @@ def _cnv_GLB(device_pre, threads, _prepare_only=False):
     if periodicity == 1 and not is_laplace:
         if not device_pre.has_sl:
             raise NotImplementedError("CNV summation requires a Stokes single layer.")
-        freq_range = math.prod(data.Hg.shape[2:-1])
+        freq_range = math.prod(zero_source.shape[1:-1])
         policy = pk.TeamPolicy(
             device_pre.execution_space, math.ceil(freq_range / threads), threads
         )
         zero_kwargs = {
-            "grid_size_1": data.Hg.shape[3],
+            "grid_size_1": zero_source.shape[2],
             "box": data.opt.glb_box_ext,
             "k1_off": data.opt.k1_off,
             "xi": data.opt.xi,
@@ -907,7 +966,7 @@ def _cnv_GLB(device_pre, threads, _prepare_only=False):
             "ksc": opt.kaiser_scaling,
             "grid": data.opt.glb_grid_shape_ext,
             "whw": opt.window_halfwidth,
-            "ups": data.opt.actual_upsampling_global,
+            "ups": upsampling,
             "gR": opt.greens_truncation_R,
             "vico_var": opt.vico_var,
             "periodicity": periodicity,
@@ -956,8 +1015,12 @@ def _cnv_GLB(device_pre, threads, _prepare_only=False):
         * opt.kaiser_scaling
     )
     wave_numbers = [
-        (2 * am.pi * am.fft.fftfreq(data.fft_shape[d], d=data.opt.h))[
-            : data.Hg.shape[d + 1]
+        (2 * am.pi * am.fft.fftfreq(free_shape[d - periodicity], d=data.opt.h))[
+            : (
+                data.Hg.shape[d + 1]
+                if periodicity == 0
+                else zero_output.shape[d - periodicity + 1]
+            )
         ]
         for d in range(periodicity, 3)
     ]
@@ -981,7 +1044,7 @@ def _cnv_GLB(device_pre, threads, _prepare_only=False):
         return
 
     # The remaining paths share the harmonic zero-mode kernel and window.
-    shape = data.Hg.shape[1 + periodicity : -1]
+    shape = zero_output.shape[1:-1]
     wave_dtype = am.float64 if is_laplace else data.dtype
     kk = am.zeros(shape, dtype=wave_dtype)
     window = am.full(shape, w0**periodicity)
@@ -1032,7 +1095,38 @@ def _cnv_GLB(device_pre, threads, _prepare_only=False):
         zero_output[:3] = out.view(data.dtype).reshape(3, -1, 2)
 
 
-def _cnv_global(device_pre, threads, _prepare_only=False):
+def _cnv_modes(device_pre, threads, _prepare_only=False):
+    """Apply or prepare scaling for the bulk grid and any local modes."""
+    if not _prepare_only and hasattr(device_pre, "_cnv_launches"):
+        for launch in device_pre._cnv_launches:
+            launch()
+        return
+
+    data = device_pre.data
+    launches = _cnv_global(device_pre, threads, _prepare_only)
+    if device_pre.fs_code == "adaptive" and data.Hl.shape[1]:
+        launches.extend(
+            _cnv_global(
+                device_pre,
+                threads,
+                _prepare_only,
+                spectrum=data.Hl,
+                upsampling=data.local_upsampling,
+                locals=data.local_modes,
+            )
+        )
+    return launches
+
+
+def _cnv_global(
+    device_pre,
+    threads,
+    _prepare_only=False,
+    *,
+    spectrum=None,
+    upsampling=None,
+    locals=None,
+):
     """
     Perform standard Fourier-space convolution on the global grid.
 
@@ -1051,14 +1145,10 @@ def _cnv_global(device_pre, threads, _prepare_only=False):
     -----
     - If `device_pre.data.f1` is present, the Stokeslet kernel is applied.
     - If `device_pre.data.f2` is present, the Stresslet kernel is applied.
-    - Results are written in-place into `device_pre.data.Hg`.
+    - Results are written in-place into `spectrum`.
     - Final output for mixed kernels (both SL and DL) is summed into the first three
       channels of `Hg`.
     """
-    if not _prepare_only and hasattr(device_pre, "_cnv_launches"):
-        for launch in device_pre._cnv_launches:
-            launch()
-        return
     launches = []
 
     def dispatch(*args, **kwargs):
@@ -1067,15 +1157,20 @@ def _cnv_global(device_pre, threads, _prepare_only=False):
         else:
             pk.parallel_for(*args, **kwargs)
 
-    if pk.is_host_execution_space(device_pre.execution_space) and threads != 1:
-        warnings.warn(
-            "'threads' argument is overridden to 1 in OpenMP execution space.",
-            RuntimeWarning,
-        )
-        threads = 1
+    threads = _cnv_threads(device_pre, threads)
+    data = device_pre.data
+    if spectrum is None:
+        spectrum = data.Hg
+    if upsampling is None:
+        upsampling = data.opt.actual_upsampling_global
     shift = 0
     freq_offset = device_pre.am.array([0, 0, 0], dtype=device_pre.am.int32)
-    freq_range = math.prod(device_pre.data.Hg.shape[1:-1])
+    if locals is None:
+        locals = device_pre.am.zeros(1, dtype=device_pre.am.int32)
+        num_locals = 0
+    else:
+        num_locals = len(locals)
+    freq_range = math.prod(spectrum.shape[1:-1])
     freq_teams = math.ceil(freq_range / threads)
     match device_pre.kernel.upper():
         case "STOKES_COMB" | "STOKES_SL":
@@ -1083,7 +1178,7 @@ def _cnv_global(device_pre, threads, _prepare_only=False):
             if device_pre.has_sl:
                 G01 = [None] * 3
                 for d in range(shift, shift + len(G01)):
-                    G01[d - shift] = device_pre.data.Hg[d]
+                    G01[d - shift] = spectrum[d]
                 RangePush("Sca-kernel")
                 dispatch(
                     pk.TeamPolicy(device_pre.execution_space, freq_teams, threads),
@@ -1091,8 +1186,8 @@ def _cnv_global(device_pre, threads, _prepare_only=False):
                     H1=G01[0],
                     H2=G01[1],
                     H3=G01[2],
-                    grid_size_1=device_pre.data.Hg.shape[2],
-                    grid_size_2=device_pre.data.Hg.shape[3],
+                    grid_size_1=spectrum.shape[2],
+                    grid_size_2=spectrum.shape[3],
                     box=device_pre.data.opt.glb_box_ext,
                     k1_off=device_pre.data.opt.k1_off,
                     xi=device_pre.data.opt.xi,
@@ -1101,9 +1196,9 @@ def _cnv_global(device_pre, threads, _prepare_only=False):
                     ksc=device_pre.data.opt_sc_glob.kaiser_scaling,
                     grid=device_pre.data.opt.glb_grid_shape_ext,
                     whw=device_pre.data.opt_sc_glob.window_halfwidth,
-                    ups=device_pre.data.opt.actual_upsampling_global,
-                    locals=device_pre.am.zeros(1, dtype=device_pre.am.int32),
-                    num_locals=0,
+                    ups=upsampling,
+                    locals=locals,
+                    num_locals=num_locals,
                     freq_range=freq_range,
                     freq_offset=freq_offset,
                     threads=threads,
@@ -1114,7 +1209,7 @@ def _cnv_global(device_pre, threads, _prepare_only=False):
             if device_pre.has_dl:
                 G02 = [[None for _ in range(3)] for _ in range(3)]
                 for d in range(9):
-                    G02[d % 3][d // 3] = device_pre.data.Hg[shift + d]
+                    G02[d % 3][d // 3] = spectrum[shift + d]
                 RangePush("Sca-kernel")
                 dispatch(
                     pk.TeamPolicy(device_pre.execution_space, freq_teams, threads),
@@ -1128,8 +1223,8 @@ def _cnv_global(device_pre, threads, _prepare_only=False):
                     H13=G02[0][2],
                     H23=G02[1][2],
                     H33=G02[2][2],
-                    grid_size_1=device_pre.data.Hg.shape[2],
-                    grid_size_2=device_pre.data.Hg.shape[3],
+                    grid_size_1=spectrum.shape[2],
+                    grid_size_2=spectrum.shape[3],
                     box=device_pre.data.opt.glb_box_ext,
                     k1_off=device_pre.data.opt.k1_off,
                     xi=device_pre.data.opt.xi,
@@ -1138,9 +1233,9 @@ def _cnv_global(device_pre, threads, _prepare_only=False):
                     ksc=device_pre.data.opt_sc_glob.kaiser_scaling,
                     grid=device_pre.data.opt.glb_grid_shape_ext,
                     whw=device_pre.data.opt_sc_glob.window_halfwidth,
-                    ups=device_pre.data.opt.actual_upsampling_global,
-                    locals=device_pre.am.zeros(1, dtype=device_pre.am.int32),
-                    num_locals=0,
+                    ups=upsampling,
+                    locals=locals,
+                    num_locals=num_locals,
                     freq_range=freq_range,
                     freq_offset=freq_offset,
                     threads=threads,
@@ -1159,11 +1254,11 @@ def _cnv_global(device_pre, threads, _prepare_only=False):
                     H11=G02[0][0],
                     H21=G02[1][0],
                     H31=G02[2][0],
-                    D1=device_pre.data.Hg[0],
-                    D2=device_pre.data.Hg[1],
-                    D3=device_pre.data.Hg[2],
-                    grid_size_1=device_pre.data.Hg.shape[2],
-                    grid_size_2=device_pre.data.Hg.shape[3],
+                    D1=spectrum[0],
+                    D2=spectrum[1],
+                    D3=spectrum[2],
+                    grid_size_1=spectrum.shape[2],
+                    grid_size_2=spectrum.shape[3],
                     freq_range=freq_range,
                     freq_offset=freq_offset,
                     threads=threads,
@@ -1175,11 +1270,11 @@ def _cnv_global(device_pre, threads, _prepare_only=False):
                     H1=G01[0],
                     H2=G01[1],
                     H3=G01[2],
-                    D1=device_pre.data.Hg[0],
-                    D2=device_pre.data.Hg[1],
-                    D3=device_pre.data.Hg[2],
-                    grid_size_1=device_pre.data.Hg.shape[2],
-                    grid_size_2=device_pre.data.Hg.shape[3],
+                    D1=spectrum[0],
+                    D2=spectrum[1],
+                    D3=spectrum[2],
+                    grid_size_1=spectrum.shape[2],
+                    grid_size_2=spectrum.shape[3],
                     freq_range=freq_range,
                     freq_offset=freq_offset,
                     threads=threads,
@@ -1194,9 +1289,9 @@ def _cnv_global(device_pre, threads, _prepare_only=False):
             dispatch(
                 pk.TeamPolicy(device_pre.execution_space, freq_teams, threads),
                 device_pre.laplace_convolution_kernel,
-                H=device_pre.data.Hg[0],
-                grid_size_1=device_pre.data.Hg.shape[2],
-                grid_size_2=device_pre.data.Hg.shape[3],
+                H=spectrum[0],
+                grid_size_1=spectrum.shape[2],
+                grid_size_2=spectrum.shape[3],
                 box=device_pre.data.opt.glb_box_ext,
                 k1_off=device_pre.data.opt.k1_off,
                 xi=device_pre.data.opt.xi,
@@ -1205,9 +1300,9 @@ def _cnv_global(device_pre, threads, _prepare_only=False):
                 ksc=device_pre.data.opt_sc_glob.kaiser_scaling,
                 grid=device_pre.data.opt.glb_grid_shape_ext,
                 whw=device_pre.data.opt_sc_glob.window_halfwidth,
-                ups=device_pre.data.opt.actual_upsampling_global,
-                locals=device_pre.am.zeros(1, dtype=device_pre.am.int32),
-                num_locals=0,
+                ups=upsampling,
+                locals=locals,
+                num_locals=num_locals,
                 freq_range=freq_range,
                 freq_offset=freq_offset,
                 threads=threads,
@@ -1228,7 +1323,8 @@ def ifft(device_pre, options, fftmp_buffers=None):
 
     This function applies an inverse real FFT (irfftn) to the output of the convolution step
     stored in `device_pre.data.Hg`, reshaping and truncating the result to match the original
-    physical grid shape. Only the case with uniform upsampling is currently supported.
+    physical grid shape. The adaptive path reconstructs the periodic-mode
+    groups from separately transformed free-direction grids.
 
     Parameters
     ----------
@@ -1242,12 +1338,6 @@ def ifft(device_pre, options, fftmp_buffers=None):
     walltime : dict
         Dictionary with timing information for the IFFT kernel, under the key 'kernel'.
 
-    Raises
-    ------
-    NotImplementedError
-        If local or zero-mode-specific IFFT logic is required (i.e., `Hl` or `H0` are not None),
-        a `NotImplementedError` is raised as this path is not yet supported.
-
     Notes
     -----
     - The IFFT is performed using a backend-specific FFT function (`get_irfftn`).
@@ -1255,7 +1345,24 @@ def ifft(device_pre, options, fftmp_buffers=None):
     - The output is stored in `device_pre.data.H` and truncated to the original grid shape.
     """
     ifft_start = time.time()
-    if device_pre.data.opt.distributed:
+    if device_pre.fs_code == "adaptive":
+        if pk.is_host_execution_space(device_pre.execution_space):
+            from scipy import fft as fft_module
+        else:
+            from cupyx.scipy import fft as fft_module
+        data = device_pre.data
+        grids = [
+            a[: device_pre.dim_out].view(data.complex_dtype).squeeze(-1)
+            for a in (data.Hg, data.Hl, data.H0)
+        ]
+        data.H[: device_pre.dim_out] = adaptive_ifft(
+            *grids,
+            data.local_indices,
+            data.H.shape[1:],
+            fft_module,
+            real=data.fft_type.upper() == "R2C",
+        ).real
+    elif device_pre.data.opt.distributed:
         if fftmp_buffers is None:
             raise ValueError(
                 "fftmp_buffers must be passed into fft for distributed execution."

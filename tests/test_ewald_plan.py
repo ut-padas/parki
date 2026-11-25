@@ -19,17 +19,19 @@ DEVICES = [
 ]
 
 
-def make_problem(device="Serial", dtype=np.float64, periodicity=1, **kwargs):
+def make_problem(
+    device="Serial", dtype=np.float64, periodicity=1, ns=15, tolerance=1e-3, **kwargs
+):
     am = get_array_module(device)
     rng = np.random.default_rng(203)
-    src = am.asarray(rng.uniform(0.1, 0.9, (3, 15)), dtype=dtype)
+    src = am.asarray(rng.uniform(0.1, 0.9, (3, ns)), dtype=dtype)
     trg = am.asarray(rng.uniform(0.1, 0.9, (3, 11)), dtype=dtype)
     normals = am.asarray(rng.normal(size=src.shape), dtype=dtype)
     density = am.asarray(rng.normal(size=(6, src.shape[1])), dtype=dtype)
     options = ewald.EwaldOptions(
         box=[1.0, 1.0, 1.0],
         periodicity=periodicity,
-        tolerance=1e-3,
+        tolerance=tolerance,
         execution_space=device,
         cell_size=4,
         **kwargs,
@@ -39,10 +41,23 @@ def make_problem(device="Serial", dtype=np.float64, periodicity=1, **kwargs):
 
 @pytest.mark.parametrize("device", DEVICES)
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
-@pytest.mark.parametrize("periodicity", [0, 1, 2, 3])
+@pytest.mark.parametrize(
+    "periodicity,adaptive_upsampling",
+    [
+        (0, None),
+        (1, False),
+        (1, None),
+        (2, False),
+        (2, None),
+        (3, None),
+    ],
+    ids=["0P", "1P-global", "1P-default", "2P-global", "2P-default", "3P"],
+)
 @pytest.mark.parametrize("combined", [False, True])
-def test_repeated_densities(device, dtype, periodicity, combined):
-    am, trg, src, normals, density, options = make_problem(device, dtype, periodicity)
+def test_repeated_densities(device, dtype, periodicity, combined, adaptive_upsampling):
+    am, trg, src, normals, density, options = make_problem(
+        device, dtype, periodicity, adaptive_upsampling=adaptive_upsampling
+    )
     if combined:
         plan = ewald.prepare_stokes_comb(trg, src, normals, options)
         reference = lambda q: ewald.stokes_comb(trg, src, q, normals, options)
@@ -50,6 +65,11 @@ def test_repeated_densities(device, dtype, periodicity, combined):
         density = density[:3]
         plan = ewald.prepare_stokes_sl(trg, src, options)
         reference = lambda q: ewald.stokes_sl(trg, src, q, options)
+    use_adaptive = adaptive_upsampling is None and periodicity in (1, 2)
+    assert plan._pre.fs_code == ("adaptive" if use_adaptive else "global")
+    if use_adaptive:
+        # The FFT backend must accept a solve with no local modes.
+        assert plan._pre.data.local_modes.size == 0
     expected = reference(density)
     tolerance = 2e-5 if dtype == np.float32 else 1e-11
     # Zero between nonzero calls catches stale grid, padded density and output.
@@ -110,10 +130,29 @@ def test_owned_geometry_and_options():
     am.testing.assert_allclose(plan(q), expected, rtol=1e-11, atol=1e-11)
 
 
-def test_no_repeated_preparation_or_view_wrapping(monkeypatch):
-    _, trg, src, normals, q, options = make_problem()
+@pytest.mark.parametrize(
+    "periodicity,adaptive_upsampling,ns,tolerance",
+    [
+        pytest.param(1, False, 15, 1e-3, id="1P-global"),
+        pytest.param(1, None, 15, 1e-3, id="1P-default"),
+        pytest.param(1, True, 100, 1e-5, id="1P-local-modes"),
+        pytest.param(2, True, 100, 1e-5, id="2P-local-modes"),
+    ],
+)
+def test_no_repeated_preparation_or_view_wrapping(
+    monkeypatch, periodicity, adaptive_upsampling, ns, tolerance
+):
+    _, trg, src, normals, q, options = make_problem(
+        periodicity=periodicity,
+        adaptive_upsampling=adaptive_upsampling,
+        ns=ns,
+        tolerance=tolerance,
+    )
     plan = ewald.prepare_stokes_comb(trg, src, normals, options)
-    plan(q)  # Warm up runtime dispatch before checking the repeated-call path.
+    if adaptive_upsampling:
+        assert plan._pre.data.local_modes.size > 0
+    # Warm up runtime dispatch before checking the repeated-call path.
+    expected = plan(q)
     import parkipy.ewald._ewald as stages
     from parkipy.ewald._prepare import DevicePre
 
@@ -123,7 +162,7 @@ def test_no_repeated_preparation_or_view_wrapping(monkeypatch):
     monkeypatch.setattr(stages, "CellList", fail)
     monkeypatch.setattr(DevicePre, "from_particles", fail)
     monkeypatch.setattr(pk.View, "__init__", fail)
-    plan(q)
+    np.testing.assert_array_equal(plan(q), expected)
 
 
 def test_validation_and_aliasing():

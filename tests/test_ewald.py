@@ -27,13 +27,16 @@ DEVICE_PARAMS = [
     [parkipy.ewald.stokes_sl, parkipy.ewald.stokes_comb, parkipy.ewald.laplace],
 )
 @pytest.mark.parametrize(
-    "periodicity",
+    "periodicity,adaptive_upsampling",
     [
-        0,
-        1,
-        2,
-        3,
+        (0, None),
+        (1, False),
+        (1, None),
+        (2, False),
+        (2, None),
+        (3, None),
     ],
+    ids=["0P", "1P-global", "1P-default", "2P-global", "2P-default", "3P"],
 )
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("device", DEVICE_PARAMS)
@@ -72,15 +75,25 @@ class TestEwald:
             return rms_err
         return rms_err / rms_ref
 
-    def test_self_convergence(self, kernel, periodicity, dtype, device):
+    def test_self_convergence(
+        self, kernel, periodicity, dtype, device, adaptive_upsampling
+    ):
         """
         run self convergence test on all supported kernels
         for all periodic directions in single and double
         precision arithmetic.
         """
-        run_convergence(fun=kernel, periodicity=periodicity, dtype=dtype, device=device)
+        run_convergence(
+            fun=kernel,
+            periodicity=periodicity,
+            dtype=dtype,
+            device=device,
+            adaptive_upsampling=adaptive_upsampling,
+        )
 
-    def test_periodic_translation(self, kernel, periodicity, dtype, device):
+    def test_periodic_translation(
+        self, kernel, periodicity, dtype, device, adaptive_upsampling
+    ):
         """
         Test the translation-invariance of the kernels.
         First, get a reference solution by placing a shape
@@ -134,6 +147,7 @@ class TestEwald:
             tolerance=1e-6,
             execution_space=device,
             cell_size=64,
+            adaptive_upsampling=adaptive_upsampling,
         )
 
         # execute kernel on centered shape
@@ -235,7 +249,12 @@ def test_rectangular_fourier_resolution(box, periodicity, kernel):
     )
 
     potentials = []
-    for fft_type, rc in [("R2C", 0.6), ("C2C", 0.6), ("R2C", 0.9)]:
+    for fft_type, rc, adaptive in [
+        ("R2C", 0.6, False),
+        ("R2C", 0.6, True),
+        ("C2C", 0.6, True),
+        ("R2C", 0.9, True),
+    ]:
         options = parkipy.ewald.EwaldOptions(
             box=box,
             periodicity=periodicity,
@@ -243,6 +262,7 @@ def test_rectangular_fourier_resolution(box, periodicity, kernel):
             rc=rc,
             execution_space="CPU",
             fft_type=fft_type,
+            adaptive_upsampling=adaptive,
         )
         potentials.append(kernel(targets, sources, density, options))
     for potential in potentials[1:]:
@@ -428,6 +448,7 @@ def run_convergence(
     nutral=False,
     fft_type="R2C",
     torch_fft=False,
+    adaptive_upsampling=None,
 ):
     """
     Test (1) self-convergence and (2) consistency
@@ -461,6 +482,7 @@ def run_convergence(
             torch_fft,
             verbosity=0,
             nutral=nutral,
+            adaptive_upsampling=adaptive_upsampling,
         )
         if len(potential.shape) == 1:
             potential = potential.reshape(1, -1)
@@ -499,6 +521,7 @@ def run_convergence(
                 torch_fft,
                 verbosity=0,
                 nutral=nutral,
+                adaptive_upsampling=adaptive_upsampling,
             )
             if len(potential.shape) == 1:
                 potential = potential.reshape(1, -1)
@@ -569,6 +592,7 @@ def run(
     torch_fft,
     verbosity=0,
     nutral=False,
+    adaptive_upsampling=None,
 ) -> None:
     am = parkipy.utils.get_array_module(device)
     execution_space = parkipy.utils.get_execution_space(device)
@@ -596,6 +620,7 @@ def run(
         fft_type=fft_type,
         execution_space=execution_space,
         torch_fft=torch_fft,
+        adaptive_upsampling=adaptive_upsampling,
     )
     if fun == parkipy.ewald.stokes_comb:
         dens_sl = rng.random(size=(3, ns), dtype=dtype)
