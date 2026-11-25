@@ -61,15 +61,17 @@ def test_repeated_densities(device, dtype, periodicity, combined):
 
 @pytest.mark.parametrize("device", DEVICES)
 @pytest.mark.parametrize(
-    "p2g_method,g2p_method,p2p_method,fft_type",
+    "p2g_method,g2p_method,p2p_method,fft_type,combined",
     [
-        ("BASE", "BASE", "GM-1D", "R2C"),
-        ("SOURCE", "TARGET", "GM-2D", "C2C"),
-        ("GRID", "BASE", "SM-1D", "C2C"),
-        ("HYBRID", "TARGET", "SM-2D", "R2C"),
+        ("BASE", "BASE", "GM-1D", "R2C", True),
+        ("SOURCE", "TARGET", "GM-2D", "C2C", True),
+        ("GRID", "BASE", "SM-1D", "C2C", True),
+        ("HYBRID", "TARGET", "SM-2D", "R2C", True),
+        ("HYBRID", "TARGET", "MORT", "R2C", True),
+        ("HYBRID", "TARGET", "MORT", "R2C", False),
     ],
 )
-def test_methods(device, p2g_method, g2p_method, p2p_method, fft_type):
+def test_methods(device, p2g_method, g2p_method, p2p_method, fft_type, combined):
     am, trg, src, normals, q, options = make_problem(
         device,
         p2g_method=p2g_method,
@@ -77,8 +79,27 @@ def test_methods(device, p2g_method, g2p_method, p2p_method, fft_type):
         p2p_method=p2p_method,
         fft_type=fft_type,
     )
-    plan = ewald.prepare_stokes_comb(trg, src, normals, options)
-    expected = ewald.stokes_comb(trg, src, q, normals, options)
+    if combined:
+        plan = ewald.prepare_stokes_comb(trg, src, normals, options)
+        expected = ewald.stokes_comb(trg, src, q, normals, options)
+    else:
+        q = q[:3]
+        plan = ewald.prepare_stokes_sl(trg, src, options)
+        expected = ewald.stokes_sl(trg, src, q, options)
+    if p2p_method == "MORT":
+        _, _, _, _, _, baseline = make_problem(
+            device,
+            p2g_method=p2g_method,
+            g2p_method=g2p_method,
+            p2p_method="GM-1D",
+            fft_type=fft_type,
+        )
+        reference = (
+            ewald.stokes_comb(trg, src, q, normals, baseline)
+            if combined
+            else ewald.stokes_sl(trg, src, q, baseline)
+        )
+        am.testing.assert_allclose(expected, reference, rtol=1e-11, atol=1e-11)
     # Alternate methods have their own reset and accumulation behavior.
     for scale in (1, 0, -1):
         am.testing.assert_allclose(

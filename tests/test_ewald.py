@@ -37,6 +37,20 @@ DEVICE_PARAMS = [
 )
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("device", DEVICE_PARAMS)
+@pytest.mark.parametrize(
+    "p2p_method,p2g_method,g2p_method",
+    [
+        ("GM-1D", "HYBRID", "TARGET"),
+        ("GM-2D", "HYBRID", "TARGET"),
+        ("SM-1D", "HYBRID", "TARGET"),
+        ("SM-2D", "HYBRID", "TARGET"),
+        ("MORT", "HYBRID", "TARGET"),
+        ("GM-1D", "BASE", "TARGET"),
+        ("GM-1D", "SOURCE", "TARGET"),
+        ("GM-1D", "GRID", "TARGET"),
+        ("GM-1D", "HYBRID", "BASE"),
+    ],
+)
 class TestEwald:
     """
     Tests for each Ewald sum configuration in the package.
@@ -56,8 +70,8 @@ class TestEwald:
 
         returns a dimensionless (or absolute) scalar.
         """
-        actual = np.asarray(actual)
-        desired = np.asarray(desired)
+        actual = np.asarray(actual.get() if hasattr(actual, "get") else actual)
+        desired = np.asarray(desired.get() if hasattr(desired, "get") else desired)
         pointwise_err = np.linalg.norm(actual - desired, axis=0)
         pointwise_ref = np.linalg.norm(desired, axis=0)
         n = pointwise_err.shape[-1] if pointwise_err.ndim > 0 else 1
@@ -72,15 +86,35 @@ class TestEwald:
             return rms_err
         return rms_err / rms_ref
 
-    def test_self_convergence(self, kernel, periodicity, dtype, device):
+    @staticmethod
+    def skip_unsupported_methods(kernel, p2p_method, p2g_method):
+        if kernel != parkipy.ewald.stokes_comb and p2p_method not in ("GM-1D", "MORT"):
+            pytest.skip("P2P method is available only for combined Stokes")
+        if kernel != parkipy.ewald.stokes_comb and p2g_method in ("BASE", "SOURCE"):
+            pytest.skip("P2G method requires normals")
+
+    def test_self_convergence(
+        self, kernel, periodicity, dtype, device, p2p_method, p2g_method, g2p_method
+    ):
         """
         run self convergence test on all supported kernels
         for all periodic directions in single and double
         precision arithmetic.
         """
-        run_convergence(fun=kernel, periodicity=periodicity, dtype=dtype, device=device)
+        self.skip_unsupported_methods(kernel, p2p_method, p2g_method)
+        run_convergence(
+            fun=kernel,
+            periodicity=periodicity,
+            dtype=dtype,
+            device=device,
+            p2p_method=p2p_method,
+            p2g_method=p2g_method,
+            g2p_method=g2p_method,
+        )
 
-    def test_periodic_translation(self, kernel, periodicity, dtype, device):
+    def test_periodic_translation(
+        self, kernel, periodicity, dtype, device, p2p_method, p2g_method, g2p_method
+    ):
         """
         Test the translation-invariance of the kernels.
         First, get a reference solution by placing a shape
@@ -97,6 +131,7 @@ class TestEwald:
         to EwaldOptions that is passed into the P2P kernel
         """
 
+        self.skip_unsupported_methods(kernel, p2p_method, p2g_method)
         am = parkipy.utils.get_array_module(device)
 
         # TEST PARAMS
@@ -104,13 +139,13 @@ class TestEwald:
 
         # read in test data.
         data = np.load("tests/data/translation_test.npz")
-        centered = data["centered"]
-        offset = data[
-            "offset"
-        ]  # this is offset in the 3P case, need to correct for 1P, ...
-        normals = data["normals"]
+        centered = am.asarray(data["centered"])
+        offset = am.asarray(
+            data["offset"]
+        )  # this is offset in the 3P case, need to correct for 1P, ...
+        normals = am.asarray(data["normals"])
         box = data["box"]
-        density = data["density"]
+        density = am.asarray(data["density"])
 
         translate = (
             am.array(
@@ -134,6 +169,9 @@ class TestEwald:
             tolerance=1e-6,
             execution_space=device,
             cell_size=64,
+            p2p_method=p2p_method,
+            p2g_method=p2g_method,
+            g2p_method=g2p_method,
         )
 
         # execute kernel on centered shape
@@ -163,36 +201,6 @@ class TestEwald:
             raise AssertionError(
                 f"error '{error:.2e}' exceeds the tolerance '{TOL:.2e}'."
             )
-
-
-@pytest.mark.parametrize("p2p_method", ["GM-1D", "GM-2D", "SM-1D", "SM-2D"])
-@pytest.mark.parametrize("dtype", [np.float32, np.float64])
-@pytest.mark.parametrize("device", DEVICE_PARAMS)
-def test_p2p_stokes(p2p_method, device, dtype):
-    """
-    test different p2p methods for the 1-per stokes solver
-    """
-    run_convergence(p2p_method=p2p_method, device=device, dtype=dtype)
-
-
-@pytest.mark.parametrize("p2g_method", ["BASE", "SOURCE", "GRID", "HYBRID"])
-@pytest.mark.parametrize("dtype", [np.float32, np.float64])
-@pytest.mark.parametrize("device", DEVICE_PARAMS)
-def test_p2g_stokes(p2g_method, device, dtype):
-    """
-    test different p2g method for the 1-per stokes solver
-    """
-    run_convergence(p2g_method=p2g_method, device=device, dtype=dtype)
-
-
-@pytest.mark.parametrize("g2p_method", ["BASE", "TARGET"])
-@pytest.mark.parametrize("dtype", [np.float32, np.float64])
-@pytest.mark.parametrize("device", DEVICE_PARAMS)
-def test_g2p_stokes(g2p_method, device, dtype):
-    """
-    test different g2p methods for the 1-per stokes solver
-    """
-    run_convergence(g2p_method=g2p_method, device=device, dtype=dtype)
 
 
 @pytest.mark.parametrize("kernel", [parkipy.ewald.stokes_sl, parkipy.ewald.laplace])
