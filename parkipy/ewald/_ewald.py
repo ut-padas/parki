@@ -266,25 +266,26 @@ def p2p(
     # set up kernel call
     target_threads = math.ceil(threads_x / vector_size)
     target_chunk_size = target_threads * t_per_thread
-    target_cell_chunks = math.ceil(target_list.cell_size / target_chunk_size)
-    teams = target_list.num_nonempty_cells * target_cell_chunks
+    team_cells, cell_teams = target_list._team_chunks(target_chunk_size)
     policy = pk.TeamPolicy(
         device_pre.execution_space,
-        teams,
+        len(team_cells),
         target_threads,
     )
     kwargs = {
         "t_cell_chunk_size": target_chunk_size,
         "t_list2global": target_list.particle_index,
-        "t_cell_size": target_list.cell_size,
+        "t_cell_offsets": target_list.cell_offsets,
+        "t_team_cells": team_cells,
+        "t_cell_teams": cell_teams,
+        "t_counter": target_list.counter,
         "nz2t_cell_map": target_list.nonempty_cells,
         "num_cells_shape": target_list.cell_grid_shape,
         "dim_out": int(device_pre.near_potential.shape[0]),
-        "nnz_t_cells": target_list.num_nonempty_cells,
         "targets_list": target_list.particle_list,
         "s_counter": source_list.counter,
         "s2nz_cell_map": source_list.nonempty_cell_index,
-        "s_cell_size": source_list.cell_size,
+        "s_cell_offsets": source_list.cell_offsets,
         "rc_squared": device_pre.data.opt.rc**2,
         "potentials": device_pre.near_potential,
         "sources_list": source_list.particle_list,
@@ -308,20 +309,10 @@ def p2p(
     else:
         kwargs["forces_list"] = source_list.force_list
 
-    if method.upper() in ["GM-2D", "SM-1D", "SM-2D"]:
-        kwargs["t_cell_chunks"] = math.ceil(
-            target_list.cell_size / kwargs["t_cell_chunk_size"]
-        )
-        kwargs["t_counter"] = target_list.counter
     if method.upper() in ["GM-2D", "SM-2D"]:
         kwargs["vector_size"] = vector_size
     if method.upper() in ["SM-1D", "SM-2D"]:
         kwargs["s_cell_chunk_size"] = vector_size * s_per_thread
-        kwargs["s_cell_chunks"] = math.ceil(
-            source_list.cell_size / kwargs["s_cell_chunk_size"]
-        )
-    if method.upper() == "GM-2D":
-        kwargs["s_cell_threads"] = math.ceil(source_list.cell_size / vector_size)
     if method.upper() == "SM-2D":
         kwargs["s_cell_chunk_threads"] = math.ceil(
             kwargs["s_cell_chunk_size"] / vector_size
@@ -493,18 +484,11 @@ def p2g(
                 forces=forces,
                 build_nonempty_neighbors=False,
             )
-            cell_chunk_size: int = min(
-                source_list.cell_size, device_pre.p2g_max_cell_size
-            )
             walltime["sort"] = time.time() - walltime["sort"]
 
             # set up kernel call
-            teams_per_cell = math.ceil(source_list.cell_size / threads)
-            policy = pk.TeamPolicy(
-                device_pre.execution_space,
-                source_list.num_nonempty_cells * teams_per_cell,
-                threads,
-            )
+            team_cells, cell_teams = source_list._team_chunks(threads)
+            policy = pk.TeamPolicy(device_pre.execution_space, len(team_cells), threads)
             kwargs = {
                 "yj": source_list.particle_list,
                 "qj": source_list.force_list[0],
@@ -520,8 +504,9 @@ def p2g(
                     if not device_pre.data.opt.distributed
                     else 0
                 ),
-                "cell_size": source_list.cell_size,
-                "cell_teams": teams_per_cell,
+                "cell_offsets": source_list.cell_offsets,
+                "team_cells": team_cells,
+                "cell_teams": cell_teams,
                 "threads": threads,
             }
         case "GRID":
@@ -543,9 +528,6 @@ def p2g(
                 forces=forces,
                 build_nonempty_neighbors=False,
             )
-            cell_chunk_size: int = min(
-                source_list.cell_size, device_pre.p2g_max_cell_size
-            )
             walltime["sort"] = time.time() - walltime["sort"]
 
             # setup kernel call
@@ -563,9 +545,10 @@ def p2g(
                     if not device_pre.data.opt.distributed
                     else 0
                 ),
-                "cell_size": source_list.cell_size,
+                "cell_offsets": source_list.cell_offsets,
                 "num_cells": source_list.cell_grid_shape,
                 "nonempty_cell_index": source_list.nonempty_cell_index,
+                "cell_counts": source_list.counter,
                 "threads": threads,
             }
             if device_pre.has_normals:
@@ -601,9 +584,8 @@ def p2g(
             walltime["sort"] = time.time() - walltime["sort"]
 
             # setup kernel call
-            chunks_per_cell = math.ceil(source_list.cell_size / cell_chunk_size)
-            teams = source_list.num_nonempty_cells * chunks_per_cell
-            policy = pk.TeamPolicy(device_pre.execution_space, teams, threads)
+            team_cells, cell_teams = source_list._team_chunks(cell_chunk_size)
+            policy = pk.TeamPolicy(device_pre.execution_space, len(team_cells), threads)
             kwargs = {
                 "yj": source_list.particle_list,
                 "H": H_view,
@@ -616,14 +598,16 @@ def p2g(
                     if not device_pre.data.opt.distributed
                     else 0
                 ),
-                "cell_size": source_list.cell_size,
+                "cell_offsets": source_list.cell_offsets,
                 "num_cells": source_list.cell_grid_shape,
                 "nonempty_cell_index": source_list.nonempty_cell_index,
+                "cell_counts": source_list.counter,
                 "cell_index": source_list.nonempty_cells,
                 "threads": threads,
                 "dim_H": device_pre.data.dim_H,
                 "cell_chunk_size": cell_chunk_size,
-                "chunks_per_cell": chunks_per_cell,
+                "team_cells": team_cells,
+                "cell_teams": cell_teams,
             }
             if device_pre.has_normals:
                 kwargs["qj"] = source_list.force_list[0]
@@ -1543,12 +1527,8 @@ def g2p(device_pre, method="TARGET", threads=128, _prepare_only=False):
             walltime["sort"] = time.time() - walltime["sort"]
 
             # setup Kokkos workunit call
-            teams_per_cell = math.ceil(target_list.cell_size / threads)
-            policy = pk.TeamPolicy(
-                device_pre.execution_space,
-                target_list.num_nonempty_cells * teams_per_cell,
-                threads,
-            )
+            team_cells, cell_teams = target_list._team_chunks(threads)
+            policy = pk.TeamPolicy(device_pre.execution_space, len(team_cells), threads)
             kwargs = {
                 "u": device_pre.far_potential,
                 "x": target_list.particle_list,
@@ -1560,14 +1540,15 @@ def g2p(device_pre, method="TARGET", threads=128, _prepare_only=False):
                     device_pre.data.opt.ghost_grid_shape_ext
                 ),
                 "hhh": float(device_pre.data.opt.h) ** 3,
-                "cell_size": target_list.cell_size,
+                "cell_offsets": target_list.cell_offsets,
                 "periodicity": (
                     device_pre.data.opt.periodicity
                     if not device_pre.data.opt.distributed
                     else 0
                 ),
                 "threads": threads,
-                "cell_teams": teams_per_cell,
+                "team_cells": team_cells,
+                "cell_teams": cell_teams,
             }
         case _:
             raise ValueError(

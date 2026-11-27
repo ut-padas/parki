@@ -2,6 +2,42 @@ import parkipy
 import numpy as np
 
 
+def test_cell_capacity_pads_each_cell_separately():
+    # The first and last of eight cells contain 3 and 35 particles.
+    particles = np.repeat([[0.25, 0.75]] * 3, [3, 35], axis=1)
+    forces = np.arange(2 * particles.shape[1], dtype=particles.dtype).reshape(2, 1, -1)
+    common = dict(execution_space="CPU", forces=forces, padding_factor=32)
+    cells = parkipy.CellList(particles, 0.5, [1, 1, 1], **common)
+    np.testing.assert_array_equal(cells.cell_offsets, [0, 32, 96])
+    np.testing.assert_array_equal(cells.nonempty_cells, [0, 7])
+    np.testing.assert_array_equal(np.sort(cells.particle_index[:3]), np.arange(3))
+    np.testing.assert_array_equal(
+        np.sort(cells.particle_index[32:67]), np.arange(3, 38)
+    )
+    valid = cells.particle_index >= 0
+    np.testing.assert_array_equal(
+        cells.particle_list[:, valid], particles[:, cells.particle_index[valid]]
+    )
+    np.testing.assert_array_equal(
+        cells.force_list[..., valid], forces[..., cells.particle_index[valid]]
+    )
+    assert np.all(cells.particle_list[:, ~valid] == -1)
+    assert np.all(cells.force_list[..., ~valid] == 0)
+
+    with_empty = parkipy.CellList(
+        particles, 0.5, [1, 1, 1], skip_empty_cells=False, **common
+    )
+    np.testing.assert_array_equal(with_empty.cell_offsets, [0, *([32] * 7), 96])
+    team_cells, cell_teams = with_empty._team_chunks(32)
+    np.testing.assert_array_equal(team_cells, [0, 7, 7])
+    np.testing.assert_array_equal(cell_teams, [0, *([1] * 7), 3])
+
+    fixed = parkipy.CellList(
+        particles, 0.5, [1, 1, 1], variable_cell_size=False, **common
+    )
+    np.testing.assert_array_equal(fixed.cell_offsets, [0, 64, 128])
+
+
 def reference(x, y, q, cutoff):
     u = np.zeros(x.shape[1])
     for i in range(x.shape[1]):
@@ -22,11 +58,11 @@ def cell_list(x, y, q, cutoff, box):
 
     # loop over nonempty x-cells
     for cell_ne in range(x_list.num_nonempty_cells):
-        off_x = cell_ne * x_list.cell_size
+        off_x, end_x = map(int, x_list.cell_offsets[cell_ne : cell_ne + 2])
         cell = x_list.nonempty_cells[cell_ne]
 
         # loop over x-particles within a cell
-        for ii in range(off_x, off_x + x_list.cell_size):
+        for ii in range(off_x, end_x):
             i = x_list.particle_index[ii]
             if i == -1:
                 continue
@@ -36,10 +72,10 @@ def cell_list(x, y, q, cutoff, box):
                 neighbor = y_list.nonempty_neighbors[cell, k]
                 if neighbor == -1:
                     continue
-                off_y = neighbor * y_list.cell_size
+                off_y, end_y = map(int, y_list.cell_offsets[neighbor : neighbor + 2])
 
                 # loop over y-particles within a neighbor
-                for jj in range(off_y, off_y + y_list.cell_size):
+                for jj in range(off_y, end_y):
                     j = y_list.particle_index[jj]
                     if j == -1:
                         continue
@@ -99,10 +135,10 @@ def cell_list_periodic(x, y, q, cutoff, box):
     )
 
     for cell_ne in range(x_list.num_nonempty_cells):
-        off_x = cell_ne * x_list.cell_size
+        off_x, end_x = map(int, x_list.cell_offsets[cell_ne : cell_ne + 2])
         cell = x_list.nonempty_cells[cell_ne]
 
-        for ii in range(off_x, off_x + x_list.cell_size):
+        for ii in range(off_x, end_x):
             i = x_list.particle_index[ii]
             if i == -1:
                 continue
@@ -111,9 +147,9 @@ def cell_list_periodic(x, y, q, cutoff, box):
                 neighbor = y_list.nonempty_neighbors[cell, k]
                 if neighbor == -1:
                     continue
-                off_y = neighbor * y_list.cell_size
+                off_y, end_y = map(int, y_list.cell_offsets[neighbor : neighbor + 2])
 
-                for jj in range(off_y, off_y + y_list.cell_size):
+                for jj in range(off_y, end_y):
                     j = y_list.particle_index[jj]
                     if j == -1:
                         continue
@@ -191,10 +227,10 @@ def cell_list_batched(x, y, q, cutoff, box):
     y_list = parkipy.CellList(y, cutoff, box, forces=q, execution_space="CPU")
 
     for cell_ne in range(x_list.num_nonempty_cells):
-        off_x = cell_ne * x_list.cell_size
+        off_x, end_x = map(int, x_list.cell_offsets[cell_ne : cell_ne + 2])
         cell = x_list.nonempty_cells[cell_ne]
 
-        for ii in range(off_x, off_x + x_list.cell_size):
+        for ii in range(off_x, end_x):
             i = x_list.particle_index[ii]
             if i == -1:
                 continue
@@ -203,9 +239,9 @@ def cell_list_batched(x, y, q, cutoff, box):
                 neighbor = y_list.nonempty_neighbors[cell, kk]
                 if neighbor == -1:
                     continue
-                off_y = neighbor * y_list.cell_size
+                off_y, end_y = map(int, y_list.cell_offsets[neighbor : neighbor + 2])
 
-                for jj in range(off_y, off_y + y_list.cell_size):
+                for jj in range(off_y, end_y):
                     j = y_list.particle_index[jj]
                     if j == -1:
                         continue

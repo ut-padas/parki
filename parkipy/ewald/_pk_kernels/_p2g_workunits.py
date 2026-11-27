@@ -164,8 +164,9 @@ def p2g_source_fp32(
     ny: int,
     window_P: int,
     periodicity: int,
-    cell_size: int,
-    cell_teams: int,
+    cell_offsets: pk.View1D[int],
+    team_cells: pk.View1D[int],
+    cell_teams: pk.View1D[int],
     threads: int,
 ):
     """
@@ -179,20 +180,23 @@ def p2g_source_fp32(
         ny: int, number of source particles
         window_P: int, window function support in grid points
         periodicity: int, periodicity of the problem
-        cell_size: int, number of source particles in a cell
-        cell_teams: int, number of teams assigned to a cell
+        cell_offsets: start and end offsets of stored source cells
+        cell_teams: first team assigned to each stored cell
         threads: int, threads per team
     """
     po2: int = window_P / 2
-    nz_cell: int = team_member.league_rank() // cell_teams
-    cell_team: int = team_member.league_rank() % cell_teams
+    team: int = team_member.league_rank()
+    nz_cell: int = team_cells[team]
+    cell_team: int = team - cell_teams[nz_cell]
     cell_off: int = cell_team * threads
-    s_off: int = nz_cell * cell_size + cell_off
+    s_off: int = cell_offsets[nz_cell] + cell_off
 
     def thread_loop(tid: int):
-        if cell_off + tid >= cell_size:
-            return
         s: int = s_off + tid
+        if s >= cell_offsets[nz_cell + 1]:
+            return
+        if yj[0][s] < 0:
+            return
         # get source position
         s_x: pk.float = yj[0][s]
         s_y: pk.float = yj[1][s]
@@ -304,9 +308,10 @@ def p2g_grid_fp32(
     H_shape: pk.View1D[pk.int64],
     window_P: int,
     periodicity: int,
-    cell_size: int,
+    cell_offsets: pk.View1D[int],
     num_cells: pk.View1D[int],
     nonempty_cell_index: pk.View1D[int],
+    cell_counts: pk.View1D[int],
     threads: int,
 ):
     """
@@ -319,7 +324,7 @@ def p2g_grid_fp32(
         H_shape: shape of the Fourier grid
         window_P: int, window function support in grid points
         periodicity: int, periodicity of the problem
-        cell_size: int, number of source particles in a cell
+        cell_offsets: start and end offsets of stored source cells
         num_cells: (3), number of cells in each spatial direction
         nonempty_cell_index: cell index -> nonempty cell index map
         threads: int, threads per team
@@ -365,8 +370,8 @@ def p2g_grid_fp32(
             nz_cell: int = nonempty_cell_index[s_cell]
             if nz_cell < 0:
                 continue
-            s_off: int = nz_cell * cell_size
-            for s in range(s_off, s_off + cell_size):
+            s_off: int = cell_offsets[nz_cell]
+            for s in range(s_off, s_off + cell_counts[s_cell]):
                 w: pk.float = naive_window_kernel_fp32(
                     s, t_x, t_y, t_z, periodicity, pp, po2, yj, H_shape
                 )
@@ -396,9 +401,10 @@ def p2g_grid_sans_normals_fp32(
     H_shape: pk.View1D[pk.int64],
     window_P: int,
     periodicity: int,
-    cell_size: int,
+    cell_offsets: pk.View1D[int],
     num_cells: pk.View1D[int],
     nonempty_cell_index: pk.View1D[int],
+    cell_counts: pk.View1D[int],
     threads: int,
     dim_f: int,
     dim_H: int,
@@ -412,7 +418,7 @@ def p2g_grid_sans_normals_fp32(
         H_shape: shape of the Fourier grid
         window_P: int, window function support in grid points
         periodicity: int, periodicity of the problem
-        cell_size: int, number of source particles in a cell
+        cell_offsets: start and end offsets of stored source cells
         num_cells: (3), number of cells in each spatial direction
         nonempty_cell_index: cell index -> nonempty cell index map
         threads: int, threads per team
@@ -460,8 +466,8 @@ def p2g_grid_sans_normals_fp32(
             nz_cell: int = nonempty_cell_index[s_cell]
             if nz_cell < 0:
                 continue
-            s_off: int = nz_cell * cell_size
-            for s in range(s_off, s_off + cell_size):
+            s_off: int = cell_offsets[nz_cell]
+            for s in range(s_off, s_off + cell_counts[s_cell]):
                 w: pk.float = naive_window_kernel_fp32(
                     s, t_x, t_y, t_z, periodicity, pp, po2, yj, H_shape
                 )
@@ -495,15 +501,17 @@ def p2g_hybrid_fp32(
     H_shape: pk.View1D[pk.int64],
     window_P: int,
     periodicity: int,
-    cell_size: int,
+    cell_offsets: pk.View1D[int],
     num_cells: pk.View1D[int],
     nonempty_cell_index: pk.View1D[int],
+    cell_counts: pk.View1D[int],
     cell_index: pk.View1D[int],
     threads: int,
     dim_f: int,
     dim_H: int,
     cell_chunk_size: int,
-    chunks_per_cell: int,
+    team_cells: pk.View1D[int],
+    cell_teams: pk.View1D[int],
 ):
     """
     args:
@@ -515,7 +523,7 @@ def p2g_hybrid_fp32(
         H_shape: shape of the Fourier grid
         window_P: int, window function support in grid points
         periodicity: int, periodicity of the problem
-        cell_size: int, number of source particles in a cell
+        cell_offsets: start and end offsets of stored source cells
         num_cells: (3), number of cells in each spatial direction
         nonempty_cell_index: cell index -> nonempty cell index map
         cell_index: nonempty cell index -> cell index map
@@ -534,14 +542,20 @@ def p2g_hybrid_fp32(
     po2_cubed: int = po2_sqr * po2
     num_cells12: int = num_cells[1] * num_cells[2]
 
-    nz_cell: int = team_member.league_rank() // chunks_per_cell
-    cell_chunk: int = team_member.league_rank() % chunks_per_cell
+    team: int = team_member.league_rank()
+    nz_cell: int = team_cells[team]
+    cell_chunk: int = team - cell_teams[nz_cell]
     s_cell: int = cell_index[nz_cell]
     s_cell_x: int = s_cell // num_cells12
     s_cell_y: int = (s_cell % num_cells12) // num_cells[2]
     s_cell_z: int = (s_cell % num_cells12) % num_cells[2]
     cell_off: int = cell_chunk * cell_chunk_size
-    s_off: int = nz_cell * cell_size + cell_off
+    s_off: int = cell_offsets[nz_cell] + cell_off
+    chunk_count: int = cell_counts[s_cell] - cell_off
+    if chunk_count <= 0:
+        return
+    if chunk_count > cell_chunk_size:
+        chunk_count = cell_chunk_size
     # declare shared memory array
     shmem_w: pk.ScratchView3D[pk.float] = pk.ScratchView3D(
         team_member.team_scratch(0), cell_chunk_size, window_P, 3
@@ -618,7 +632,7 @@ def p2g_hybrid_fp32(
                 shmem_w[ii][r][1] = _basic_kaiser_poly_p2_fp32(d_y, r)
                 shmem_w[ii][r][2] = _basic_kaiser_poly_p2_fp32(d_z, r)
 
-    pk.parallel_for(pk.TeamThreadRange(team_member, cell_chunk_size), source_loop)
+    pk.parallel_for(pk.TeamThreadRange(team_member, chunk_count), source_loop)
     team_member.team_barrier()
 
     def target_loop(ll: int):
@@ -652,11 +666,7 @@ def p2g_hybrid_fp32(
         if t_x >= H_shape[0] or t_y >= H_shape[1] or t_z >= H_shape[2]:
             return
         pot: List[pk.float] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-        _range_bound: int = (cell_chunk_size + cell_off) < cell_size
-        _range: int = (_range_bound) * cell_chunk_size + (not _range_bound) * (
-            cell_size - cell_off
-        )
-        for ii in range(_range):
+        for ii in range(chunk_count):
             # TODO: simplify this integer arithmatic
             bin_x: int = t_x - shmem_a[ii][0]
             bin_x += (bin_x < 0) * H_shape[0]
@@ -763,15 +773,17 @@ def p2g_hybrid_sans_normals_fp32(
     H_shape: pk.View1D[pk.int64],
     window_P: int,
     periodicity: int,
-    cell_size: int,
+    cell_offsets: pk.View1D[int],
     num_cells: pk.View1D[int],
     nonempty_cell_index: pk.View1D[int],
+    cell_counts: pk.View1D[int],
     cell_index: pk.View1D[int],
     threads: int,
     dim_f: int,
     dim_H: int,
     cell_chunk_size: int,
-    chunks_per_cell: int,
+    team_cells: pk.View1D[int],
+    cell_teams: pk.View1D[int],
 ):
     """
     args:
@@ -783,7 +795,7 @@ def p2g_hybrid_sans_normals_fp32(
         H_shape: shape of the Fourier grid
         window_P: int, window function support in grid points
         periodicity: int, periodicity of the problem
-        cell_size: int, number of source particles in a cell
+        cell_offsets: start and end offsets of stored source cells
         num_cells: (3), number of cells in each spatial direction
         nonempty_cell_index: cell index -> nonempty cell index map
         cell_index: nonempty cell index -> cell index map
@@ -800,14 +812,20 @@ def p2g_hybrid_sans_normals_fp32(
     po2_cubed: int = po2_sqr * po2
     num_cells12: int = num_cells[1] * num_cells[2]
 
-    nz_cell: int = team_member.league_rank() // chunks_per_cell
-    cell_chunk: int = team_member.league_rank() % chunks_per_cell
+    team: int = team_member.league_rank()
+    nz_cell: int = team_cells[team]
+    cell_chunk: int = team - cell_teams[nz_cell]
     s_cell: int = cell_index[nz_cell]
     s_cell_x: int = s_cell // num_cells12
     s_cell_y: int = (s_cell % num_cells12) // num_cells[2]
     s_cell_z: int = (s_cell % num_cells12) % num_cells[2]
     cell_off: int = cell_chunk * cell_chunk_size
-    s_off: int = nz_cell * cell_size + cell_off
+    s_off: int = cell_offsets[nz_cell] + cell_off
+    chunk_count: int = cell_counts[s_cell] - cell_off
+    if chunk_count <= 0:
+        return
+    if chunk_count > cell_chunk_size:
+        chunk_count = cell_chunk_size
     # declare shared memory array
     shmem_w: pk.ScratchView3D[pk.float] = pk.ScratchView3D(
         team_member.team_scratch(0), cell_chunk_size, window_P, 3
@@ -882,7 +900,7 @@ def p2g_hybrid_sans_normals_fp32(
                 shmem_w[ii][r][1] = _basic_kaiser_poly_p2_fp32(d_y, r)
                 shmem_w[ii][r][2] = _basic_kaiser_poly_p2_fp32(d_z, r)
 
-    pk.parallel_for(pk.TeamThreadRange(team_member, cell_chunk_size), source_loop)
+    pk.parallel_for(pk.TeamThreadRange(team_member, chunk_count), source_loop)
     team_member.team_barrier()
 
     def target_loop(ll: int):
@@ -916,11 +934,7 @@ def p2g_hybrid_sans_normals_fp32(
         if t_x >= H_shape[0] or t_y >= H_shape[1] or t_z >= H_shape[2]:
             return
         pot: List[pk.float] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-        _range_bound: int = (cell_chunk_size + cell_off) < cell_size
-        _range: int = (_range_bound) * cell_chunk_size + (not _range_bound) * (
-            cell_size - cell_off
-        )
-        for ii in range(_range):
+        for ii in range(chunk_count):
             # TODO: simplify this integer arithmatic
             bin_x: int = t_x - shmem_a[ii][0]
             bin_x += (bin_x < 0) * H_shape[0]
@@ -2139,8 +2153,9 @@ def p2g_source_fp64(
     ny: int,
     window_P: int,
     periodicity: int,
-    cell_size: int,
-    cell_teams: int,
+    cell_offsets: pk.View1D[int],
+    team_cells: pk.View1D[int],
+    cell_teams: pk.View1D[int],
     threads: int,
 ):
     """
@@ -2154,20 +2169,23 @@ def p2g_source_fp64(
         ny: int, number of source particles
         window_P: int, window function support in grid points
         periodicity: int, periodicity of the problem
-        cell_size: int, number of source particles in a cell
-        cell_teams: int, number of teams assigned to a cell
+        cell_offsets: start and end offsets of stored source cells
+        cell_teams: first team assigned to each stored cell
         threads: int, threads per team
     """
     po2: int = window_P / 2
-    nz_cell: int = team_member.league_rank() // cell_teams
-    cell_team: int = team_member.league_rank() % cell_teams
+    team: int = team_member.league_rank()
+    nz_cell: int = team_cells[team]
+    cell_team: int = team - cell_teams[nz_cell]
     cell_off: int = cell_team * threads
-    s_off: int = nz_cell * cell_size + cell_off
+    s_off: int = cell_offsets[nz_cell] + cell_off
 
     def thread_loop(tid: int):
-        if cell_off + tid >= cell_size:
-            return
         s: int = s_off + tid
+        if s >= cell_offsets[nz_cell + 1]:
+            return
+        if yj[0][s] < 0:
+            return
         # get source position
         s_x: pk.double = yj[0][s]
         s_y: pk.double = yj[1][s]
@@ -2279,9 +2297,10 @@ def p2g_grid_fp64(
     H_shape: pk.View1D[pk.int64],
     window_P: int,
     periodicity: int,
-    cell_size: int,
+    cell_offsets: pk.View1D[int],
     num_cells: pk.View1D[int],
     nonempty_cell_index: pk.View1D[int],
+    cell_counts: pk.View1D[int],
     threads: int,
 ):
     """
@@ -2294,7 +2313,7 @@ def p2g_grid_fp64(
         H_shape: shape of the Fourier grid
         window_P: int, window function support in grid points
         periodicity: int, periodicity of the problem
-        cell_size: int, number of source particles in a cell
+        cell_offsets: start and end offsets of stored source cells
         num_cells: (3), number of cells in each spatial direction
         nonempty_cell_index: cell index -> nonempty cell index map
         threads: int, threads per team
@@ -2340,8 +2359,8 @@ def p2g_grid_fp64(
             nz_cell: int = nonempty_cell_index[s_cell]
             if nz_cell < 0:
                 continue
-            s_off: int = nz_cell * cell_size
-            for s in range(s_off, s_off + cell_size):
+            s_off: int = cell_offsets[nz_cell]
+            for s in range(s_off, s_off + cell_counts[s_cell]):
                 w: pk.double = naive_window_kernel_fp64(
                     s, t_x, t_y, t_z, periodicity, pp, po2, yj, H_shape
                 )
@@ -2371,9 +2390,10 @@ def p2g_grid_sans_normals_fp64(
     H_shape: pk.View1D[pk.int64],
     window_P: int,
     periodicity: int,
-    cell_size: int,
+    cell_offsets: pk.View1D[int],
     num_cells: pk.View1D[int],
     nonempty_cell_index: pk.View1D[int],
+    cell_counts: pk.View1D[int],
     threads: int,
     dim_f: int,
     dim_H: int,
@@ -2387,7 +2407,7 @@ def p2g_grid_sans_normals_fp64(
         H_shape: shape of the Fourier grid
         window_P: int, window function support in grid points
         periodicity: int, periodicity of the problem
-        cell_size: int, number of source particles in a cell
+        cell_offsets: start and end offsets of stored source cells
         num_cells: (3), number of cells in each spatial direction
         nonempty_cell_index: cell index -> nonempty cell index map
         threads: int, threads per team
@@ -2435,8 +2455,8 @@ def p2g_grid_sans_normals_fp64(
             nz_cell: int = nonempty_cell_index[s_cell]
             if nz_cell < 0:
                 continue
-            s_off: int = nz_cell * cell_size
-            for s in range(s_off, s_off + cell_size):
+            s_off: int = cell_offsets[nz_cell]
+            for s in range(s_off, s_off + cell_counts[s_cell]):
                 w: pk.double = naive_window_kernel_fp64(
                     s, t_x, t_y, t_z, periodicity, pp, po2, yj, H_shape
                 )
@@ -2470,15 +2490,17 @@ def p2g_hybrid_fp64(
     H_shape: pk.View1D[pk.int64],
     window_P: int,
     periodicity: int,
-    cell_size: int,
+    cell_offsets: pk.View1D[int],
     num_cells: pk.View1D[int],
     nonempty_cell_index: pk.View1D[int],
+    cell_counts: pk.View1D[int],
     cell_index: pk.View1D[int],
     threads: int,
     dim_f: int,
     dim_H: int,
     cell_chunk_size: int,
-    chunks_per_cell: int,
+    team_cells: pk.View1D[int],
+    cell_teams: pk.View1D[int],
 ):
     """
     args:
@@ -2490,7 +2512,7 @@ def p2g_hybrid_fp64(
         H_shape: shape of the Fourier grid
         window_P: int, window function support in grid points
         periodicity: int, periodicity of the problem
-        cell_size: int, number of source particles in a cell
+        cell_offsets: start and end offsets of stored source cells
         num_cells: (3), number of cells in each spatial direction
         nonempty_cell_index: cell index -> nonempty cell index map
         cell_index: nonempty cell index -> cell index map
@@ -2509,14 +2531,20 @@ def p2g_hybrid_fp64(
     po2_cubed: int = po2_sqr * po2
     num_cells12: int = num_cells[1] * num_cells[2]
 
-    nz_cell: int = team_member.league_rank() // chunks_per_cell
-    cell_chunk: int = team_member.league_rank() % chunks_per_cell
+    team: int = team_member.league_rank()
+    nz_cell: int = team_cells[team]
+    cell_chunk: int = team - cell_teams[nz_cell]
     s_cell: int = cell_index[nz_cell]
     s_cell_x: int = s_cell // num_cells12
     s_cell_y: int = (s_cell % num_cells12) // num_cells[2]
     s_cell_z: int = (s_cell % num_cells12) % num_cells[2]
     cell_off: int = cell_chunk * cell_chunk_size
-    s_off: int = nz_cell * cell_size + cell_off
+    s_off: int = cell_offsets[nz_cell] + cell_off
+    chunk_count: int = cell_counts[s_cell] - cell_off
+    if chunk_count <= 0:
+        return
+    if chunk_count > cell_chunk_size:
+        chunk_count = cell_chunk_size
     # declare shared memory array
     shmem_w: pk.ScratchView3D[pk.double] = pk.ScratchView3D(
         team_member.team_scratch(0), cell_chunk_size, window_P, 3
@@ -2593,7 +2621,7 @@ def p2g_hybrid_fp64(
                 shmem_w[ii][r][1] = _basic_kaiser_poly_p2_fp64(d_y, r)
                 shmem_w[ii][r][2] = _basic_kaiser_poly_p2_fp64(d_z, r)
 
-    pk.parallel_for(pk.TeamThreadRange(team_member, cell_chunk_size), source_loop)
+    pk.parallel_for(pk.TeamThreadRange(team_member, chunk_count), source_loop)
     team_member.team_barrier()
 
     def target_loop(ll: int):
@@ -2627,11 +2655,7 @@ def p2g_hybrid_fp64(
         if t_x >= H_shape[0] or t_y >= H_shape[1] or t_z >= H_shape[2]:
             return
         pot: List[pk.double] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-        _range_bound: int = (cell_chunk_size + cell_off) < cell_size
-        _range: int = (_range_bound) * cell_chunk_size + (not _range_bound) * (
-            cell_size - cell_off
-        )
-        for ii in range(_range):
+        for ii in range(chunk_count):
             # TODO: simplify this integer arithmatic
             bin_x: int = t_x - shmem_a[ii][0]
             bin_x += (bin_x < 0) * H_shape[0]
@@ -2738,15 +2762,17 @@ def p2g_hybrid_sans_normals_fp64(
     H_shape: pk.View1D[pk.int64],
     window_P: int,
     periodicity: int,
-    cell_size: int,
+    cell_offsets: pk.View1D[int],
     num_cells: pk.View1D[int],
     nonempty_cell_index: pk.View1D[int],
+    cell_counts: pk.View1D[int],
     cell_index: pk.View1D[int],
     threads: int,
     dim_f: int,
     dim_H: int,
     cell_chunk_size: int,
-    chunks_per_cell: int,
+    team_cells: pk.View1D[int],
+    cell_teams: pk.View1D[int],
 ):
     """
     args:
@@ -2758,7 +2784,7 @@ def p2g_hybrid_sans_normals_fp64(
         H_shape: shape of the Fourier grid
         window_P: int, window function support in grid points
         periodicity: int, periodicity of the problem
-        cell_size: int, number of source particles in a cell
+        cell_offsets: start and end offsets of stored source cells
         num_cells: (3), number of cells in each spatial direction
         nonempty_cell_index: cell index -> nonempty cell index map
         cell_index: nonempty cell index -> cell index map
@@ -2775,14 +2801,20 @@ def p2g_hybrid_sans_normals_fp64(
     po2_cubed: int = po2_sqr * po2
     num_cells12: int = num_cells[1] * num_cells[2]
 
-    nz_cell: int = team_member.league_rank() // chunks_per_cell
-    cell_chunk: int = team_member.league_rank() % chunks_per_cell
+    team: int = team_member.league_rank()
+    nz_cell: int = team_cells[team]
+    cell_chunk: int = team - cell_teams[nz_cell]
     s_cell: int = cell_index[nz_cell]
     s_cell_x: int = s_cell // num_cells12
     s_cell_y: int = (s_cell % num_cells12) // num_cells[2]
     s_cell_z: int = (s_cell % num_cells12) % num_cells[2]
     cell_off: int = cell_chunk * cell_chunk_size
-    s_off: int = nz_cell * cell_size + cell_off
+    s_off: int = cell_offsets[nz_cell] + cell_off
+    chunk_count: int = cell_counts[s_cell] - cell_off
+    if chunk_count <= 0:
+        return
+    if chunk_count > cell_chunk_size:
+        chunk_count = cell_chunk_size
     # declare shared memory array
     shmem_w: pk.ScratchView3D[pk.double] = pk.ScratchView3D(
         team_member.team_scratch(0), cell_chunk_size, window_P, 3
@@ -2857,7 +2889,7 @@ def p2g_hybrid_sans_normals_fp64(
                 shmem_w[ii][r][1] = _basic_kaiser_poly_p2_fp64(d_y, r)
                 shmem_w[ii][r][2] = _basic_kaiser_poly_p2_fp64(d_z, r)
 
-    pk.parallel_for(pk.TeamThreadRange(team_member, cell_chunk_size), source_loop)
+    pk.parallel_for(pk.TeamThreadRange(team_member, chunk_count), source_loop)
     team_member.team_barrier()
 
     def target_loop(ll: int):
@@ -2891,11 +2923,7 @@ def p2g_hybrid_sans_normals_fp64(
         if t_x >= H_shape[0] or t_y >= H_shape[1] or t_z >= H_shape[2]:
             return
         pot: List[pk.double] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-        _range_bound: int = (cell_chunk_size + cell_off) < cell_size
-        _range: int = (_range_bound) * cell_chunk_size + (not _range_bound) * (
-            cell_size - cell_off
-        )
-        for ii in range(_range):
+        for ii in range(chunk_count):
             # TODO: simplify this integer arithmatic
             bin_x: int = t_x - shmem_a[ii][0]
             bin_x += (bin_x < 0) * H_shape[0]

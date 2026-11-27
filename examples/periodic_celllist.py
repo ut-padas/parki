@@ -31,11 +31,11 @@ def main(args):
 
     # loop over nonempty x-cells
     for cell_ne in range(x_list.num_nonempty_cells):
-        off_x = cell_ne * x_list.cell_size
+        off_x, end_x = map(int, x_list.cell_offsets[cell_ne : cell_ne + 2])
         cell = x_list.nonempty_cells[cell_ne]
 
         # loop over x-particles within a cell
-        for ii in range(off_x, off_x + x_list.cell_size):
+        for ii in range(off_x, end_x):
             i = x_list.particle_index[ii]
             if i == -1:
                 continue
@@ -45,10 +45,10 @@ def main(args):
                 neighbor = y_list.nonempty_neighbors[cell, k].get()
                 if neighbor == -1:
                     continue
-                off_y = neighbor * y_list.cell_size
+                off_y, end_y = map(int, y_list.cell_offsets[neighbor : neighbor + 2])
 
                 # loop over y-particles within a neighbor
-                for jj in range(off_y, off_y + y_list.cell_size):
+                for jj in range(off_y, end_y):
                     j = y_list.particle_index[jj]
                     if j == -1:
                         continue

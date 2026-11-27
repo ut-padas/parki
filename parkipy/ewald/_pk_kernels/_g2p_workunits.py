@@ -143,8 +143,9 @@ def g2p_target_fp32(
     hhh: float,
     threads: int,
     x_index: pk.View1D[int],
-    cell_size: int,
-    cell_teams: int,
+    cell_offsets: pk.View1D[int],
+    team_cells: pk.View1D[int],
+    cell_teams: pk.View1D[int],
 ):
     """
     args:
@@ -159,17 +160,18 @@ def g2p_target_fp32(
         threads: int, number of threads per team
         x_index: int, mapping from cell list order
             to original list order
-        cell_size: int, x cell list cell size
-        cell_teams: int, teams assigned to each cell
+        cell_offsets: start and end offsets of stored target cells
+        cell_teams: first team assigned to each stored cell
     """
     po2: int = window_P / 2
-    nz_cell: int = team_member.league_rank() // cell_teams
-    cell_team: int = team_member.league_rank() % cell_teams
+    team: int = team_member.league_rank()
+    nz_cell: int = team_cells[team]
+    cell_team: int = team - cell_teams[nz_cell]
     cell_off: int = cell_team * threads
-    ioff: int = nz_cell * cell_size + cell_off
+    ioff: int = cell_offsets[nz_cell] + cell_off
 
     def thread_loop(ii: int):
-        if cell_off + ii >= cell_size:
+        if ioff + ii >= cell_offsets[nz_cell + 1]:
             return
         t: int = ioff + ii
         t_glb: int = x_index[t]
@@ -1125,8 +1127,9 @@ def g2p_target_fp64(
     hhh: float,
     threads: int,
     x_index: pk.View1D[int],
-    cell_size: int,
-    cell_teams: int,
+    cell_offsets: pk.View1D[int],
+    team_cells: pk.View1D[int],
+    cell_teams: pk.View1D[int],
 ):
     """
     args:
@@ -1141,17 +1144,18 @@ def g2p_target_fp64(
         threads: int, number of threads per team
         x_index: int, mapping from cell list order
             to original list order
-        cell_size: int, x cell list cell size
-        cell_teams: int, teams assigned to each cell
+        cell_offsets: start and end offsets of stored target cells
+        cell_teams: first team assigned to each stored cell
     """
     po2: int = window_P / 2
-    nz_cell: int = team_member.league_rank() // cell_teams
-    cell_team: int = team_member.league_rank() % cell_teams
+    team: int = team_member.league_rank()
+    nz_cell: int = team_cells[team]
+    cell_team: int = team - cell_teams[nz_cell]
     cell_off: int = cell_team * threads
-    ioff: int = nz_cell * cell_size + cell_off
+    ioff: int = cell_offsets[nz_cell] + cell_off
 
     def thread_loop(ii: int):
-        if cell_off + ii >= cell_size:
+        if ioff + ii >= cell_offsets[nz_cell + 1]:
             return
         t: int = ioff + ii
         t_glb: int = x_index[t]

@@ -41,10 +41,11 @@ class CellList:
         box,
         execution_space=None,
         forces=None,
-        padding_factor=1,
+        padding_factor=None,
         skip_empty_cells=True,
         periodicity=0,
         build_nonempty_neighbors=True,
+        variable_cell_size=True,
     ):
         """
         Creates a new CellList object.
@@ -67,17 +68,18 @@ class CellList:
               a particle, such that each force array is of *either* shape `(k,n)`,
               where the dimension `k` is specific to the force,
               *or* shape `(r,k,n)` where `r` is some batched dimension.
-            - `padding_factor`: Positive integer such that the common cell list
-              size will be a multiple of `padding_factor`. Defualts to `1`.
+            - `padding_factor`: Positive integer alignment in particle slots.
+              Defaults to the GPU warp size (32 on CUDA, 64 on HIP) or 1 on CPU.
             - `skip_empty_cells`: If false, every cell is treated as nonempty.
             - `periodicity`: Integer 0–3 specifying periodic boundary conditions.
               0 = no periodicity, 1 = periodic in x only, 2 = periodic in x and y,
               3 = periodic in x, y, and z. Defaults to 0.
             - `build_nonempty_neighbors`: Boolean flag to build nonempty neighbor list
+            - `variable_cell_size`: Pad each cell separately (default). If false,
+              give every stored cell the capacity of the largest padded cell.
 
-        Cell lists are of size `self.num_nonempty_cells * self.cell_size`,
-        where the *nonempty* cell index ranges the slowest and the particles
-        in cell index ranges the fastes.
+        For stored cell `i`, use `cell_offsets[i:i+2]` to find its range
+        in the flat particle and force lists.
         """
         # parse inputs
         self._dtype = particles.dtype
@@ -144,6 +146,12 @@ class CellList:
                 "particles dtype must be `float32` or `float64`,"
                 f" got {self.particles.dtype}."
             )
+        if padding_factor is None:
+            padding_factor = (
+                1
+                if pk.is_host_execution_space(self.execution_space)
+                else int(self.am.cuda.Device().attributes["WarpSize"])
+            )
         if not isinstance(padding_factor, int) or padding_factor < 1:
             raise ValueError(
                 "Expected `padding_factor` to be a positive integer,"
@@ -153,7 +161,6 @@ class CellList:
         # count particles in cells
         self._cell_grid_shape = (self.box / self.cutoff).astype(self.am.int32)
         self._num_cells = int(self.cell_grid_shape.prod())
-        self._counter = self.am.zeros(shape=self.num_cells, dtype=self.am.int32)
         cell_shape = self.box / self.cell_grid_shape
         cell_x, cell_y, cell_z = particles // cell_shape[:, None]
         cell = (
@@ -166,14 +173,14 @@ class CellList:
         self._counter = self.am.bincount(cell, minlength=self.num_cells).astype(
             self.am.int32
         )
-        nonempty_cells = self.am.nonzero(self._counter)[0].astype(self.am.int32)
-        cell_sizes = self._counter[nonempty_cells]
-
-        # create lists
+        # Create the offsets in stored-cell order.
         max_cell_size = self.counter.max().item()
         self._cell_size = math.ceil(max_cell_size / padding_factor) * padding_factor
-        self._nonempty_cells = nonempty_cells
-        if not self.skip_empty_cells:
+        if self.skip_empty_cells:
+            self._nonempty_cells = self.am.nonzero(self.counter)[0].astype(
+                self.am.int32
+            )
+        else:
             self._nonempty_cells = self.am.arange(self.num_cells, dtype=self.am.int32)
         self._num_nonempty_cells = len(self.nonempty_cells)
         self._nonempty_cell_index = self.am.full(
@@ -182,7 +189,22 @@ class CellList:
         self._nonempty_cell_index[self.nonempty_cells] = self.am.arange(
             self.num_nonempty_cells
         )
-        list_len = self.num_nonempty_cells * self.cell_size
+        self._cell_offsets = self.am.empty(
+            self.num_nonempty_cells + 1, dtype=self.am.int32
+        )
+        self._cell_offsets[0] = 0
+        if variable_cell_size:
+            counts = self.counter[self.nonempty_cells].astype(self.am.int64)
+            sizes = ((counts + padding_factor - 1) // padding_factor) * padding_factor
+            ends = sizes.cumsum()
+            list_len = int(ends[-1])
+        else:
+            list_len = self.num_nonempty_cells * self.cell_size
+        if list_len > np.iinfo(np.int32).max:
+            raise OverflowError("Cell list exceeds the 32-bit particle indexing limit.")
+        if not variable_cell_size:
+            ends = self.am.arange(1, self.num_nonempty_cells + 1) * self.cell_size
+        self._cell_offsets[1:] = ends
         self._particle_list = self.am.full(
             shape=(d, list_len), fill_value=-1, dtype=self.particles.dtype
         )
@@ -201,9 +223,8 @@ class CellList:
             l2g=self._particle_index,
             p=self.particles,
             cell2nz=self.nonempty_cell_index,
-            rc=self.cutoff,
-            box=self.box,
-            cell_size=self.cell_size,
+            particle_cells=cell,
+            cell_offsets=self.cell_offsets,
             dp=d,
         )
         mask = self.particle_index >= 0
@@ -281,6 +302,7 @@ class CellList:
                 f" or an `ndarray`, got {type(forces)}"
             )
 
+        self._nonempty_neighbors = None
         if build_nonempty_neighbors:
             # nonempty neighbors
             self._create_nonempty_neighbors()
@@ -307,7 +329,7 @@ class CellList:
 
         When `self.forces` is an `ndarray` of shape `(r, k, N)`
         (batched forces), `self.force_list` has shape
-        `(r, k, num_nonempty_cells * cell_size)` and can be
+        `(r, k, cell_offsets[-1])` and can be
         indexed as `force_list[:, :, jj]` to retrieve all
         batch/channel values for the particle at list position `jj`.
 
@@ -404,15 +426,30 @@ class CellList:
     @property
     def cell_size(self):
         """
-        Size of each cell. Read-only.
+        Maximum padded cell capacity. Read-only.
         """
         return self._cell_size
 
     @property
+    def cell_offsets(self):
+        """Starts of stored cells, followed by the total padded length."""
+        return self._cell_offsets
+
+    def _team_chunks(self, chunk_size):
+        """Map each team to its stored cell and each cell to its first team."""
+        sizes = self.cell_offsets[1:] - self.cell_offsets[:-1]
+        counts = (sizes - 1) // chunk_size + 1
+        starts = self.am.empty_like(self.cell_offsets)
+        starts[0] = 0
+        starts[1:] = counts.cumsum(dtype=self.am.int32)
+        ranks = self.am.arange(int(starts[-1]), dtype=self.am.int32)
+        cells = self.am.searchsorted(starts[1:], ranks, side="right")
+        return cells.astype(self.am.int32, copy=False), starts
+
+    @property
     def counter(self):
         """
-        An array of size `n` containing the number of particles per cell,
-        where `n` is the number of particles.
+        Number of particles in each global cell, excluding padding.
         Read-only.
         """
         return self._counter

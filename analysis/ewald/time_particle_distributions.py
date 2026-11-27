@@ -1,12 +1,54 @@
 import os
 import time
-import math
 import argparse
 import numpy as np
-import pykokkos as pk
 import pickle
 
 import parkipy
+from parkipy.ewald import _ewald
+
+
+def measure_cell_lists(call):
+    """Record logical allocations at each cell list construction."""
+    cell_list = _ewald.CellList
+    storage = []
+
+    class MeasuredCellList(cell_list):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            forces = kwargs.get("forces")
+            arrays = [
+                self.particle_list,
+                self.particle_index,
+                self.counter,
+                self.nonempty_cells,
+                self.nonempty_cell_index,
+                getattr(self, "cell_offsets", None),
+            ]
+            if forces is not None:
+                arrays.extend(
+                    self.force_list if isinstance(forces, tuple) else (self.force_list,)
+                )
+            self._measurement = [
+                sum(array.nbytes for array in arrays if array is not None)
+            ]
+            storage.append(self._measurement)
+
+        def _team_chunks(self, chunk_size):
+            chunks = super()._team_chunks(chunk_size)
+            self._measurement[0] += sum(array.nbytes for array in chunks)
+            return chunks
+
+    _ewald.CellList = MeasuredCellList
+    try:
+        result = call()
+    finally:
+        _ewald.CellList = cell_list
+    return result, {
+        "p2p": sum(storage[0] + storage[1]),
+        "p2g": storage[2][0],
+        "g2p": storage[3][0],
+    }
 
 
 def main(args):
@@ -15,11 +57,10 @@ def main(args):
     file. `args.nt` will be a list of integers, and we run `run()` with each of
     these integers as the number of targets.
     """
-    nt_list = [4000000]
-    repeats = 3
+    nt_list = args.nt
+    repeats = args.repeats
     all_times = dict()
     all_memory = dict()
-    threads = [32, 64, 128, 256]
     distributions = [
         "uniform-uniform",
         "gaussian-gaussian",
@@ -30,17 +71,21 @@ def main(args):
     for distribution in distributions:
         print(f"::::::::: distribution={distribution}")
         all_times[distribution] = {}
+        all_memory[distribution] = {}
         args.distribution = distribution
         for i, nt in enumerate(nt_list):
             args.nt = nt
-            ns = args.nt * args.up
             print(f":: Running Nt={nt}")
             for j in range(repeats):
                 tot_times = []
-                for nthreads in threads:
+                for nthreads in args.threads_list:
                     print(f":::: Running threads={nthreads}")
                     args.threads = nthreads
-                    potential, times = run(args, time_every_step=True, verbosity=1)
+                    if j == 0 and nthreads == args.threads_list[0]:
+                        (_, times), storage = measure_cell_lists(lambda: run(args))
+                        all_memory[distribution][nt] = storage
+                    else:
+                        _, times = run(args)
                     tot_times.append(times)
                 print(f"   {j+1}th pass done (out of {repeats})")
                 # Initialize arrays for storing runtimes and memory
@@ -56,19 +101,15 @@ def main(args):
                         new_time = val["tot"]
                         if new_time < old_time:
                             all_times[distribution][key][j, i] = val["tot"]
-    save_times_to_disk(nt_list, repeats, all_times, args)
+    save_times_to_disk(nt_list, repeats, all_times, all_memory, args)
     return
 
 
-def save_times_to_disk(nt, repeats, times, args):
+def save_times_to_disk(nt, repeats, times, memory, args):
     now_str = time.strftime("%y%m%dT%H%M%S%Z")
     format_version = 1
-    if args.device.upper() == "OPENMP":
-        args.device = "host"
     if args.device.upper() == "HOST":
-        import platform
-
-        arch = platform.processor()
+        arch = None
     else:
         import cupy as cp
 
@@ -81,12 +122,14 @@ def save_times_to_disk(nt, repeats, times, args):
     fname_link = fname_base + "_latest.pkl"
     fpath = os.path.join(args.output_dir, fname)
     fpath_link = os.path.join(args.output_dir, fname_link)
+    os.makedirs(args.output_dir, exist_ok=True)
     with open(fpath, "wb") as f:
         pickle.dump(
             {
                 "nt": nt,
                 "repeats": repeats,
                 "times": times,
+                "memory": memory,
                 "args": args,
             },
             f,
@@ -98,18 +141,16 @@ def save_times_to_disk(nt, repeats, times, args):
     return
 
 
-def sample_gaussian(box, c, n):
+def sample_gaussian(box, c, n, am):
     """
     rejects points outside of the box
     """
-    am = parkipy.utils.get_array_module(args.device)
     lx, ly, lz = box
     center = am.array([lx / 2, ly / 2, lz / 2])
     lower = am.array([0.0, 0.0, 0.0])
     upper = am.array([lx, ly, lz])
 
     points = am.empty((3, n))
-    i = 0
     num_accepted = 0
     while num_accepted < n:
         samples = am.random.normal(loc=0.0, scale=c, size=(3, n)) + center.reshape(3, 1)
@@ -122,7 +163,6 @@ def sample_gaussian(box, c, n):
             :, :num_new_samples
         ]
         num_accepted += num_new_samples
-        i += 1
 
     return points
 
@@ -133,9 +173,12 @@ def sample_unit_sphere_surface(n):
     return points
 
 
-def run(args, time_every_step=False, verbosity=0) -> None:
+def run(args):
     # input arguments
     am = parkipy.utils.get_array_module(args.device)
+    np.random.seed(args.seed)
+    if am is not np:
+        am.random.seed(args.seed)
     nt = args.nt
     box = np.array([1.0, 1.0, 1.0])
 
@@ -153,7 +196,7 @@ def run(args, time_every_step=False, verbosity=0) -> None:
         match dis.upper():
             case "GAUSSIAN":
                 c = 0.3
-                arr = sample_gaussian(box, c, n)
+                arr = sample_gaussian(box, c, n, am)
             case "ELLIPSOID":
                 arr = sample_unit_sphere_surface(n)
                 arr = cp.asarray(arr)
@@ -187,6 +230,9 @@ def run(args, time_every_step=False, verbosity=0) -> None:
         g2p_threads=args.threads,
         p2p_threads_x=args.threads,
     )
+    if am is not np:
+        am.cuda.Device().synchronize()
+    start = time.perf_counter()
     pot, walltimes = parkipy.ewald.stokes_comb(
         trg,
         src,
@@ -194,6 +240,8 @@ def run(args, time_every_step=False, verbosity=0) -> None:
         norms,
         options,
     )
+    if am is not np:
+        am.cuda.Device().synchronize()
     times = {
         "p2p": walltimes.time_p2p,
         "p2g": walltimes.time_p2g,
@@ -201,6 +249,7 @@ def run(args, time_every_step=False, verbosity=0) -> None:
         "cnv": walltimes.time_cnv,
         "ifft": walltimes.time_ifft,
         "g2p": walltimes.time_g2p,
+        "total": {"tot": time.perf_counter() - start},
     }
 
     # Compute and store runtimes in dict
@@ -214,9 +263,6 @@ if __name__ == "__main__":
         "Results are saved to `distributions_timing_result_up{args.up}"
         "_clsz{args.cell_size}_tol{args.tolerance}_dev{args.device.upper()}"
         "_arch{arch}_v{format_version}."
-    )
-    parser = argparse.ArgumentParser(
-        description="Scaling test for the Spectral Ewald code on a GPU."
     )
     parser.add_argument(
         "--up",
@@ -252,7 +298,21 @@ if __name__ == "__main__":
         default=1e-4,
         help="Spectral Ewald tolerance",
     )
+    parser.add_argument("--nt", nargs="+", type=int, default=[4_000_000])
+    parser.add_argument("--repeats", type=int, default=3)
+    parser.add_argument(
+        "--threads",
+        dest="threads_list",
+        nargs="+",
+        type=int,
+        default=[32, 64, 128, 256],
+    )
+    parser.add_argument("--seed", type=int, default=2026)
 
     args = parser.parse_args()
+    if min(args.nt) < 1 or min(args.threads_list) < 1 or args.repeats < 2:
+        parser.error(
+            "Particle and thread counts must be positive, with at least two repeats."
+        )
     main(args)
     exit()
