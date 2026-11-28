@@ -276,11 +276,11 @@ source particle:
  
    # Loop over non-empty x-cells
    for cell_ne in range(x_list.num_nonempty_cells):
-       off_x = cell_ne * x_list.cell_size
+       off_x, end_x = map(int, x_list.cell_offsets[cell_ne:cell_ne + 2])
        cell  = x_list.nonempty_cells[cell_ne]
  
        # Loop over x-particles in this cell
-       for ii in range(off_x, off_x + x_list.cell_size):
+       for ii in range(off_x, end_x):
            i = x_list.particle_index[ii]
            if i == -1:
                continue   # padded slot — skip
@@ -291,10 +291,10 @@ source particle:
                if neighbor == -1:
                    continue   # no neighbour in this direction
  
-               off_y = neighbor * y_list.cell_size
+               off_y, end_y = map(int, y_list.cell_offsets[neighbor:neighbor + 2])
  
                # Loop over y-particles in the neighbour cell
-               for jj in range(off_y, off_y + y_list.cell_size):
+               for jj in range(off_y, end_y):
                    j = y_list.particle_index[jj]
                    if j == -1:
                        continue
@@ -320,10 +320,13 @@ Key attributes of :class:`~parkipy.CellList`:
      - 1-D index array mapping the non-empty cell enumeration to the global
        cell index.
    * - ``cell_size``
-     - Maximum number of particles per cell (padded with ``-1`` sentinels).
+     - Maximum padded capacity across all cells.
+   * - ``cell_offsets``
+     - Start of each stored cell, followed by the length of the flat list.
+       Cell capacity is rounded up to the GPU warp size by default.
    * - ``particle_index``
-     - Flat array of particle indices. Slice ``[off : off + cell_size]`` to
-       get the particles in a given cell. Entries of ``-1`` are padding.
+     - Flat array of particle indices. Slice between consecutive cell offsets
+       to get the particles in a cell. Entries of ``-1`` are padding.
    * - ``nonempty_neighbors``
      - ``(num_cells, 27)`` array of neighbour cell indices. An entry of
        ``-1`` means no non-empty neighbour exists in that direction.

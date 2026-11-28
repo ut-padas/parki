@@ -320,15 +320,17 @@ def p2p_stokes_comb_gm1d_P2P(
     team_member: pk.TeamMember,
     t_cell_chunk_size: int,
     t_list2global: pk.View1D[int],
-    t_cell_size: int,
+    t_cell_offsets: pk.View1D[int],
+    t_team_cells: pk.View1D[int],
+    t_cell_teams: pk.View1D[int],
+    t_counter: pk.View1D[int],
     nz2t_cell_map: pk.View1D[int],
     num_cells_shape: List[int],
     dim_out: int,
-    nnz_t_cells: int,
     targets_list: pk.View2D[pk.double],
     s_counter: pk.View1D[int],
     s2nz_cell_map: pk.View1D[int],
-    s_cell_size: int,
+    s_cell_offsets: pk.View1D[int],
     rc_squared: pk.double,
     potentials: pk.View2D[pk.double],
     forces_list: pk.View2D[pk.double],
@@ -357,11 +359,16 @@ def p2p_stokes_comb_gm1d_P2P(
     m_c1_C_term1: pk.double = c1 * C_term1
     m_xi_squared_2: pk.double = xi_squared * 2
 
-    t_off: int = team_member.league_rank() * t_cell_chunk_size
+    team: int = team_member.league_rank()
+    nz_t_cell: int = t_team_cells[team]
+    t_cell_off: int = (team - t_cell_teams[nz_t_cell]) * t_cell_chunk_size
+    t_off: int = t_cell_offsets[nz_t_cell] + t_cell_off
+    t_cell: int = nz2t_cell_map[nz_t_cell]
+    nt_cell: int = t_counter[t_cell]
 
     def thread_loop(tid: int):
         t: int = t_off + tid
-        if t >= nnz_t_cells * t_cell_size:
+        if t_cell_off + tid >= nt_cell:
             return
         t_idx: int = t_list2global[t]
         if t_idx < 0:
@@ -370,8 +377,6 @@ def p2p_stokes_comb_gm1d_P2P(
         trg.x = targets_list[0][t]
         trg.y = targets_list[1][t]
         trg.z = targets_list[2][t]
-        nz_t_cell: int = t // t_cell_size
-        t_cell: int = nz2t_cell_map[nz_t_cell]
         t_cell_x: int = t_cell // (cell_grid_area)
         t_cell_y: int = (t_cell % (cell_grid_area)) // num_cells_z
         t_cell_z: int = (t_cell % (cell_grid_area)) % num_cells_z
@@ -397,8 +402,10 @@ def p2p_stokes_comb_gm1d_P2P(
                 + source_cell.z
             )
             ns_cell: int = s_counter[s_cell]
+            if ns_cell == 0:
+                continue
             nz_s_cell: int = s2nz_cell_map[s_cell]
-            s_off: int = nz_s_cell * s_cell_size
+            s_off: int = s_cell_offsets[nz_s_cell]
             for s in range(s_off, s_off + ns_cell):
                 r: Real3d_fp64 = Real3d_fp64()
                 r.x = trg.x - (sources_list[0][s]) - source_cell.x_shift
@@ -461,15 +468,17 @@ def p2p_stokes_sl_gm1d_P2P(
     team_member: pk.TeamMember,
     t_cell_chunk_size: int,
     t_list2global: pk.View1D[int],
-    t_cell_size: int,
+    t_cell_offsets: pk.View1D[int],
+    t_team_cells: pk.View1D[int],
+    t_cell_teams: pk.View1D[int],
+    t_counter: pk.View1D[int],
     nz2t_cell_map: pk.View1D[int],
     num_cells_shape: List[int],
     dim_out: int,
-    nnz_t_cells: int,
     targets_list: pk.View2D[pk.double],
     s_counter: pk.View1D[int],
     s2nz_cell_map: pk.View1D[int],
-    s_cell_size: int,
+    s_cell_offsets: pk.View1D[int],
     rc_squared: pk.double,
     potentials: pk.View2D[pk.double],
     forces_list: pk.View2D[pk.double],
@@ -496,11 +505,16 @@ def p2p_stokes_sl_gm1d_P2P(
     c4: pk.double = 0.07407407407407407
     m_c1_C_term1: pk.double = c1 * C_term1
 
-    t_off: int = team_member.league_rank() * t_cell_chunk_size
+    team: int = team_member.league_rank()
+    nz_t_cell: int = t_team_cells[team]
+    t_cell_off: int = (team - t_cell_teams[nz_t_cell]) * t_cell_chunk_size
+    t_off: int = t_cell_offsets[nz_t_cell] + t_cell_off
+    t_cell: int = nz2t_cell_map[nz_t_cell]
+    nt_cell: int = t_counter[t_cell]
 
     def thread_loop(tid: int):
         t: int = t_off + tid
-        if t >= nnz_t_cells * t_cell_size:
+        if t_cell_off + tid >= nt_cell:
             return
         t_idx: int = t_list2global[t]
         if t_idx < 0:
@@ -509,8 +523,6 @@ def p2p_stokes_sl_gm1d_P2P(
         trg.x = targets_list[0][t]
         trg.y = targets_list[1][t]
         trg.z = targets_list[2][t]
-        nz_t_cell: int = t // t_cell_size
-        t_cell: int = nz2t_cell_map[nz_t_cell]
         t_cell_x: int = t_cell // (cell_grid_area)
         t_cell_y: int = (t_cell % (cell_grid_area)) // num_cells_z
         t_cell_z: int = (t_cell % (cell_grid_area)) % num_cells_z
@@ -536,8 +548,10 @@ def p2p_stokes_sl_gm1d_P2P(
                 + source_cell.z
             )
             ns_cell: int = s_counter[s_cell]
+            if ns_cell == 0:
+                continue
             nz_s_cell: int = s2nz_cell_map[s_cell]
-            s_off: int = nz_s_cell * s_cell_size
+            s_off: int = s_cell_offsets[nz_s_cell]
             for s in range(s_off, s_off + ns_cell):
                 r: Real3d_fp64 = Real3d_fp64()
                 r.x = trg.x - (sources_list[0][s]) - source_cell.x_shift
@@ -604,15 +618,17 @@ def p2p_laplace_gm1d_P2P(
     team_member: pk.TeamMember,
     t_cell_chunk_size: int,
     t_list2global: pk.View1D[int],
-    t_cell_size: int,
+    t_cell_offsets: pk.View1D[int],
+    t_team_cells: pk.View1D[int],
+    t_cell_teams: pk.View1D[int],
+    t_counter: pk.View1D[int],
     nz2t_cell_map: pk.View1D[int],
     num_cells_shape: List[int],
     dim_out: int,
-    nnz_t_cells: int,
     targets_list: pk.View2D[pk.double],
     s_counter: pk.View1D[int],
     s2nz_cell_map: pk.View1D[int],
-    s_cell_size: int,
+    s_cell_offsets: pk.View1D[int],
     rc_squared: pk.double,
     potentials: pk.View2D[pk.double],
     forces_list: pk.View2D[pk.double],
@@ -630,11 +646,16 @@ def p2p_laplace_gm1d_P2P(
     num_cells_z: int = num_cells_shape[2]
     cell_grid_area: int = num_cells_y * num_cells_z
 
-    t_off: int = team_member.league_rank() * t_cell_chunk_size
+    team: int = team_member.league_rank()
+    nz_t_cell: int = t_team_cells[team]
+    t_cell_off: int = (team - t_cell_teams[nz_t_cell]) * t_cell_chunk_size
+    t_off: int = t_cell_offsets[nz_t_cell] + t_cell_off
+    t_cell: int = nz2t_cell_map[nz_t_cell]
+    nt_cell: int = t_counter[t_cell]
 
     def thread_loop(tid: int):
         t: int = t_off + tid
-        if t >= nnz_t_cells * t_cell_size:
+        if t_cell_off + tid >= nt_cell:
             return
         t_idx: int = t_list2global[t]
         if t_idx < 0:
@@ -643,8 +664,6 @@ def p2p_laplace_gm1d_P2P(
         trg.x = targets_list[0][t]
         trg.y = targets_list[1][t]
         trg.z = targets_list[2][t]
-        nz_t_cell: int = t // t_cell_size
-        t_cell: int = nz2t_cell_map[nz_t_cell]
         t_cell_x: int = t_cell // (cell_grid_area)
         t_cell_y: int = (t_cell % (cell_grid_area)) // num_cells_z
         t_cell_z: int = (t_cell % (cell_grid_area)) % num_cells_z
@@ -670,8 +689,10 @@ def p2p_laplace_gm1d_P2P(
                 + source_cell.z
             )
             ns_cell: int = s_counter[s_cell]
+            if ns_cell == 0:
+                continue
             nz_s_cell: int = s2nz_cell_map[s_cell]
-            s_off: int = nz_s_cell * s_cell_size
+            s_off: int = s_cell_offsets[nz_s_cell]
             for s in range(s_off, s_off + ns_cell):
                 r: Real3d_fp64 = Real3d_fp64()
                 r.x = trg.x - (sources_list[0][s]) - source_cell.x_shift
@@ -700,15 +721,17 @@ def p2p_stokes_comb_gm2d_P2P(
     team_member: pk.TeamMember,
     t_cell_chunk_size: int,
     t_list2global: pk.View1D[int],
-    t_cell_size: int,
+    t_cell_offsets: pk.View1D[int],
+    t_team_cells: pk.View1D[int],
+    t_cell_teams: pk.View1D[int],
+    t_counter: pk.View1D[int],
     nz2t_cell_map: pk.View1D[int],
     num_cells_shape: List[int],
     dim_out: int,
-    nnz_t_cells: int,
     targets_list: pk.View2D[pk.double],
     s_counter: pk.View1D[int],
     s2nz_cell_map: pk.View1D[int],
-    s_cell_size: int,
+    s_cell_offsets: pk.View1D[int],
     rc_squared: pk.double,
     potentials: pk.View2D[pk.double],
     forces_list: pk.View2D[pk.double],
@@ -719,10 +742,7 @@ def p2p_stokes_comb_gm2d_P2P(
     xi: pk.double,
     xi_squared: pk.double,
     xi_two_inv_sqrt_pi: pk.double,
-    s_cell_threads: int,
     vector_size: int,
-    t_counter: pk.View1D[int],
-    t_cell_chunks: int,
     eps2: pk.double,
 ):
 
@@ -742,9 +762,10 @@ def p2p_stokes_comb_gm2d_P2P(
     m_c1_C_term1: pk.double = c1 * C_term1
     m_xi_squared_2: pk.double = xi_squared * 2
 
-    nz_t_cell: int = team_member.league_rank() // t_cell_chunks
-    t_cell_chunk: int = team_member.league_rank() % t_cell_chunks
-    t_off: int = nz_t_cell * t_cell_size + (t_cell_chunk * t_cell_chunk_size)
+    team: int = team_member.league_rank()
+    nz_t_cell: int = t_team_cells[team]
+    t_cell_off: int = (team - t_cell_teams[nz_t_cell]) * t_cell_chunk_size
+    t_off: int = t_cell_offsets[nz_t_cell] + t_cell_off
     t_cell: int = nz2t_cell_map[nz_t_cell]
     nt_cell: int = t_counter[t_cell]
     t_cell_x: int = t_cell // (cell_grid_area)
@@ -753,7 +774,7 @@ def p2p_stokes_comb_gm2d_P2P(
 
     def target_loop(ll: int):
         t: int = t_off + ll
-        if ll + (t_cell_chunk * t_cell_chunk_size) >= nt_cell:
+        if ll + t_cell_off >= nt_cell:
             return
         t_idx: int = t_list2global[t]
         if t_idx < 0:
@@ -788,15 +809,16 @@ def p2p_stokes_comb_gm2d_P2P(
                     + source_cell.z
                 )
                 ns_cell: int = s_counter[s_cell]
+                if ns_cell == 0:
+                    continue
                 nz_s_cell: int = s2nz_cell_map[s_cell]
-                s_off: int = nz_s_cell * s_cell_size
+                s_off: int = s_cell_offsets[nz_s_cell]
+                s_cell_threads: int = (ns_cell - 1) // vector_size + 1
                 for jj in range(s_cell_threads):
                     ii: int = jj + kk * s_cell_threads
-                    if ii >= s_cell_size:
+                    if ii >= ns_cell:
                         break
                     s: int = s_off + ii
-                    if s - (nz_s_cell * s_cell_size) >= ns_cell:
-                        break
                     r: Real3d_fp64 = Real3d_fp64()
                     r.x = trg.x - (sources_list[0][s]) - source_cell.x_shift
                     r.y = trg.y - (sources_list[1][s]) - source_cell.y_shift
@@ -889,15 +911,17 @@ def p2p_stokes_comb_sm1d_P2P(
     team_member: pk.TeamMember,
     t_cell_chunk_size: int,
     t_list2global: pk.View1D[int],
-    t_cell_size: int,
+    t_cell_offsets: pk.View1D[int],
+    t_team_cells: pk.View1D[int],
+    t_cell_teams: pk.View1D[int],
+    t_counter: pk.View1D[int],
     nz2t_cell_map: pk.View1D[int],
     num_cells_shape: List[int],
     dim_out: int,
-    nnz_t_cells: int,
     targets_list: pk.View2D[pk.double],
     s_counter: pk.View1D[int],
     s2nz_cell_map: pk.View1D[int],
-    s_cell_size: int,
+    s_cell_offsets: pk.View1D[int],
     rc_squared: pk.double,
     potentials: pk.View2D[pk.double],
     forces_list: pk.View2D[pk.double],
@@ -909,9 +933,6 @@ def p2p_stokes_comb_sm1d_P2P(
     xi_squared: pk.double,
     xi_two_inv_sqrt_pi: pk.double,
     s_cell_chunk_size: int,
-    s_cell_chunks: int,
-    t_cell_chunks: int,
-    t_counter: pk.View1D[int],
     eps2: pk.double,
 ):
     # kernel constants
@@ -930,9 +951,10 @@ def p2p_stokes_comb_sm1d_P2P(
     m_c1_C_term1: pk.double = c1 * C_term1
     m_xi_squared_2: pk.double = xi_squared * 2
 
-    nz_t_cell: int = team_member.league_rank() // t_cell_chunks
-    t_cell_chunk: int = team_member.league_rank() % t_cell_chunks
-    t_off: int = nz_t_cell * t_cell_size + (t_cell_chunk * t_cell_chunk_size)
+    team: int = team_member.league_rank()
+    nz_t_cell: int = t_team_cells[team]
+    t_cell_off: int = (team - t_cell_teams[nz_t_cell]) * t_cell_chunk_size
+    t_off: int = t_cell_offsets[nz_t_cell] + t_cell_off
     t_cell: int = nz2t_cell_map[nz_t_cell]
     nt_cell: int = t_counter[t_cell]
     t_cell_x: int = t_cell // (cell_grid_area)
@@ -960,7 +982,7 @@ def p2p_stokes_comb_sm1d_P2P(
     )
 
     def load_shmem_t(ii: int):
-        if ii + (t_cell_chunk * t_cell_chunk_size) >= nt_cell:
+        if ii + t_cell_off >= nt_cell:
             return
         t: int = t_off + ii
         t_idx: int = t_list2global[t]
@@ -974,7 +996,7 @@ def p2p_stokes_comb_sm1d_P2P(
 
     def load_shmem_s(ii: int):
         s: int = s_off + ii
-        if s - (nz_s_cell * s_cell_size) >= ns_cell:
+        if s - s_begin >= ns_cell:
             return
         for d in range(3):
             shmem_s[ii][d] = sources_list[d][s]
@@ -983,7 +1005,7 @@ def p2p_stokes_comb_sm1d_P2P(
             shmem_n[ii][d] = normals_list[d][s]
 
     def target_loop(jj: int):
-        if jj + (t_cell_chunk * t_cell_chunk_size) >= nt_cell:
+        if jj + t_cell_off >= nt_cell:
             return
         t_idx: int = shmem_idt[jj]
         if t_idx < 0:
@@ -998,7 +1020,7 @@ def p2p_stokes_comb_sm1d_P2P(
 
         for ii in range(s_cell_chunk_size):
             s: int = s_off + ii
-            if s - (nz_s_cell * s_cell_size) >= ns_cell:
+            if s - s_begin >= ns_cell:
                 continue
             r: Real3d_fp64 = Real3d_fp64()
             r.x = trg.x - (shmem_s[ii][0]) - source_cell.x_shift
@@ -1073,8 +1095,12 @@ def p2p_stokes_comb_sm1d_P2P(
             source_cell.x * cell_grid_area + source_cell.y * num_cells_z + source_cell.z
         )
         ns_cell: int = s_counter[s_cell]
+        if ns_cell == 0:
+            continue
         nz_s_cell: int = s2nz_cell_map[s_cell]
-        s_off: int = nz_s_cell * s_cell_size
+        s_begin: int = s_cell_offsets[nz_s_cell]
+        s_off: int = s_begin
+        s_cell_chunks: int = (ns_cell - 1) // s_cell_chunk_size + 1
         for _ in range(s_cell_chunks):
             pk.parallel_for(
                 pk.TeamThreadRange(team_member, s_cell_chunk_size),
@@ -1099,15 +1125,17 @@ def p2p_stokes_comb_sm2d_P2P(
     team_member: pk.TeamMember,
     t_cell_chunk_size: int,
     t_list2global: pk.View1D[int],
-    t_cell_size: int,
+    t_cell_offsets: pk.View1D[int],
+    t_team_cells: pk.View1D[int],
+    t_cell_teams: pk.View1D[int],
+    t_counter: pk.View1D[int],
     nz2t_cell_map: pk.View1D[int],
     num_cells_shape: List[int],
     dim_out: int,
-    nnz_t_cells: int,
     targets_list: pk.View2D[pk.double],
     s_counter: pk.View1D[int],
     s2nz_cell_map: pk.View1D[int],
-    s_cell_size: int,
+    s_cell_offsets: pk.View1D[int],
     rc_squared: pk.double,
     potentials: pk.View2D[pk.double],
     forces_list: pk.View2D[pk.double],
@@ -1119,9 +1147,6 @@ def p2p_stokes_comb_sm2d_P2P(
     xi_squared: pk.double,
     xi_two_inv_sqrt_pi: pk.double,
     s_cell_chunk_size: int,
-    s_cell_chunks: int,
-    t_cell_chunks: int,
-    t_counter: pk.View1D[int],
     s_cell_chunk_threads: int,
     t_cell_chunk_threads: int,
     vector_size: int,
@@ -1143,9 +1168,10 @@ def p2p_stokes_comb_sm2d_P2P(
     m_c1_C_term1: pk.double = c1 * C_term1
     m_xi_squared_2: pk.double = xi_squared * 2
 
-    nz_t_cell: int = team_member.league_rank() // t_cell_chunks
-    t_cell_chunk: int = team_member.league_rank() % t_cell_chunks
-    t_off: int = nz_t_cell * t_cell_size + (t_cell_chunk * t_cell_chunk_size)
+    team: int = team_member.league_rank()
+    nz_t_cell: int = t_team_cells[team]
+    t_cell_off: int = (team - t_cell_teams[nz_t_cell]) * t_cell_chunk_size
+    t_off: int = t_cell_offsets[nz_t_cell] + t_cell_off
     t_cell: int = nz2t_cell_map[nz_t_cell]
     nt_cell: int = t_counter[t_cell]
     t_cell_x: int = t_cell // (cell_grid_area)
@@ -1172,7 +1198,7 @@ def p2p_stokes_comb_sm2d_P2P(
     )
 
     # def load_shmem_t(ii: int):
-    #     if ii + (t_cell_chunk * t_cell_chunk_size) >= nt_cell:
+    #     if ii + t_cell_off >= nt_cell:
     #         return
     #     t: int = t_off + ii
     #     t_idx:int  = t_list2global[t]
@@ -1185,7 +1211,7 @@ def p2p_stokes_comb_sm2d_P2P(
     def load_shmem_t(kk: int):
         def vector_loop(jj: int):
             ii: int = jj + kk * vector_size
-            if ii + (t_cell_chunk * t_cell_chunk_size) >= nt_cell:
+            if ii + t_cell_off >= nt_cell:
                 return
             t: int = t_off + ii
             t_idx: int = t_list2global[t]
@@ -1205,6 +1231,8 @@ def p2p_stokes_comb_sm2d_P2P(
             if ii >= s_cell_chunk_size:
                 return
             s: int = s_off + ii
+            if s - s_begin >= ns_cell:
+                return
             for d in range(3):
                 shmem_s[ii][d] = sources_list[d][s]
                 shmem_sl[ii][d] = forces_list[d][s]
@@ -1214,7 +1242,7 @@ def p2p_stokes_comb_sm2d_P2P(
         pk.parallel_for(pk.ThreadVectorRange(team_member, vector_size), vector_loop)
 
     def target_loop(jj: int):
-        if jj + (t_cell_chunk * t_cell_chunk_size) >= nt_cell:
+        if jj + t_cell_off >= nt_cell:
             return
         t_idx: int = shmem_idt[jj]
         if t_idx < 0:
@@ -1229,7 +1257,7 @@ def p2p_stokes_comb_sm2d_P2P(
 
         def vector_loop(ii: int):
             s: int = s_off + ii
-            if s - (nz_s_cell * s_cell_size) >= ns_cell:
+            if s - s_begin >= ns_cell:
                 return
             r: Real3d_fp64 = Real3d_fp64()
             r.x = trg.x - (shmem_s[ii][0]) - source_cell.x_shift
@@ -1334,8 +1362,12 @@ def p2p_stokes_comb_sm2d_P2P(
             source_cell.x * cell_grid_area + source_cell.y * num_cells_z + source_cell.z
         )
         ns_cell: int = s_counter[s_cell]
+        if ns_cell == 0:
+            continue
         nz_s_cell: int = s2nz_cell_map[s_cell]
-        s_off: int = nz_s_cell * s_cell_size
+        s_begin: int = s_cell_offsets[nz_s_cell]
+        s_off: int = s_begin
+        s_cell_chunks: int = (ns_cell - 1) // s_cell_chunk_size + 1
         for _ in range(s_cell_chunks):
             pk.parallel_for(
                 pk.TeamThreadRange(team_member, s_cell_chunk_threads),

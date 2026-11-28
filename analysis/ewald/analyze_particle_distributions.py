@@ -1,18 +1,8 @@
 import os
 import argparse
 import numpy as np
-import pandas as pd
 import pickle
-import matplotlib.pyplot as plt
-from matplotlib.ticker import PercentFormatter
-from scipy.stats import gaussian_kde
-
-plt.rc("font", family="serif")
-
 import shutil
-
-if shutil.which("latex") is not None:
-    plt.rc("text", usetex=True)
 
 
 def sample_gaussian(box, c, n):
@@ -50,6 +40,12 @@ def sample_unit_sphere_surface(n):
 
 
 def plot_distribution():
+    import matplotlib.pyplot as plt
+    from scipy.stats import gaussian_kde
+
+    plt.rc("font", family="serif")
+    if shutil.which("latex") is not None:
+        plt.rc("text", usetex=True)
     n = 4_000
     label_size = 30
     tick_size = 18
@@ -119,8 +115,12 @@ def main(args):
     Main function. Takes `args` from the ArgumentParser at the bottom of this
     file.
     """
-    plot_distribution()
     data = load_times_from_disk(args, timestamp=args.timestamp)
+    if args.baseline_dir:
+        baseline = load_times_from_disk(args, input_dir=args.baseline_dir)
+        compare_layouts(baseline, data)
+        return
+    plot_distribution()
     distributions = data["times"].keys()
     stages = ["p2p", "p2g", "fft", "cnv", "ifft", "g2p", "total"]
     nindx = -1
@@ -168,12 +168,15 @@ def main(args):
 
         # Data rows
         for stage in stages:
-            label = stage
-            if stage == "total":
-                label = "p2p+fs_tot"
             row = f"{stage:<{col_width}} |"
             for dist in distributions:
-                time = data["times"][dist][label][1:].mean()
+                times = data["times"][dist]
+                if stage == "total" and stage not in times:
+                    time = sum(
+                        times[key][1:, nindx].mean() for key in stages if key != "total"
+                    )
+                else:
+                    time = times[stage][1:, nindx].mean()
                 pps = n / (time * 1e6)
                 row += f" {pps:>{col_width}.2f} |"
             string += row + "\n"
@@ -182,12 +185,58 @@ def main(args):
     print(string)
 
 
-def load_times_from_disk(args, timestamp="latest", version=1):
+def compare_layouts(baseline, candidate):
+    """Compare runs over identical inputs, discarding the first timed repeat."""
+    settings = ("device", "up", "cell_size", "tolerance", "seed", "threads_list")
+    if (
+        baseline["nt"] != candidate["nt"]
+        or baseline["repeats"] != candidate["repeats"]
+        or baseline["times"].keys() != candidate["times"].keys()
+        or any(
+            getattr(baseline["args"], name) != getattr(candidate["args"], name)
+            for name in settings
+        )
+    ):
+        raise ValueError(
+            "Baseline and candidate must use identical benchmark settings."
+        )
+
+    print("Cell list storage in MiB by stage (includes team maps where used).")
+    print("Speedup = baseline / candidate time, averaged after warm-up.")
+    print(
+        f"Storage measured with {candidate['args'].threads_list[0]} threads per team."
+    )
+    for i, n in enumerate(candidate["nt"]):
+        print(f"\nNt = {n:,}, Ns = {n * candidate['args'].up:,}")
+        print(
+            f"{'distribution':<21} {'stage':<5} {'baseline MiB':>12} "
+            f"{'variable MiB':>12} {'saved %':>8} "
+            f"{'baseline ms':>12} {'variable ms':>12} {'speedup':>8}"
+        )
+        for dist in candidate["times"]:
+            for stage in ("p2p", "p2g", "g2p", "total"):
+                t0 = baseline["times"][dist][stage][1:, i].mean()
+                t1 = candidate["times"][dist][stage][1:, i].mean()
+                m0 = baseline["memory"][dist][n]
+                m1 = candidate["memory"][dist][n]
+                if stage == "total":
+                    b0, b1 = max(m0.values()), max(m1.values())
+                else:
+                    b0, b1 = m0[stage], m1[stage]
+                print(
+                    f"{dist:<21} {stage:<5} {b0 / 2**20:12.2f} "
+                    f"{b1 / 2**20:12.2f} {100 * (1 - b1 / b0):8.2f} "
+                    f"{t0 * 1000:12.2f} {t1 * 1000:12.2f} {t0 / t1:8.3f}"
+                )
+    print("The total row uses peak cell list storage across the three stages.")
+
+
+def load_times_from_disk(args, timestamp="latest", version=1, input_dir=None):
     fname = (
         f"distributions_timing_result_up{args.up}_clsz{args.cell_size}_tol{args.tolerance}"
         f"_dev{args.device.upper()}_arch{args.arch}_v{version}_{timestamp}.pkl"
     )
-    fpath = os.path.join(args.input_dir, fname)
+    fpath = os.path.join(input_dir or args.input_dir, fname)
     try:
         with open(fpath, "rb") as f:
             data_dict = pickle.load(f)
@@ -217,6 +266,10 @@ if __name__ == "__main__":
         "--input-dir",
         default="analysis/ewald/data",
         help="input directory for timing results (default: analysis/ewald/data)",
+    )
+    parser.add_argument(
+        "--baseline-dir",
+        help="Compare with the latest fixed-layout run in this directory.",
     )
     parser.add_argument(
         "--device",
